@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { auth, ADMIN_UID } from '../services/firebase';
 import { UserProfile, UserPermissions, Settings } from '../types';
 import { initialSettingsState } from '../utils/constants';
 
@@ -29,19 +29,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        // Check privileges
+        const isTargetAdmin = currentUser.uid === ADMIN_UID;
+        const isAnonymous = currentUser.isAnonymous;
+        
+        // Grant Manager access to the specific Admin UID OR Anonymous users (for Demo purposes)
+        const isManager = isTargetAdmin || isAnonymous;
+
         // Set User Data
         setUserData({
             uid: currentUser.uid,
             email: currentUser.email,
-            displayName: currentUser.displayName || 'Demo User',
-            jobdesk: 'Manager'
+            displayName: currentUser.displayName || (isAnonymous ? 'Tamu (Demo)' : 'User'),
+            jobdesk: isManager ? 'Manager' : 'Staff'
         });
         
-        // Auto-grant 'Manager' access for Demo purposes
-        // In a real production app, you would fetch this from Firestore 'users' collection
         setUserPermissions({
-            role: 'Manager',
-            hasFinanceAccess: true
+            role: isManager ? 'Manager' : 'Guest',
+            hasFinanceAccess: isManager
         });
       } else {
         setUserData({ uid: '', email: '', displayName: '' });

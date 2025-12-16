@@ -18,7 +18,7 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const increment = firestoreIncrement;
 
-export const ADMIN_UID = "sa4QbuTtBSfmnNwDgefOtTaNYl83";
+export const ADMIN_UID = "1O2CzQEvsVOnBuDWqfbtQWHJ4RP2";
 export const JOBS_COLLECTION = "shared-bengkel-jobs";
 export const SETTINGS_COLLECTION = "bengkel-settings";
 export const USERS_COLLECTION = "users";
