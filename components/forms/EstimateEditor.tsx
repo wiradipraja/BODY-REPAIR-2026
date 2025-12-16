@@ -6,11 +6,12 @@ import { Plus, Trash2, Save, Calculator, AlertCircle } from 'lucide-react';
 interface EstimateEditorProps {
   job: Job;
   ppnPercentage: number;
+  insuranceOptions: { name: string; jasa: number; part: number }[]; // Added Prop
   onSave: (jobId: string, estimateData: EstimateData) => Promise<void>;
   onCancel: () => void;
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, onSave, onCancel }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel }) => {
   const [jasaItems, setJasaItems] = useState<EstimateItem[]>([]);
   const [partItems, setPartItems] = useState<EstimateItem[]>([]);
   const [discountJasa, setDiscountJasa] = useState(0);
@@ -24,13 +25,37 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, onS
 
   // Initialize data
   useEffect(() => {
-    if (job.estimateData) {
+    // Cek apakah sudah ada data estimasi tersimpan sebelumnya
+    const hasExistingData = job.estimateData && (
+        (job.estimateData.jasaItems && job.estimateData.jasaItems.length > 0) || 
+        (job.estimateData.partItems && job.estimateData.partItems.length > 0) ||
+        job.estimateData.grandTotal > 0
+    );
+
+    if (hasExistingData && job.estimateData) {
+      // LOAD EXISTING DATA (Jangan ditimpa otomatis)
       setJasaItems(job.estimateData.jasaItems || []);
       setPartItems(job.estimateData.partItems || []);
       setDiscountJasa(job.estimateData.discountJasa || 0);
       setDiscountPart(job.estimateData.discountPart || 0);
+    } else {
+      // NEW ESTIMATE: Auto-fill discounts from Insurance Master Data
+      // Cari data asuransi yang cocok dengan job.namaAsuransi
+      const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
+      
+      if (matchedInsurance) {
+          setDiscountJasa(matchedInsurance.jasa || 0);
+          setDiscountPart(matchedInsurance.part || 0);
+      } else {
+          setDiscountJasa(0);
+          setDiscountPart(0);
+      }
+      
+      // Reset items
+      setJasaItems([]);
+      setPartItems([]);
     }
-  }, [job]);
+  }, [job, insuranceOptions]);
 
   // Recalculate totals whenever items or discounts change
   useEffect(() => {
@@ -125,7 +150,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, onS
         </div>
         <div>
           <p className="text-gray-500">Asuransi</p>
-          <p className="font-bold text-gray-900">{job.namaAsuransi}</p>
+          <p className="font-bold text-indigo-700">{job.namaAsuransi}</p>
         </div>
       </div>
 
@@ -171,12 +196,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, onS
                 <span>Subtotal Jasa</span>
                 <span className="font-medium">{formatCurrency(totals.subtotalJasa)}</span>
              </div>
-             <div className="flex justify-between items-center text-sm">
-                <span>Diskon Jasa (%)</span>
+             <div className="flex justify-between items-center text-sm bg-blue-50 p-2 rounded">
+                <span className="text-blue-800 font-semibold">Diskon Jasa (%)</span>
                 <input 
                   type="number" 
                   min="0" max="100" 
-                  className="w-16 p-1 border rounded text-right text-xs"
+                  className="w-16 p-1 border border-blue-200 rounded text-right text-xs font-bold text-blue-800"
                   value={discountJasa}
                   onChange={e => setDiscountJasa(Number(e.target.value))}
                 />
@@ -243,12 +268,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, onS
                 <span>Subtotal Part</span>
                 <span className="font-medium">{formatCurrency(totals.subtotalPart)}</span>
              </div>
-             <div className="flex justify-between items-center text-sm">
-                <span>Diskon Part (%)</span>
+             <div className="flex justify-between items-center text-sm bg-orange-50 p-2 rounded">
+                <span className="text-orange-800 font-semibold">Diskon Part (%)</span>
                 <input 
                   type="number" 
                   min="0" max="100" 
-                  className="w-16 p-1 border rounded text-right text-xs"
+                  className="w-16 p-1 border border-orange-200 rounded text-right text-xs font-bold text-orange-800"
                   value={discountPart}
                   onChange={e => setDiscountPart(Number(e.target.value))}
                 />

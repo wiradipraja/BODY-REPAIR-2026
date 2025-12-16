@@ -284,6 +284,7 @@ const AppContent: React.FC = () => {
                 <EstimateEditor
                     job={modalState.data}
                     ppnPercentage={appSettings.ppnPercentage}
+                    insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                 />
@@ -293,6 +294,7 @@ const AppContent: React.FC = () => {
                 <EstimateEditor
                     job={modalState.data}
                     ppnPercentage={appSettings.ppnPercentage}
+                    insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                 />
