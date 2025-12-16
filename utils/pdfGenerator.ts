@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Job, EstimateData, Settings } from '../types';
 import { formatCurrency, formatDateIndo } from './helpers';
 
@@ -65,7 +65,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
     formatCurrency(item.price)
   ]);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [['No', 'Uraian Pekerjaan', 'Biaya (Rp)']],
     body: jasaRows,
@@ -94,7 +94,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
     formatCurrency((item.price || 0) * (item.qty || 1))
   ]);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [['No', 'No. Part', 'Nama Sparepart', 'Qty', 'Harga @', 'Total (Rp)']],
     body: partRows,
