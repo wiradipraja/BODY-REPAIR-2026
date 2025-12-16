@@ -101,6 +101,16 @@ export interface Job {
   photos?: Record<string, any[]>;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  category: string;
+  phone: string;
+  address: string;
+  picName: string;
+  createdAt: any;
+}
+
 export interface Settings {
   ppnPercentage: number;
   monthlyTarget: number;

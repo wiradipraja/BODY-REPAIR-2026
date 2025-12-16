@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -58,17 +58,31 @@ const Sidebar: React.FC<SidebarProps> = ({
           })}
         </nav>
 
-        <div className="p-4 border-t bg-gray-50">
-          <div className="flex items-center gap-3 mb-4 px-2">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
-              <User size={16}/>
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-sm font-medium text-gray-900 truncate">{userData.displayName || userData.email || 'User'}</p>
-              <p className="text-xs text-gray-500 truncate capitalize">{userPermissions.role}</p>
-            </div>
+        <div className="p-4 border-t bg-gray-50 space-y-3">
+          <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
+                  <User size={16}/>
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-sm font-medium text-gray-900 truncate max-w-[100px]">{userData.displayName || userData.email || 'User'}</p>
+                  <p className="text-xs text-gray-500 truncate capitalize">{userPermissions.role}</p>
+                </div>
+              </div>
+              
+              {/* SETTINGS BUTTON */}
+              {userPermissions.role === 'Manager' && (
+                  <button 
+                    onClick={() => { setCurrentView('settings'); setIsOpen(false); }}
+                    className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-200 text-indigo-800' : 'hover:bg-gray-200 text-gray-600'}`}
+                    title="Pengaturan Sistem"
+                  >
+                    <Settings size={18} />
+                  </button>
+              )}
           </div>
-          <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 transition w-full px-2">
+          
+          <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 transition w-full px-2 pt-2 border-t border-gray-200">
             <LogOut size={16}/> Logout
           </button>
         </div>

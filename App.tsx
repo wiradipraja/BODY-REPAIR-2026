@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useJobs } from './hooks/useJobs';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db, JOBS_COLLECTION } from './services/firebase';
-import { Job, EstimateData } from './types';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { db, JOBS_COLLECTION, SETTINGS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings } from './types';
+import { initialSettingsState } from './utils/constants';
 
 // Components
 import MainDashboard from './components/dashboard/MainDashboard';
@@ -14,15 +15,34 @@ import Modal from './components/ui/Modal';
 import JobForm from './components/forms/JobForm';
 import EstimationForm from './components/forms/EstimationForm';
 import EstimateEditor from './components/forms/EstimateEditor';
+import SettingsView from './components/settings/SettingsView';
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { user, userData, userPermissions, settings, loading: authLoading, logout } = useAuth();
+  const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
   const { jobs: allData, loading: jobsLoading, error: jobsError } = useJobs(user);
   
   // UI State
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // App-wide Settings State (Live update capability)
+  const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
+
+  // Sync settings from Context initially
+  useEffect(() => {
+    setAppSettings(defaultSettings);
+  }, [defaultSettings]);
+
+  // Function to refresh settings from DB manually
+  const refreshSettings = async () => {
+      try {
+          const q = await getDocs(collection(db, SETTINGS_COLLECTION));
+          if (!q.empty) {
+              setAppSettings(q.docs[0].data() as Settings);
+          }
+      } catch (e) { console.error("Failed to refresh settings", e); }
+  };
   
   // Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -170,7 +190,7 @@ const AppContent: React.FC = () => {
 
         {/* Views */}
         {currentView === 'overview' && (
-            <OverviewDashboard allJobs={allData} settings={settings} onNavigate={setCurrentView} />
+            <OverviewDashboard allJobs={allData} settings={appSettings} onNavigate={setCurrentView} />
         )}
         
         {currentView === 'input_data' && (
@@ -182,7 +202,7 @@ const AppContent: React.FC = () => {
                  
                  <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
                     <JobForm 
-                        settings={settings}
+                        settings={appSettings}
                         onSave={handleAddJob}
                         onCancel={() => setCurrentView('overview')}
                     />
@@ -213,7 +233,17 @@ const AppContent: React.FC = () => {
                     filterStatus={filterStatus} setFilterStatus={setFilterStatus}
                     filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus}
                     showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs}
-                    settings={settings}
+                    settings={appSettings}
+                />
+            </div>
+        )}
+
+        {currentView === 'settings' && (
+            <div className="max-w-5xl mx-auto">
+                <SettingsView 
+                    currentSettings={appSettings}
+                    refreshSettings={refreshSettings}
+                    showNotification={showNotification}
                 />
             </div>
         )}
@@ -243,7 +273,7 @@ const AppContent: React.FC = () => {
         >
             {modalState.type === 'edit_data' && (
                 <JobForm 
-                    settings={settings}
+                    settings={appSettings}
                     initialData={modalState.data}
                     onSave={handleUpdateJob}
                     onCancel={closeModal}
@@ -253,7 +283,7 @@ const AppContent: React.FC = () => {
             {modalState.type === 'create_estimation' && modalState.data && (
                 <EstimateEditor
                     job={modalState.data}
-                    ppnPercentage={settings.ppnPercentage}
+                    ppnPercentage={appSettings.ppnPercentage}
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                 />
@@ -262,7 +292,7 @@ const AppContent: React.FC = () => {
             {modalState.type === 'edit_job' && (
                 <EstimateEditor
                     job={modalState.data}
-                    ppnPercentage={settings.ppnPercentage}
+                    ppnPercentage={appSettings.ppnPercentage}
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                 />

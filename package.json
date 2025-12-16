@@ -14,7 +14,8 @@
     "react-dom": "^19.2.3",
     "firebase": "^12.6.0",
     "react-chartjs-2": "^5.3.1",
-    "chart.js": "^4.5.1"
+    "chart.js": "^4.5.1",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
