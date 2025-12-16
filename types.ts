@@ -31,6 +31,7 @@ export interface EstimateItem {
 }
 
 export interface EstimateData {
+  estimationNumber?: string; // New: Nomor Unik Estimasi (e.g. BE24110001)
   jasaItems: EstimateItem[];
   partItems: EstimateItem[];
   discountJasa: number;
@@ -57,17 +58,17 @@ export interface Job {
   customerProvinsi?: string;
 
   // Vehicle Info
-  carBrand?: string; // New
+  carBrand?: string;
   carModel: string;
   warnaMobil: string;
   nomorRangka?: string;
-  nomorMesin?: string; // New
-  tahunPembuatan?: string; // New
+  nomorMesin?: string;
+  tahunPembuatan?: string;
   
   // Insurance Info
   namaAsuransi: string;
-  nomorPolis?: string; // New
-  asuransiExpiryDate?: string; // New
+  nomorPolis?: string;
+  asuransiExpiryDate?: string;
 
   namaSA: string;
   

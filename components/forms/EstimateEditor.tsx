@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Job, EstimateItem, EstimateData } from '../../types';
+import { Job, EstimateItem, EstimateData, Settings } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
-import { Plus, Trash2, Save, Calculator, AlertCircle } from 'lucide-react';
+import { generateEstimationPDF } from '../../utils/pdfGenerator';
+import { Plus, Trash2, Save, Calculator, AlertCircle, Download } from 'lucide-react';
 
 interface EstimateEditorProps {
   job: Job;
   ppnPercentage: number;
-  insuranceOptions: { name: string; jasa: number; part: number }[]; // Added Prop
-  onSave: (jobId: string, estimateData: EstimateData) => Promise<void>;
+  insuranceOptions: { name: string; jasa: number; part: number }[];
+  onSave: (jobId: string, estimateData: EstimateData) => Promise<string>; // Returns the generated ID
   onCancel: () => void;
+  settings?: Settings; // Added settings for PDF header info
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings }) => {
   const [jasaItems, setJasaItems] = useState<EstimateItem[]>([]);
   const [partItems, setPartItems] = useState<EstimateItem[]>([]);
   const [discountJasa, setDiscountJasa] = useState(0);
   const [discountPart, setDiscountPart] = useState(0);
+  const [existingEstimationNumber, setExistingEstimationNumber] = useState<string | undefined>(undefined);
+  
   const [totals, setTotals] = useState({
     subtotalJasa: 0, subtotalPart: 0,
     discJasaRp: 0, discPartRp: 0,
@@ -33,14 +37,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     );
 
     if (hasExistingData && job.estimateData) {
-      // LOAD EXISTING DATA (Jangan ditimpa otomatis)
+      // LOAD EXISTING DATA
       setJasaItems(job.estimateData.jasaItems || []);
       setPartItems(job.estimateData.partItems || []);
       setDiscountJasa(job.estimateData.discountJasa || 0);
       setDiscountPart(job.estimateData.discountPart || 0);
+      setExistingEstimationNumber(job.estimateData.estimationNumber);
     } else {
       // NEW ESTIMATE: Auto-fill discounts from Insurance Master Data
-      // Cari data asuransi yang cocok dengan job.namaAsuransi
       const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
       
       if (matchedInsurance) {
@@ -51,7 +55,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           setDiscountPart(0);
       }
       
-      // Reset items
       setJasaItems([]);
       setPartItems([]);
     }
@@ -110,9 +113,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     else setPartItems(partItems.filter((_, i) => i !== index));
   };
 
-  const handleSave = async () => {
-    setIsSubmitting(true);
-    const data: EstimateData = {
+  const prepareEstimateData = (estimationNumber?: string): EstimateData => ({
       jasaItems,
       partItems,
       discountJasa,
@@ -122,14 +123,36 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       discountJasaAmount: totals.discJasaRp,
       discountPartAmount: totals.discPartRp,
       ppnAmount: totals.ppn,
-      grandTotal: totals.grandTotal
-    };
+      grandTotal: totals.grandTotal,
+      estimationNumber: estimationNumber || existingEstimationNumber
+  });
+
+  const handleSave = async () => {
+    setIsSubmitting(true);
+    const data = prepareEstimateData();
 
     try {
-      await onSave(job.id, data);
+      // Save and get the Generated ID back
+      const generatedId = await onSave(job.id, data);
+      
+      // Update local state with the new ID so PDF uses it
+      const finalData = prepareEstimateData(generatedId);
+      
+      // Download PDF Automatically
+      if (settings) {
+         generateEstimationPDF(job, finalData, settings);
+      }
+    } catch (error) {
+       console.error("Save failed", error);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleDownloadOnly = () => {
+      if (settings) {
+          generateEstimationPDF(job, prepareEstimateData(), settings);
+      }
   };
 
   return (
@@ -153,6 +176,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           <p className="font-bold text-indigo-700">{job.namaAsuransi}</p>
         </div>
       </div>
+      
+      {/* Show Estimation Number if exists */}
+      {existingEstimationNumber && (
+          <div className="bg-green-50 px-4 py-2 rounded border border-green-200 text-green-800 text-sm font-bold flex items-center justify-between">
+              <span>Nomor Estimasi: {existingEstimationNumber}</span>
+              <button onClick={handleDownloadOnly} className="flex items-center gap-1 text-green-700 hover:text-green-900 underline text-xs">
+                  <Download size={14}/> Download Ulang PDF
+              </button>
+          </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* KOLOM JASA PERBAIKAN */}
@@ -325,7 +358,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 shadow-lg font-bold"
         >
           {isSubmitting ? <span className="animate-spin">⏳</span> : <Save size={18} />}
-          Simpan Estimasi / WO
+          Simpan & Download PDF
         </button>
       </div>
     </div>

@@ -116,21 +116,56 @@ const AppContent: React.FC = () => {
       }
   };
 
-  const handleSaveEstimate = async (jobId: string, estimateData: EstimateData) => {
+  const handleSaveEstimate = async (jobId: string, estimateData: EstimateData): Promise<string> => {
       try {
+          let estimationNumber = estimateData.estimationNumber;
+
+          // JIKA BELUM ADA NOMOR ESTIMASI, GENERATE BARU
+          if (!estimationNumber) {
+              const now = new Date();
+              const year = now.getFullYear().toString().slice(-2); // 24
+              const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 12
+              const prefix = `BE${year}${month}`; // BE2412
+
+              // Cari nomor urut terakhir di database (Client side filtering for simplicity)
+              // Note: Untuk skala besar, gunakan Distributed Counter di Firestore
+              const existingNumbers = allData
+                  .map(j => j.estimateData?.estimationNumber)
+                  .filter(n => n && n.startsWith(prefix));
+
+              let maxSeq = 0;
+              existingNumbers.forEach(n => {
+                  if (n) {
+                      const seq = parseInt(n.substring(prefix.length)); // Ambil angka belakang (0001)
+                      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                  }
+              });
+
+              const newSeq = (maxSeq + 1).toString().padStart(4, '0');
+              estimationNumber = `${prefix}${newSeq}`; // BE24120001
+          }
+
+          const updatedEstimateData = {
+              ...estimateData,
+              estimationNumber: estimationNumber
+          };
+
           const jobRef = doc(db, JOBS_COLLECTION, jobId);
           await updateDoc(jobRef, {
-              estimateData: estimateData,
-              hargaJasa: estimateData.subtotalJasa,
-              hargaPart: estimateData.subtotalPart,
+              estimateData: updatedEstimateData,
+              hargaJasa: updatedEstimateData.subtotalJasa,
+              hargaPart: updatedEstimateData.subtotalPart,
           });
           
-          showNotification("Estimasi berhasil disimpan", "success");
+          showNotification(`Estimasi ${estimationNumber} berhasil disimpan`, "success");
           closeModal();
           setCurrentView('entry_data');
+
+          return estimationNumber;
       } catch (e) {
           showNotification("Gagal menyimpan estimasi", "error");
           console.error(e);
+          throw e;
       }
   };
 
@@ -287,6 +322,7 @@ const AppContent: React.FC = () => {
                     insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
+                    settings={appSettings} // Pass settings for PDF
                 />
             )}
 
@@ -297,6 +333,7 @@ const AppContent: React.FC = () => {
                     insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
+                    settings={appSettings} // Pass settings for PDF
                 />
             )}
         </Modal>
