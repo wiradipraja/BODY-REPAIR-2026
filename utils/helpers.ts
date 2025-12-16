@@ -3,6 +3,11 @@ import { Timestamp } from "firebase/firestore";
 export const formatCurrency = (number: number | undefined) => 
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
 
+// Format Plat Nomor (Tanpa Spasi, Uppercase)
+export const formatPoliceNumber = (value: string) => {
+    return value.replace(/\s/g, '').toUpperCase();
+};
+
 // Untuk input type="date" value (Format HTML standar harus YYYY-MM-DD)
 export const toYyyyMmDd = (date: any): string => {
     if (!date) return '';

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
-import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
+import { formatDateIndo, exportToCsv, formatCurrency, formatPoliceNumber } from '../../utils/helpers';
 import { Search, Filter, Download, Calendar, Trash2, Edit, FileText } from 'lucide-react';
 
 interface MainDashboardProps {
@@ -133,7 +133,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                             type="text" 
                             placeholder="Cari No. Polisi, Pelanggan..." 
                             value={searchQuery} 
-                            onChange={e => setSearchQuery(e.target.value)} 
+                            onChange={e => setSearchQuery(e.target.value.toUpperCase())} 
                             className="pl-10 p-2.5 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                         />
                     </div>

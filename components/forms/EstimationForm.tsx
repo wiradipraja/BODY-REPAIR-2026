@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Job } from '../../types';
 import { Search, CheckCircle, AlertCircle, FileText, User, Car } from 'lucide-react';
+import { formatPoliceNumber } from '../../utils/helpers';
 
 interface EstimationFormProps {
   allJobs: Job[];
@@ -19,12 +20,15 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
 
   // Logic Pencarian Otomatis
   const handleSearchChange = (field: keyof typeof searchParams, value: string) => {
+    // Terapkan format tanpa spasi untuk nomor polisi
+    const processedValue = field === 'policeNumber' ? formatPoliceNumber(value) : value;
+    
     // Update input state
-    const newParams = { ...searchParams, [field]: value };
+    const newParams = { ...searchParams, [field]: processedValue };
     setSearchParams(newParams);
 
     // Reset selected job jika input kosong
-    if (!value) {
+    if (!processedValue) {
         if (!newParams.policeNumber && !newParams.nomorRangka && !newParams.nomorMesin) {
             setSelectedJob(null);
         }
@@ -34,7 +38,7 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
     // Cari match di database (case insensitive)
     const match = allJobs.find(job => {
         const dbValue = job[field as keyof Job];
-        return dbValue && String(dbValue).toLowerCase() === value.toLowerCase();
+        return dbValue && String(dbValue).toUpperCase() === processedValue.toUpperCase();
     });
 
     if (match) {
@@ -50,7 +54,7 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
         // kecuali user secara eksplisit menghapus field kunci yang tadi match.
         if (selectedJob) {
              const dbValue = selectedJob[field as keyof Job];
-             if (dbValue && String(dbValue).toLowerCase() !== value.toLowerCase()) {
+             if (dbValue && String(dbValue).toUpperCase() !== processedValue.toUpperCase()) {
                  setSelectedJob(null); // Data berubah dan tidak match lagi
              }
         }
@@ -89,7 +93,7 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
                         type="text" 
                         value={searchParams.policeNumber}
                         onChange={(e) => handleSearchChange('policeNumber', e.target.value)}
-                        placeholder="Contoh: B 1234 ABC"
+                        placeholder="Contoh: B1234ABC"
                         className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 uppercase font-bold transition-colors ${selectedJob ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-gray-300'}`}
                     />
                     {selectedJob && <CheckCircle size={18} className="absolute right-3 top-3 text-green-600" />}

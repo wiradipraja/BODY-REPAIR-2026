@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Job, Settings } from '../../types';
 import { carBrands, mazdaColors } from '../../utils/constants';
+import { formatPoliceNumber } from '../../utils/helpers';
 import { Save, Loader2, User, Car, Shield } from 'lucide-react';
 
 interface JobFormProps {
@@ -54,9 +55,19 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
+    
+    let processedValue: string | number = value;
+
+    // Khusus Nomor Polisi: Hapus Spasi & Uppercase
+    if (name === 'policeNumber') {
+        processedValue = formatPoliceNumber(value);
+    } else if (type === 'number') {
+        processedValue = Number(value);
+    }
+
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'number' ? Number(value) : value
+      [name]: processedValue
     }));
   };
 
@@ -178,13 +189,13 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">No. Polisi *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">No. Polisi * (Tanpa Spasi)</label>
                 <input 
                 type="text" 
                 name="policeNumber"
                 value={formData.policeNumber}
                 onChange={handleChange}
-                placeholder="B 1234 XXX"
+                placeholder="B1234XXX"
                 className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 uppercase font-bold tracking-wide"
                 required
                 />
