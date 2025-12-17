@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useJobs } from './hooks/useJobs';
@@ -20,23 +21,19 @@ import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
 import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
 import PurchaseOrderView from './components/inventory/PurchaseOrderView'; 
-import PartMonitoringView from './components/inventory/PartMonitoringView'; // NEW IMPORT
+import PartMonitoringView from './components/inventory/PartMonitoringView'; 
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
   const { jobs: allData, loading: jobsLoading, error: jobsError } = useJobs(user);
   
-  // UI State
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  
-  // Data State
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
 
-  // Function to refresh settings from DB manually
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -46,7 +43,6 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error("Failed to refresh settings", e); }
   };
 
-  // Function to fetch inventory for dropdowns
   const refreshInventory = async () => {
       try {
           const q = await getDocs(collection(db, SPAREPART_COLLECTION));
@@ -55,7 +51,6 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error("Failed to load inventory", e); }
   };
 
-  // Function to fetch suppliers
   const refreshSuppliers = async () => {
       try {
           const q = await getDocs(collection(db, SUPPLIERS_COLLECTION));
@@ -72,23 +67,18 @@ const AppContent: React.FC = () => {
     }
   }, [user]);
   
-  // Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterWorkStatus, setFilterWorkStatus] = useState('');
   const [showClosedJobs, setShowClosedJobs] = useState(false);
-
-  // Notification
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
-  // Modal State
   const [modalState, setModalState] = useState<{
       isOpen: boolean;
       type: 'add_job' | 'edit_data' | 'edit_job' | 'create_estimation' | null;
       data: any | null;
   }>({ isOpen: false, type: null, data: null });
 
-  // Helpers
   const showNotification = (message: string, type = 'success') => {
       setNotification({ show: true, message, type });
       setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
@@ -97,12 +87,10 @@ const AppContent: React.FC = () => {
   const openModal = (type: any, data: any = null) => setModalState({ isOpen: true, type, data });
   const closeModal = () => setModalState({ isOpen: false, type: null, data: null });
 
-  // Handlers
   const handleSaveJob = async (formData: Partial<Job>) => {
       try {
           if (formData.id) {
               const jobRef = doc(db, JOBS_COLLECTION, formData.id);
-              // Recursively clean undefined values
               const cleaned = cleanObject(formData);
               await updateDoc(jobRef, cleaned);
               showNotification("Data berhasil diperbarui", "success");
@@ -116,63 +104,50 @@ const AppContent: React.FC = () => {
               };
               if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
               await addDoc(collection(db, JOBS_COLLECTION), cleanObject(newJob));
-              showNotification("Data Unit tersimpan. Silakan lanjut ke menu Estimasi untuk memproses.", "success");
+              showNotification("Data Unit tersimpan.", "success");
           }
           closeModal();
       } catch (e) { 
           console.error(e);
-          showNotification("Gagal menyimpan data. Periksa izin database.", "error"); 
+          showNotification("Gagal menyimpan data.", "error"); 
       }
   };
 
-  // Handle Create New Transaction directly from Estimation Page
-  const handleCreateTransaction = async (vehicleData: Partial<Job>) => {
-      try {
-          // 1. Create a new Job Document immediately
-          const newJobPayload: any = {
-              ...vehicleData,
-              statusKendaraan: 'Booking Masuk', 
-              statusPekerjaan: 'Belum Mulai Perbaikan',
-              posisiKendaraan: 'Di Bengkel',
-              tanggalMasuk: new Date().toISOString().split('T')[0],
-              createdAt: serverTimestamp(),
-              isClosed: false,
-              costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
-              estimateData: { grandTotal: 0, jasaItems: [], partItems: [] }
-          };
-
-          const docRef = await addDoc(collection(db, JOBS_COLLECTION), cleanObject(newJobPayload));
-          
-          const newJobData = { id: docRef.id, ...newJobPayload };
-          
-          showNotification("Transaksi Baru Dibuat. Silakan input estimasi.", "success");
-          openModal('create_estimation', newJobData);
-
-      } catch (e) {
-          console.error(e);
-          showNotification("Gagal membuat transaksi baru", "error");
-      }
+  // MODIFIKASI: Tidak lagi melakukan addDoc di sini
+  const handleCreateTransaction = (vehicleData: Partial<Job>) => {
+      // Kita buat objek "Draft" yang belum punya ID Firestore
+      // Kita tandai dengan flag isNewTransaction agar handleSaveEstimate tahu harus pakai addDoc
+      const newJobDraft = {
+          ...vehicleData,
+          id: `TEMP_${Date.now()}`, // Temporary ID untuk UI
+          isNewTransaction: true,
+          statusKendaraan: 'Booking Masuk',
+          statusPekerjaan: 'Belum Mulai Perbaikan',
+          posisiKendaraan: 'Di Bengkel',
+          tanggalMasuk: new Date().toISOString().split('T')[0],
+          isClosed: false,
+          costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
+          estimateData: { grandTotal: 0, jasaItems: [], partItems: [] }
+      };
+      
+      openModal('create_estimation', newJobDraft);
   };
 
   const handleDeleteJob = async (job: Job) => {
-      // SOFT DELETE WITH REASON
-      const reason = window.prompt("⚠️ PENTING: Anda akan menghapus data ini.\n\nMohon masukkan alasan penghapusan untuk keperluan audit:", "Salah input");
-      
-      if (reason === null) return; // Cancelled
+      const reason = window.prompt("⚠️ PENTING: Anda akan menghapus data ini.\n\nMohon masukkan alasan penghapusan:", "Salah input");
+      if (reason === null) return;
       if (!reason.trim()) {
           showNotification("Alasan wajib diisi!", "error");
           return;
       }
-
       try {
-          // Perform Soft Delete
           await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
               isDeleted: true,
               deletedReason: reason,
               deletedAt: serverTimestamp(),
               deletedBy: userData.displayName || 'User'
           });
-          showNotification("Data berhasil dihapus (Soft Delete)", "success");
+          showNotification("Data berhasil dihapus", "success");
       } catch (e) {
           console.error(e);
           showNotification("Gagal menghapus data", "error");
@@ -182,136 +157,116 @@ const AppContent: React.FC = () => {
   const handleCloseJob = async (job: Job) => {
       const costs = job.costData || { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };
       const hasExpenses = (costs.hargaModalBahan || 0) > 0 || (costs.hargaBeliPart || 0) > 0 || (costs.jasaExternal || 0) > 0;
-
       if (!hasExpenses) {
-          const confirmNoExpense = window.confirm(
-              `PERINGATAN PENTING!\n\n` +
-              `WO ${job.woNumber || job.policeNumber} belum memiliki pembebanan biaya.\n` +
-              `Apakah Anda yakin ingin tetap menutup WO ini?`
-          );
-          if (!confirmNoExpense) return;
+          if (!window.confirm("WO belum memiliki pembebanan biaya. Tetap tutup?")) return;
       } else {
           if (!window.confirm(`Konfirmasi Close WO ${job.woNumber || job.policeNumber}?`)) return;
       }
-
       try {
-          const jobRef = doc(db, JOBS_COLLECTION, job.id);
-          await updateDoc(jobRef, {
+          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
               isClosed: true,
               statusPekerjaan: 'Selesai',
               statusKendaraan: 'Selesai',
               closedAt: serverTimestamp()
           });
-          showNotification("Work Order Berhasil Ditutup (Closed)", "success");
+          showNotification("Work Order Ditutup", "success");
       } catch (e) {
-          console.error(e);
           showNotification("Gagal menutup WO", "error");
       }
   };
 
-  // Re-Open WO Logic with Reason
   const handleReopenJob = async (job: Job) => {
       if (!userPermissions.role.includes('Manager')) {
-          showNotification("Akses ditolak. Hanya Manager yang bisa membuka kembali WO.", "error");
+          showNotification("Akses ditolak.", "error");
           return;
       }
-
-      const reason = window.prompt("⚠️ RE-OPEN WO\n\nMasukkan alasan membuka kembali WO ini (akan tercatat di audit):", "Revisi Tagihan");
-      if (reason === null) return;
-      if (!reason.trim()) {
-          showNotification("Alasan wajib diisi!", "error");
-          return;
-      }
-
+      const reason = window.prompt("⚠️ RE-OPEN WO\n\nMasukkan alasan:", "Revisi Tagihan");
+      if (reason === null || !reason.trim()) return;
       try {
-          const jobRef = doc(db, JOBS_COLLECTION, job.id);
-          await updateDoc(jobRef, {
+          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
               isClosed: false,
               closedAt: null,
               reopenReason: reason,
-              statusPekerjaan: 'Finishing', // Set to a safe active status
+              statusPekerjaan: 'Finishing',
               statusKendaraan: 'Work In Progress'
           });
-          showNotification("WO Berhasil Dibuka Kembali", "success");
+          showNotification("WO Dibuka Kembali", "success");
       } catch (e) {
-          console.error(e);
           showNotification("Gagal membuka WO", "error");
       }
   };
 
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
-          const jobRef = doc(db, JOBS_COLLECTION, jobId);
-          const currentJob = allData.find(j => j.id === jobId);
+          const currentJob = allData.find(j => j.id === jobId) || modalState.data;
+          const isNew = jobId.startsWith('TEMP_') || !allData.some(j => j.id === jobId);
           
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
-
           const now = new Date();
           const year = now.getFullYear().toString().slice(-2); 
           const month = (now.getMonth() + 1).toString().padStart(2, '0'); 
 
-          // 1. Generate Estimation Number
+          // 1. Generate Numbers
           if (!estimationNumber) {
               const prefix = `BE${year}${month}`; 
-              const existingNumbers = allData.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
+              const existing = allData.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
-              existingNumbers.forEach(n => {
-                  if (n) {
-                      const seq = parseInt(n.substring(prefix.length)); 
-                      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-                  }
+              existing.forEach(n => {
+                  const seq = parseInt(n!.substring(prefix.length)); 
+                  if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
               });
               estimationNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
-          // 2. Generate WO Number
           if (saveType === 'wo' && !woNumber) {
               const prefix = `WO${year}${month}`; 
-              const existingNumbers = allData.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
+              const existing = allData.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
-              existingNumbers.forEach(n => {
-                  if (n) {
-                      const seq = parseInt(n.substring(prefix.length)); 
-                      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-                  }
+              existing.forEach(n => {
+                  const seq = parseInt(n!.substring(prefix.length)); 
+                  if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
               });
               woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
-          const updatedEstimateData = {
-              ...estimateData,
-              estimationNumber: estimationNumber
-          };
+          const updatedEstimateData = { ...estimateData, estimationNumber };
 
-          const updatePayload: any = {
+          // 2. Prepare Payload
+          const basePayload = {
+              ...currentJob,
               estimateData: updatedEstimateData,
               hargaJasa: updatedEstimateData.subtotalJasa,
               hargaPart: updatedEstimateData.subtotalPart,
+              namaSA: updatedEstimateData.estimatorName || userData.displayName
           };
-          
+          delete basePayload.id; // Jangan simpan ID di field
+          delete basePayload.isNewTransaction;
+
           if (woNumber) {
-              updatePayload.woNumber = woNumber;
-              updatePayload.statusKendaraan = 'Work In Progress';
-              updatePayload.statusPekerjaan = 'Belum Mulai Perbaikan';
+              basePayload.woNumber = woNumber;
+              basePayload.statusKendaraan = 'Work In Progress';
+              basePayload.statusPekerjaan = 'Belum Mulai Perbaikan';
           }
 
-          if (currentJob && (currentJob.namaSA === 'Pending Allocation' || !currentJob.namaSA)) {
-             updatePayload.namaSA = updatedEstimateData.estimatorName || userData.displayName;
+          // 3. Save to Firestore
+          let finalId = jobId;
+          if (isNew) {
+              // CREATE NEW DOCUMENT
+              const docRef = await addDoc(collection(db, JOBS_COLLECTION), cleanObject({
+                  ...basePayload,
+                  createdAt: serverTimestamp(),
+                  isClosed: false
+              }));
+              finalId = docRef.id;
+          } else {
+              // UPDATE EXISTING DOCUMENT
+              await updateDoc(doc(db, JOBS_COLLECTION, jobId), cleanObject(basePayload));
           }
-
-          // Clean payload of any undefined values
-          await updateDoc(jobRef, cleanObject(updatePayload));
           
-          const successMsg = saveType === 'wo' 
-             ? `Work Order ${woNumber} berhasil diterbitkan!` 
-             : `Estimasi ${estimationNumber} berhasil disimpan`;
-          
-          showNotification(successMsg, "success");
+          showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi Tersimpan`, "success");
           closeModal();
-          
           if(currentView !== 'estimation') setCurrentView('entry_data');
-
           return saveType === 'wo' ? woNumber! : estimationNumber!;
       } catch (e) {
           showNotification("Gagal menyimpan data", "error");
@@ -321,16 +276,13 @@ const AppContent: React.FC = () => {
   };
 
   const filteredJobs = useMemo(() => {
-      // Logic filter: Hanya tampilkan yang sudah punya nomor estimasi ATAU memiliki item jasa/part
       let jobs = allData.filter(job => {
           const hasEstNumber = job.estimateData?.estimationNumber;
           const hasJasa = job.estimateData?.jasaItems && job.estimateData.jasaItems.length > 0;
           const hasParts = job.estimateData?.partItems && job.estimateData.partItems.length > 0;
           const hasWONumber = !!job.woNumber;
-          
           return hasEstNumber || hasJasa || hasParts || hasWONumber;
       });
-
       if (!showClosedJobs) jobs = jobs.filter(job => !job.isClosed);
       if (searchQuery) jobs = jobs.filter(job => job.policeNumber && job.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()));
       if (filterStatus) jobs = jobs.filter(job => job.statusKendaraan === filterStatus);
@@ -384,16 +336,10 @@ const AppContent: React.FC = () => {
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
                  <div>
                     <h1 className="text-3xl font-bold text-gray-900">Input Data Unit</h1>
-                    <p className="text-gray-500 mt-1">Isi formulir lengkap untuk mendaftarkan kendaraan masuk, atau edit data lama.</p>
+                    <p className="text-gray-500 mt-1">Daftarkan kendaraan masuk.</p>
                  </div>
-                 
                  <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
-                    <JobForm 
-                        settings={appSettings}
-                        onSave={handleSaveJob}
-                        onCancel={() => setCurrentView('overview')}
-                        allJobs={allData} 
-                    />
+                    <JobForm settings={appSettings} onSave={handleSaveJob} onCancel={() => setCurrentView('overview')} allJobs={allData} />
                  </div>
              </div>
         )}
@@ -417,7 +363,7 @@ const AppContent: React.FC = () => {
                     openModal={openModal}
                     onDelete={handleDeleteJob}
                     onCloseJob={handleCloseJob} 
-                    onReopenJob={handleReopenJob} // NEW PROP
+                    onReopenJob={handleReopenJob}
                     userPermissions={userPermissions}
                     showNotification={showNotification}
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
@@ -429,66 +375,15 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {currentView === 'inventory' && (
-             <InventoryView 
-                userPermissions={userPermissions}
-                showNotification={showNotification}
-             />
-        )}
-
-        {/* PART MONITORING (NEW) */}
-        {currentView === 'part_monitoring' && (
-            <PartMonitoringView
-                jobs={allData}
-                inventoryItems={inventoryItems}
-            />
-        )}
-
-        {/* PURCHASE ORDER (NEW) */}
-        {currentView === 'purchase_order' && (
-            <PurchaseOrderView
-                suppliers={suppliers}
-                inventoryItems={inventoryItems}
-                userPermissions={userPermissions}
-                showNotification={showNotification}
-                onRefreshInventory={refreshInventory}
-            />
-        )}
-
-        {/* PEMBEBANAN PART (SYNC WITH ESTIMATE) */}
-        {currentView === 'part_issuance' && (
-            <MaterialIssuanceView 
-                activeJobs={allData.filter(j => j.woNumber)} // Allow Closed Jobs to be seen for history, but actions blocked
-                inventoryItems={inventoryItems}
-                suppliers={suppliers} 
-                userPermissions={userPermissions}
-                showNotification={showNotification}
-                onRefreshData={refreshInventory}
-                issuanceType="sparepart"
-            />
-        )}
-
-        {/* PEMBEBANAN BAHAN (AD HOC) */}
-        {currentView === 'material_issuance' && (
-            <MaterialIssuanceView 
-                activeJobs={allData.filter(j => j.woNumber)} 
-                inventoryItems={inventoryItems}
-                suppliers={suppliers}
-                userPermissions={userPermissions}
-                showNotification={showNotification}
-                onRefreshData={refreshInventory}
-                issuanceType="material"
-            />
-        )}
+        {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'part_monitoring' && <PartMonitoringView jobs={allData} inventoryItems={inventoryItems} />}
+        {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} userPermissions={userPermissions} showNotification={showNotification} onRefreshInventory={refreshInventory} />}
+        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={allData.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="sparepart" />}
+        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={allData.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="material" />}
 
         {currentView === 'settings' && (
             <div className="max-w-5xl mx-auto">
-                <SettingsView 
-                    currentSettings={appSettings}
-                    refreshSettings={refreshSettings}
-                    showNotification={showNotification}
-                    userPermissions={userPermissions}
-                />
+                <SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} />
             </div>
         )}
 
@@ -499,41 +394,14 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* Global Modal */}
         <Modal 
             isOpen={modalState.isOpen} 
             onClose={closeModal} 
-            title={
-                modalState.type === 'edit_data' ? 'Edit Data Kendaraan' : 
-                modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' :
-                'Detail Pekerjaan'
-            }
-            maxWidth={
-                modalState.type === 'edit_job' || modalState.type === 'create_estimation' 
-                ? 'max-w-7xl' 
-                : 'max-w-3xl'
-            }
+            title={modalState.type === 'edit_data' ? 'Edit Data Kendaraan' : modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Detail Pekerjaan'}
+            maxWidth={modalState.type === 'edit_job' || modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'}
         >
-            {modalState.type === 'edit_data' && (
-                <JobForm 
-                    settings={appSettings}
-                    initialData={modalState.data}
-                    onSave={handleSaveJob}
-                    onCancel={closeModal}
-                    allJobs={allData} 
-                />
-            )}
-            
-            {modalState.type === 'add_job' && (
-                 <JobForm 
-                    settings={appSettings}
-                    initialData={modalState.data} 
-                    onSave={handleSaveJob}
-                    onCancel={closeModal}
-                    allJobs={allData}
-                />
-            )}
-            
+            {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveJob} onCancel={closeModal} allJobs={allData} />}
+            {modalState.type === 'add_job' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveJob} onCancel={closeModal} allJobs={allData} />}
             {modalState.type === 'create_estimation' && modalState.data && (
                 <EstimateEditor
                     job={modalState.data}
