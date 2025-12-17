@@ -93,14 +93,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   }, [selectedPO]);
 
-  // Handler for checkbox selection in detail view
   const toggleItemSelection = (idx: number) => {
     setSelectedItemsToReceive(prev => 
       prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
     );
   };
 
-  // --- HANDLER FOR PDF PRINTING ---
   const handlePrintPO = (po: PurchaseOrder) => {
     if (!po) return;
     try {
@@ -111,8 +109,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         showNotification("Gagal mencetak PDF. Cek console.", "error");
     }
   };
-
-  // --- HANDLERS FOR APPROVAL ---
 
   const handleApprovePO = async () => {
       if (!selectedPO) return;
@@ -169,8 +165,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
-  // --- HANDLERS FOR WO IMPORT ---
-  
   const handleSearchWO = async () => {
       if (!woSearchTerm) return;
       setLoading(true);
@@ -190,7 +184,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           if (!snapshot.empty) {
               const allMatchingDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
-              
               allMatchingDocs.sort((a, b) => {
                   const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
                   const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
@@ -200,7 +193,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               const jobWithParts = allMatchingDocs.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
               
               if (!jobWithParts) {
-                  showNotification(`Unit ${termUpper} ditemukan, tapi estimasi part masih kosong di database. Pastikan SA sudah klik "Update Estimasi".`, "error");
+                  showNotification(`Unit ditemukan, tapi estimasi part masih kosong.`, "error");
                   return;
               }
 
@@ -210,13 +203,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
               });
               setSelectedPartsFromWo(initialSelection);
-              showNotification(`Ditemukan ${jobWithParts.estimateData!.partItems.length} item part dari estimasi SA.`, "success");
           } else {
-              showNotification("No. WO atau No. Polisi tidak ditemukan di sistem.", "error");
+              showNotification("No. WO atau No. Polisi tidak ditemukan.", "error");
           }
       } catch (e: any) {
-          console.error("Search Error:", e);
-          showNotification("Gagal mencari: " + e.message, "error");
+          showNotification("Gagal mencari data WO.", "error");
       } finally {
           setLoading(false);
       }
@@ -231,7 +222,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const handleImportPartsToPO = () => {
       if (!foundJob || !foundJob.estimateData) return;
-
       const itemsToAdd: PurchaseOrderItem[] = [];
       const parts = foundJob.estimateData.partItems || [];
       
@@ -246,9 +236,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || 'NON-PART-NO',
-                  name: estItem.name || 'Nama Part Belum Diisi',
-                  brand: invItem?.brand || foundJob.carBrand || '',
-                  category: 'sparepart', // Default to sparepart for WO parts
+                  name: estItem.name || 'Tanpa Nama',
+                  brand: invItem?.brand || foundJob.carBrand || 'Genuine',
+                  category: 'sparepart', 
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
@@ -272,17 +262,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           ...prev,
           items: [...(prev.items || []), ...itemsToAdd]
       }));
-      
-      if (!poForm.notes) {
-          setPoForm(prev => ({ ...prev, notes: `PO WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
-      }
+      if (!poForm.notes) setPoForm(prev => ({ ...prev, notes: `PO WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
 
-      showNotification(`${itemsToAdd.length} item berhasil masuk ke Draft PO.`, "success");
+      showNotification(`${itemsToAdd.length} item masuk ke Draft PO.`, "success");
       setFoundJob(null);
       setWoSearchTerm('');
   };
-
-  // --- HANDLERS FOR CREATE ---
 
   const handleAddItem = () => {
       setPoForm(prev => ({
@@ -369,7 +354,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       setLoading(true);
       try {
           await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
-          
           for (const item of sanitizedItems) {
               if (item.refJobId && item.refPartIndex !== null) {
                   const jobRef = doc(db, JOBS_COLLECTION, item.refJobId);
@@ -383,13 +367,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   }
               }
           }
-
           showNotification(`PO ${poNumber} Berhasil Diterbitkan!`, "success");
           setViewMode('list');
           setPoForm({ supplierId: '', items: [], notes: '', hasPpn: false });
           setPoCreationMode('manual');
       } catch (e: any) {
-          showNotification("Gagal: " + e.message, "error");
+          showNotification("Gagal menyimpan PO.", "error");
       } finally {
           setLoading(false);
       }
@@ -397,10 +380,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const handleProcessReceiving = async () => {
       if (!selectedPO) return;
-      if (selectedItemsToReceive.length === 0) { showNotification("Pilih item!", "error"); return; }
+      if (selectedItemsToReceive.length === 0) { showNotification("Pilih item yang datang!", "error"); return; }
       
       const invalidQty = selectedItemsToReceive.some(idx => (receiveQtyMap[idx] || 0) <= 0);
-      if (invalidQty) { showNotification("Qty harus > 0.", "error"); return; }
+      if (invalidQty) { showNotification("Qty datang harus lebih dari 0.", "error"); return; }
 
       setLoading(true);
       try {
@@ -423,11 +406,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   await updateDoc(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
                       stock: increment(qtyNow), 
                       buyPrice: item.price, 
-                      brand: item.brand || '', // Update brand if present
+                      brand: item.brand || 'No Brand', 
                       updatedAt: serverTimestamp() 
                   });
               } else {
-                  // NEW ITEM: Use the precise category and brand from PO
                   const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
                       code: itemCodeUpper, 
                       name: item.name, 
@@ -450,7 +432,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
           await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
-              items: updatedItems, status: isFull ? 'Received' : 'Partial' 
+              items: updatedItems, 
+              status: isFull ? 'Received' : 'Partial',
+              receivedAt: serverTimestamp(),
+              receivedBy: userPermissions.role
           });
 
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
@@ -459,7 +444,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           setViewMode('list');
           setSelectedPO(null);
       } catch (e: any) {
-          showNotification("Error: " + e.message, "error");
+          showNotification("Error saat penerimaan: " + e.message, "error");
       } finally {
           setLoading(false);
       }
@@ -507,13 +492,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <div className="mb-8 bg-blue-50 border border-blue-200 p-4 rounded-xl">
                       <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2"><Search size={18}/> Cari Kebutuhan Part dari Estimasi SA</h3>
                       <div className="flex gap-2 mb-4">
-                          <input type="text" placeholder="Ketik No. WO atau Nopol..." className="flex-grow p-2 border border-blue-300 rounded uppercase font-mono" value={woSearchTerm} onChange={e => setWoSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearchWO()}/>
-                          <button onClick={handleSearchWO} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">{loading ? 'Mencari...' : 'Cari Data'}</button>
+                          <input type="text" placeholder="No. WO atau Nopol..." className="flex-grow p-2 border border-blue-300 rounded uppercase font-mono" value={woSearchTerm} onChange={e => setWoSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearchWO()}/>
+                          <button onClick={handleSearchWO} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Cari Data</button>
                       </div>
                       {foundJob && (
                           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
                               <div className="p-3 bg-gray-100 flex justify-between items-center border-b">
-                                  <div className="flex items-center gap-2 font-bold text-gray-800"><span>{foundJob.woNumber || 'ESTIMASI'}</span> | <span>{foundJob.policeNumber} - {foundJob.carModel}</span></div>
+                                  <div className="flex items-center gap-2 font-bold text-gray-800"><span>{foundJob.woNumber || 'ESTIMASI'}</span> | <span>{foundJob.policeNumber}</span></div>
                                   <button onClick={handleImportPartsToPO} className="bg-green-600 text-white px-4 py-2 rounded text-xs font-bold hover:bg-green-700 flex items-center gap-1"><Plus size={14}/> Tambah ke PO</button>
                               </div>
                               <table className="w-full text-sm text-left">
@@ -536,45 +521,50 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
               <div className="mb-6">
                   <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><ShoppingCart size={18}/> Item Pesanan (Draft)</h3>
-                  <table className="w-full text-sm text-left border border-gray-200 rounded overflow-hidden">
-                      <thead className="bg-gray-100 font-bold">
-                        <tr>
-                            <th className="p-3 border">Kategori</th>
-                            <th className="p-3 border">Kode Part</th>
-                            <th className="p-3 border">Nama Barang</th>
-                            <th className="p-3 border">Merk / Model</th>
-                            <th className="p-3 border w-20 text-center">Qty</th>
-                            <th className="p-3 border w-24">Satuan</th>
-                            <th className="p-3 border text-right">Harga</th>
-                            <th className="p-3 border text-right">Total</th>
-                            <th className="p-3 border w-10"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                          {(poForm.items || []).map((item, idx) => (
-                              <tr key={idx} className={item.refJobId ? "bg-blue-50/50" : ""}>
-                                  <td className="p-2 border">
-                                      <select className="w-full p-2 border rounded text-xs" value={item.category} onChange={e => handleUpdateItem(idx, 'category', e.target.value)}>
-                                          <option value="sparepart">Part</option>
-                                          <option value="material">Bahan</option>
-                                      </select>
-                                  </td>
-                                  <td className="p-2 border"><input type="text" className="w-full p-2 border rounded font-mono uppercase text-xs" value={item.code} onChange={e => handleUpdateItem(idx, 'code', e.target.value)} placeholder="Kode..." disabled={!!item.refJobId}/></td>
-                                  <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.name} onChange={e => handleUpdateItem(idx, 'name', e.target.value)} placeholder="Nama..." disabled={!!item.refJobId}/>{item.refWoNumber && <div className="text-[9px] text-blue-600 font-bold">Ref: {item.refWoNumber} {item.isIndent && <span className="text-red-600">[INDENT]</span>}</div>}</td>
-                                  <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.brand} onChange={e => handleUpdateItem(idx, 'brand', e.target.value)} placeholder="Merk/Tipe..."/></td>
-                                  <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-center font-bold" value={item.qty} onChange={e => handleUpdateItem(idx, 'qty', Number(e.target.value))} /></td>
-                                  <td className="p-2 border">
-                                      <select className="w-full p-2 border rounded text-xs" value={item.unit} onChange={e => handleUpdateItem(idx, 'unit', e.target.value)}>
-                                          {UNIT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                      </select>
-                                  </td>
-                                  <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-right font-mono" value={item.price} onChange={e => handleUpdateItem(idx, 'price', Number(e.target.value))} /></td>
-                                  <td className="p-2 border text-right font-bold">{formatCurrency(item.total)}</td>
-                                  <td className="p-2 border text-center"><button onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button></td>
-                              </tr>
-                          ))}
-                      </tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left border border-gray-200 rounded overflow-hidden">
+                        <thead className="bg-gray-100 font-bold">
+                            <tr>
+                                <th className="p-3 border">Kategori</th>
+                                <th className="p-3 border">Kode Part</th>
+                                <th className="p-3 border">Nama Barang</th>
+                                <th className="p-3 border">Merk / Model</th>
+                                <th className="p-3 border w-20 text-center">Qty</th>
+                                <th className="p-3 border w-24">Satuan</th>
+                                <th className="p-3 border text-right">Harga</th>
+                                <th className="p-3 border text-right">Total</th>
+                                <th className="p-3 border w-10"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(poForm.items || []).map((item, idx) => (
+                                <tr key={idx} className={item.refJobId ? "bg-blue-50/50" : ""}>
+                                    <td className="p-2 border">
+                                        <select className="w-full p-2 border rounded text-xs" value={item.category} onChange={e => handleUpdateItem(idx, 'category', e.target.value)}>
+                                            <option value="sparepart">Part</option>
+                                            <option value="material">Bahan</option>
+                                        </select>
+                                    </td>
+                                    <td className="p-2 border"><input type="text" className="w-full p-2 border rounded font-mono uppercase text-xs" value={item.code} onChange={e => handleUpdateItem(idx, 'code', e.target.value)} placeholder="Kode..." disabled={!!item.refJobId}/></td>
+                                    <td className="p-2 border">
+                                        <input type="text" className="w-full p-2 border rounded text-xs" value={item.name} onChange={e => handleUpdateItem(idx, 'name', e.target.value)} placeholder="Nama..." disabled={!!item.refJobId}/>
+                                        {item.refWoNumber && <div className="text-[9px] text-blue-600 font-bold">Ref: {item.refWoNumber} {item.isIndent && <span className="text-red-600">[INDENT]</span>}</div>}
+                                    </td>
+                                    <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.brand} onChange={e => handleUpdateItem(idx, 'brand', e.target.value)} placeholder="Merk/Tipe..."/></td>
+                                    <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-center font-bold" value={item.qty} onChange={e => handleUpdateItem(idx, 'qty', Number(e.target.value))} /></td>
+                                    <td className="p-2 border">
+                                        <select className="w-full p-2 border rounded text-xs" value={item.unit} onChange={e => handleUpdateItem(idx, 'unit', e.target.value)}>
+                                            {UNIT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    </td>
+                                    <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-right font-mono" value={item.price} onChange={e => handleUpdateItem(idx, 'price', Number(e.target.value))} /></td>
+                                    <td className="p-2 border text-right font-bold">{formatCurrency(item.total)}</td>
+                                    <td className="p-2 border text-center"><button onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                  </div>
                   {poCreationMode === 'manual' && <button onClick={handleAddItem} className="mt-2 text-xs text-indigo-600 font-bold hover:underline">+ Tambah Manual</button>}
               </div>
 
@@ -611,57 +601,18 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                   </div>
                   <div className="flex gap-2">
-                      {/* APPROVAL BUTTONS */}
                       {showApprovalActions && (
                           <>
-                            <button 
-                                onClick={handleRejectPO} 
-                                disabled={loading}
-                                className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1"
-                            >
-                                <Ban size={18}/> Tolak
-                            </button>
-                            <button 
-                                onClick={handleApprovePO} 
-                                disabled={loading}
-                                className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold hover:bg-green-700 transition-all flex items-center gap-1"
-                            >
-                                <Check size={18}/> Setujui (Approve)
-                            </button>
+                            <button onClick={handleRejectPO} disabled={loading} className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1"><Ban size={18}/> Tolak</button>
+                            <button onClick={handleApprovePO} disabled={loading} className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold hover:bg-green-700 transition-all flex items-center gap-1"><Check size={18}/> Setujui (Approve)</button>
                           </>
                       )}
-
-                      {/* RECEIVING BUTTON */}
                       {isReceivable && selectedItemsToReceive.length > 0 && (
-                        <button 
-                            onClick={handleProcessReceiving} 
-                            disabled={loading}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded shadow font-bold animate-pulse hover:bg-indigo-700"
-                        >
-                            Simpan Terima ({selectedItemsToReceive.length})
-                        </button>
+                        <button onClick={handleProcessReceiving} disabled={loading} className="px-4 py-2 bg-indigo-600 text-white rounded shadow font-bold animate-pulse hover:bg-indigo-700">Simpan Terima ({selectedItemsToReceive.length})</button>
                       )}
-
-                      {/* PRINT BUTTON */}
-                      <button 
-                        onClick={() => handlePrintPO(selectedPO)} 
-                        className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
-                      >
-                        <Printer size={18}/> Print PO
-                      </button>
+                      <button onClick={() => handlePrintPO(selectedPO)} className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"><Printer size={18}/> Print PO</button>
                   </div>
               </div>
-
-              {/* REJECTION MESSAGE */}
-              {selectedPO.status === 'Rejected' && selectedPO.rejectionReason && (
-                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-red-800 text-sm">
-                      <AlertCircle size={20} className="shrink-0 mt-0.5"/>
-                      <div>
-                          <p className="font-bold">PO DITOLAK</p>
-                          <p className="italic">Alasan: {selectedPO.rejectionReason}</p>
-                      </div>
-                  </div>
-              )}
 
               <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left border">
@@ -690,30 +641,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               );
                           })}
                       </tbody>
-                      <tfoot className="bg-gray-50 font-bold">
-                          <tr>
-                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right">SUBTOTAL</td>
-                              <td className="p-3 text-right">{formatCurrency(selectedPO.subtotal)}</td>
-                          </tr>
-                          {selectedPO.hasPpn && (
-                            <tr>
-                                <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right">PPN 11%</td>
-                                <td className="p-3 text-right">{formatCurrency(selectedPO.ppnAmount)}</td>
-                            </tr>
-                          )}
-                          <tr className="text-lg bg-indigo-50">
-                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right font-black text-indigo-900">GRAND TOTAL</td>
-                              <td className="p-3 text-right font-black text-indigo-900">{formatCurrency(selectedPO.totalAmount)}</td>
-                          </tr>
-                      </tfoot>
                   </table>
               </div>
-              {selectedPO.notes && (
-                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <p className="text-xs font-bold text-gray-500 uppercase">Catatan PO:</p>
-                      <p className="text-sm text-gray-700">{selectedPO.notes}</p>
-                  </div>
-              )}
           </div>
       );
   }
@@ -728,43 +657,25 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
                 <div className="relative w-full max-w-md"><Search className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Cari No. PO atau Supplier..." className="w-full pl-10 p-2.5 border rounded-lg" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
             </div>
-            {loading && orders.length === 0 ? <div className="p-20 text-center animate-pulse text-gray-500 font-bold">Memuat data...</div> : (
+            {loading && orders.length === 0 ? <div className="p-20 text-center text-gray-500 font-bold">Memuat data...</div> : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4 text-xs uppercase text-gray-500">No. PO</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Supplier</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Status</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-right">Total</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-center">Aksi</th></tr></thead>
                         <tbody className="divide-y">
-                            {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => {
-                                const isDownloadable = ['Ordered', 'Partial', 'Received'].includes(order.status);
-                                
-                                return (
-                                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
-                                        <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
-                                        <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
-                                        <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex justify-center gap-2">
-                                                <button 
-                                                    onClick={() => { setSelectedPO(order); setViewMode('detail'); }} 
-                                                    className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"
-                                                    title="Lihat Detail"
-                                                >
-                                                    <Eye size={18}/>
-                                                </button>
-                                                {isDownloadable && (
-                                                    <button 
-                                                        onClick={() => handlePrintPO(order)} 
-                                                        className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors"
-                                                        title="Cetak PDF"
-                                                    >
-                                                        <Printer size={18}/>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                            {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
+                                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
+                                    <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
+                                    <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <div className="flex justify-center gap-2">
+                                            <button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"><Eye size={18}/></button>
+                                            {['Ordered', 'Partial', 'Received'].includes(order.status) && <button onClick={() => handlePrintPO(order)} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors"><Printer size={18}/></button>}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 </div>
