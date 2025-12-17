@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp } from 'firebase/firestore';
-import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, JOBS_COLLECTION } from '../../services/firebase';
+import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
@@ -174,11 +175,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
           
-          let q = query(collection(db, JOBS_COLLECTION), where('woNumber', '==', termUpper));
+          // MENCARI DI SERVICE_JOBS_COLLECTION BUKAN JOBS_COLLECTION YANG DEPRECATED
+          let q = query(collection(db, SERVICE_JOBS_COLLECTION), where('woNumber', '==', termUpper));
           let snapshot = await getDocs(q);
           
           if (snapshot.empty) {
-              q = query(collection(db, JOBS_COLLECTION), where('policeNumber', '==', termUpper));
+              q = query(collection(db, SERVICE_JOBS_COLLECTION), where('policeNumber', '==', termUpper));
               snapshot = await getDocs(q);
           }
 
@@ -207,6 +209,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               showNotification("No. WO atau No. Polisi tidak ditemukan.", "error");
           }
       } catch (e: any) {
+          console.error("Search error:", e);
           showNotification("Gagal mencari data WO.", "error");
       } finally {
           setLoading(false);
@@ -356,7 +359,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
           for (const item of sanitizedItems) {
               if (item.refJobId && item.refPartIndex !== null) {
-                  const jobRef = doc(db, JOBS_COLLECTION, item.refJobId);
+                  const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
                   const jobSnap = await getDoc(jobRef);
                   if (jobSnap.exists()) {
                       const currentParts = jobSnap.data().estimateData?.partItems || [];

@@ -1,10 +1,11 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, InventoryItem, EstimateItem } from '../../types';
 import { formatDateIndo } from '../../utils/helpers';
 import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db, JOBS_COLLECTION } from '../../services/firebase';
+import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 
 interface PartMonitoringViewProps {
   jobs: Job[];
@@ -137,7 +138,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
           };
 
           // Update Firestore
-          const jobRef = doc(db, JOBS_COLLECTION, selectedJob.id);
+          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           await updateDoc(jobRef, {
               'estimateData.partItems': updatedParts
           });
@@ -176,7 +177,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             >
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-semibold text-gray-600">Total Unit (Part)</span>
-                    <Package size={20} className="text-indigo-500"/>
+                    <Package size={20} className="text-indigo-50"/>
                 </div>
                 <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
             </div>

@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Supplier } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc } from 'firebase/firestore';
-import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
+import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target } from 'lucide-react';
 
@@ -157,7 +158,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         });
 
         await updateDoc(doc(db, SPAREPART_COLLECTION, item.id), { stock: increment(-finalDeductQty), updatedAt: serverTimestamp() });
-        await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), { 'costData.hargaModalBahan': increment(cost), usageLog: arrayUnion(logEntry) });
+        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), { 'costData.hargaModalBahan': increment(cost), usageLog: arrayUnion(logEntry) });
 
         showNotification("Bahan berhasil dibebankan.", "success");
         setMaterialSearchTerm('');
@@ -199,7 +200,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff'
         });
 
-        await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), {
+        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), {
             'estimateData.partItems': currentPartItems,
             'costData.hargaBeliPart': increment(cost),
             usageLog: arrayUnion(log)
@@ -227,7 +228,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             if (pIdx >= 0) parts[pIdx].hasArrived = false;
             payload['estimateData.partItems'] = parts;
         }
-        await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), cleanObject(payload));
+        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), cleanObject(payload));
         showNotification("Berhasil dibatalkan.", "success");
         onRefreshData();
     } catch (e: any) { showNotification(e.message, "error"); } 
