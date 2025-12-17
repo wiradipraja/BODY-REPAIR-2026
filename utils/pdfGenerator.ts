@@ -206,7 +206,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text("GRAND TOTAL:", summaryX, currentY);
   doc.text(formatCurrency(estimateData.grandTotal), valX, currentY, { align: 'right' });
 
-  // --- FOOTER / SIGNATURE (MODIFIED) ---
+  // --- FOOTER / SIGNATURE ---
   const signY = currentY + 30;
   if (signY < 270) {
       doc.setFontSize(9);
@@ -225,26 +225,22 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.save(fileName);
 };
 
-// --- NEW: GENERATE PO OFFICIAL PDF ---
 export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) => {
     const doc: any = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
 
     addHeader(doc, settings);
 
-    // Title Section
     doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(33, 33, 33);
     doc.text("PURCHASE ORDER", 15, 48);
     
-    // Status Badge Text (Optional visual cue)
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(100);
     doc.text(po.status.toUpperCase(), 15, 54);
 
-    // PO Info Box (Right Side)
     const infoX = pageWidth - 80;
     doc.setFontSize(9);
     doc.setTextColor(50);
@@ -252,7 +248,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.text("No. PO", infoX, 48);
     doc.text(`: ${po.poNumber}`, infoX + 25, 48);
     
-    // FIXED: Show current date if po.createdAt is missing or empty
     const poDate = po.createdAt ? formatDateIndo(po.createdAt) : formatDateIndo(new Date());
     doc.text("Tanggal", infoX, 53);
     doc.text(`: ${poDate === '-' ? formatDateIndo(new Date()) : poDate}`, infoX + 25, 53);
@@ -260,7 +255,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.text("Dibuat Oleh", infoX, 58);
     doc.text(`: ${po.createdBy || 'Admin'}`, infoX + 25, 58);
 
-    // Supplier Section (Left Side)
     const supplierY = 65;
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
@@ -271,11 +265,9 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.setFontSize(10);
     doc.text(po.supplierName, 15, supplierY + 5);
 
-    // Table Items
     const tableBody = po.items.map((item, idx) => [
         idx + 1,
         item.code,
-        // Combined Name and Brand for PDF clarity
         item.brand ? `${item.name} (${item.brand})` : item.name,
         `${item.qty} ${item.unit}`,
         formatCurrency(item.price),
@@ -310,7 +302,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     const rightX = pageWidth - 15;
     const labelX = pageWidth - 65;
 
-    // --- MANUALLY DRAW TOTALS FOR CLEANER LOOK ---
     if (finalY > 240) {
         doc.addPage();
         finalY = 20;
@@ -319,26 +310,22 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.setFontSize(10);
     doc.setTextColor(50);
 
-    // Subtotal
     doc.text("Subtotal", labelX, finalY + 5, { align: 'right' });
     doc.text(formatCurrency(po.subtotal), rightX, finalY + 5, { align: 'right' });
 
     let currentY = finalY + 5;
 
-    // PPN
     if (po.hasPpn) {
         currentY += 5;
         doc.text(`PPN (${settings.ppnPercentage}%)`, labelX, currentY, { align: 'right' });
         doc.text(formatCurrency(po.ppnAmount), rightX, currentY, { align: 'right' });
     }
 
-    // Separator Line
     currentY += 3;
     doc.setDrawColor(200);
     doc.setLineWidth(0.5);
     doc.line(labelX - 20, currentY, rightX, currentY);
 
-    // Grand Total
     currentY += 7;
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
@@ -346,10 +333,8 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.text("GRAND TOTAL", labelX, currentY, { align: 'right' });
     doc.text(formatCurrency(po.totalAmount), rightX, currentY, { align: 'right' });
 
-    // --- NOTES & SIGNATURES ---
     let footerY = currentY + 15;
 
-    // Notes
     if(po.notes) {
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
@@ -360,11 +345,8 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
         footerY += 15;
     }
 
-    // Signatures
     const signY = footerY + 10;
-    if (signY > 260) {
-        doc.addPage();
-    }
+    if (signY > 260) doc.addPage();
 
     doc.setFontSize(10);
     doc.setTextColor(0);
@@ -378,7 +360,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.save(`${po.poNumber}.pdf`);
 };
 
-// --- NEW: GENERATE RECEIVING REPORT (BUKTI SERAH TERIMA) ---
 export const generateReceivingReportPDF = (
     po: PurchaseOrder, 
     receivedItems: {item: PurchaseOrderItem, qtyReceivedNow: number}[], 
@@ -392,7 +373,7 @@ export const generateReceivingReportPDF = (
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    // FIXED: Removed (GR) from the title
+    // FIXED: REMOVED (GR) AS REQUESTED
     doc.text("BUKTI SERAH TERIMA BARANG", pageWidth / 2, 45, { align: 'center' });
 
     doc.setFontSize(10);

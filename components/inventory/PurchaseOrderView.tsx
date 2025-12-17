@@ -427,12 +427,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp() 
                   });
               } else {
-                  // NEW ITEM: Use data from PO
+                  // NEW ITEM: Use the precise category and brand from PO
                   const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
                       code: itemCodeUpper, 
                       name: item.name, 
                       category: item.category || 'sparepart', 
-                      brand: item.brand || 'No Brand', // Use brand from PO
+                      brand: item.brand || 'No Brand', 
                       stock: qtyNow, 
                       unit: item.unit, 
                       minStock: 2, 
@@ -642,7 +642,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                         </button>
                       )}
 
-                      {/* PRINT BUTTON - FIXED: Use internal handler */}
+                      {/* PRINT BUTTON */}
                       <button 
                         onClick={() => handlePrintPO(selectedPO)} 
                         className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
