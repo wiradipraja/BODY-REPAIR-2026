@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where } from 'firebase/firestore';
+import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
@@ -112,33 +112,52 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           let snapshot = await getDocs(q);
           
           if (snapshot.empty) {
-              // 2. Cari berdasarkan No Polisi (Ambil yang paling baru / Latest)
+              // 2. Cari berdasarkan No Polisi 
+              // UNTUK MENGHINDARI ERROR INDEX: Kita tidak menggunakan orderBy di Firestore
+              // tapi kita fetch data dan urutkan secara lokal di JavaScript.
               q = query(
                   collection(db, JOBS_COLLECTION), 
-                  where('policeNumber', '==', termUpper),
-                  orderBy('createdAt', 'desc'),
-                  limit(1)
+                  where('policeNumber', '==', termUpper)
               );
               snapshot = await getDocs(q);
-          }
-
-          if (!snapshot.empty) {
-              const jobData = snapshot.docs[0].data();
-              const job = { id: snapshot.docs[0].id, ...jobData } as Job;
               
+              if (!snapshot.empty) {
+                  // Sort locally by createdAt desc
+                  const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
+                  docs.sort((a, b) => {
+                      const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
+                      const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
+                      return timeB - timeA;
+                  });
+                  
+                  // Gunakan yang paling baru
+                  const job = docs[0];
+                  if (!job.estimateData || !job.estimateData.partItems || job.estimateData.partItems.length === 0) {
+                      showNotification("Unit ditemukan, tapi estimasi part masih kosong.", "error");
+                  } else {
+                      setFoundJob(job);
+                      const initialSelection: any = {};
+                      (job.estimateData.partItems || []).forEach((p, idx) => {
+                          if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
+                      });
+                      setSelectedPartsFromWo(initialSelection);
+                  }
+              } else {
+                  showNotification("Data tidak ditemukan.", "error");
+              }
+          } else {
+              // Case: WO Number found directly
+              const job = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Job;
               if (!job.estimateData || !job.estimateData.partItems || job.estimateData.partItems.length === 0) {
-                  showNotification("WO ditemukan, tapi tidak ada daftar sparepart di dalamnya.", "error");
+                  showNotification("WO ditemukan, tapi estimasi part masih kosong.", "error");
               } else {
                   setFoundJob(job);
-                  // Auto-select parts that haven't been ordered yet
                   const initialSelection: any = {};
-                  job.estimateData.partItems.forEach((p, idx) => {
+                  (job.estimateData.partItems || []).forEach((p, idx) => {
                       if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
                   });
                   setSelectedPartsFromWo(initialSelection);
               }
-          } else {
-              showNotification("Data tidak ditemukan. Pastikan No. WO atau Nopol benar.", "error");
           }
       } catch (e: any) {
           console.error(e);
@@ -162,11 +181,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       if (!foundJob || !foundJob.estimateData) return;
 
       const itemsToAdd: PurchaseOrderItem[] = [];
+      const parts = foundJob.estimateData.partItems || [];
       
-      foundJob.estimateData.partItems.forEach((estItem, idx) => {
+      parts.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
-              // CASE-INSENSITIVE SEARCH in Inventory
               const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
               const invItem = inventoryItems.find(i => 
                   (estItem.inventoryId && i.id === estItem.inventoryId) || 
@@ -179,7 +198,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
-                  price: invItem?.buyPrice || estItem.price || 0, // Fallback to estimate price if new
+                  price: invItem?.buyPrice || estItem.price || 0,
                   total: (estItem.qty || 1) * (invItem?.buyPrice || estItem.price || 0),
                   inventoryId: estItem.inventoryId || invItem?.id || null,
                   refJobId: foundJob.id,
@@ -280,7 +299,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
-      const sanitizedItems = poForm.items.map(item => ({
+      const sanitizedItems = (poForm.items || []).map(item => ({
           code: item.code?.toUpperCase().trim() || '',
           name: item.name || '',
           qty: item.qty || 0,
@@ -620,7 +639,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                       </tr>
                                   </thead>
                                   <tbody className="divide-y divide-gray-100">
-                                      {foundJob.estimateData?.partItems?.map((part, idx) => {
+                                      {(foundJob.estimateData?.partItems || []).map((part, idx) => {
                                           const isAlreadyOrdered = part.isOrdered;
                                           return (
                                               <tr key={idx} className={isAlreadyOrdered ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50 transition-colors'}>
@@ -686,7 +705,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           </tr>
                       </thead>
                       <tbody>
-                          {poForm.items?.map((item, idx) => (
+                          {(poForm.items || []).map((item, idx) => (
                               <tr key={idx} className={item.refJobId ? "bg-blue-50/30" : ""}>
                                   <td className="p-2 border relative">
                                       <input 
@@ -862,7 +881,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           </tr>
                       </thead>
                       <tbody>
-                          {selectedPO.items.map((item, idx) => {
+                          {(selectedPO.items || []).map((item, idx) => {
                               const remaining = item.qty - (item.qtyReceived || 0);
                               const isFullyReceived = remaining <= 0;
                               const isChecked = selectedItemsToReceive.includes(idx);
