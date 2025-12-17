@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, ADMIN_UID, USERS_COLLECTION } from '../services/firebase';
 import { UserProfile, UserPermissions, Settings } from '../types';
 import { initialSettingsState } from '../utils/constants';
@@ -40,6 +40,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
              role = 'Manager'; // Demo user gets full access
         } else if (isSuperAdmin) {
              role = 'Manager';
+             
+             // Sync Admin Role to Firestore
+             // This ensures that the Security Rules (which check Firestore) recognize the Admin as a Manager
+             try {
+                 const userRef = doc(db, USERS_COLLECTION, currentUser.uid);
+                 const userSnap = await getDoc(userRef);
+                 
+                 // Only update if missing or incorrect to save writes
+                 if (!userSnap.exists() || userSnap.data()?.role !== 'Manager') {
+                     await setDoc(userRef, {
+                         uid: currentUser.uid,
+                         email: currentUser.email,
+                         displayName: currentUser.displayName || 'Super Admin',
+                         role: 'Manager',
+                         createdAt: serverTimestamp()
+                     }, { merge: true });
+                 }
+             } catch (err: any) {
+                 console.error("Failed to sync admin role to Firestore.", err);
+                 // If permission-denied, it means Rules prevent writing.
+                 // The Admin needs 'allow write: if request.auth.uid == userId' in rules to bootstrap themselves.
+                 if (err.code === 'permission-denied') {
+                    console.warn("ACTION REQUIRED: Update Firebase Storage Rules to allow user self-update.");
+                 }
+             }
         } else {
              // 2. Fetch Role from Firestore 'users' collection
              try {

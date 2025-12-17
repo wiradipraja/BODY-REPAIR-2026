@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
   createUserWithEmailAndPassword, 
@@ -60,9 +60,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   }, [currentSettings, activeTab]);
 
   const fetchSuppliers = async () => {
-    const querySnapshot = await getDocs(collection(db, SUPPLIERS_COLLECTION));
-    const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier));
-    setSuppliers(data);
+    try {
+        const querySnapshot = await getDocs(collection(db, SUPPLIERS_COLLECTION));
+        const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier));
+        setSuppliers(data);
+    } catch (e) {
+        console.error("Fetch suppliers error", e);
+    }
   };
 
   // --- HANDLERS: USER MANAGEMENT ---
@@ -71,8 +75,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     if (!isManager) return;
     setIsLoading(true);
     try {
-        // 1. Init secondary app to create user without logging out admin
-        const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+        // 1. Init secondary app safely to create user without logging out admin
+        let secondaryApp;
+        const existingApps = getApps();
+        if (existingApps.length > 0 && existingApps.find(app => app.name === "SecondaryApp")) {
+            secondaryApp = getApp("SecondaryApp");
+        } else {
+            secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+        }
+
         const secondaryAuth = getAuth(secondaryApp);
         
         // 2. Create User in Auth
@@ -82,6 +93,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
         await updateProfile(userCredential.user, { displayName: newUser.name });
 
         // 4. Create User Document in Firestore with Role (Using Main DB instance)
+        // This requires the current logged-in user (Admin) to have write permissions on 'users' collection
         await setDoc(doc(db, USERS_COLLECTION, userCredential.user.uid), {
             uid: userCredential.user.uid,
             displayName: newUser.name,
@@ -90,14 +102,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
             createdAt: serverTimestamp()
         });
 
-        // 5. Cleanup
+        // 5. Cleanup (Sign out but keep app instance to avoid re-init errors)
         await secondaryAuth.signOut(); 
 
         showNotification(`Pengguna ${newUser.name} berhasil dibuat sebagai ${newUser.role}!`, 'success');
         setNewUser({ email: '', password: '', name: '', role: 'Staff' });
     } catch (error: any) {
-        console.error(error);
-        showNotification(error.message, 'error');
+        console.error("Create User Error:", error);
+        if (error.code === 'auth/email-already-in-use') {
+            showNotification("Email sudah terdaftar.", 'error');
+        } else {
+            showNotification(error.message, 'error');
+        }
     } finally {
         setIsLoading(false);
     }
@@ -181,8 +197,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
         showNotification("Pengaturan Sistem Berhasil Disimpan", 'success');
         refreshSettings();
     } catch (error: any) {
-        console.error(error);
-        showNotification("Gagal menyimpan pengaturan", 'error');
+        console.error("Save Settings Error:", error);
+        showNotification("Gagal menyimpan pengaturan: " + error.message, 'error');
     } finally {
         setIsLoading(false);
     }
@@ -256,8 +272,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           setSupplierForm({});
           setIsEditingSupplier(false);
           fetchSuppliers();
-      } catch (error) {
-          showNotification("Gagal menyimpan supplier", "error");
+      } catch (error: any) {
+          console.error("Save Supplier Error:", error);
+          showNotification("Gagal menyimpan supplier: " + error.message, "error");
       } finally {
           setIsLoading(false);
       }
@@ -270,7 +287,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           await deleteDoc(doc(db, SUPPLIERS_COLLECTION, id));
           fetchSuppliers();
           showNotification("Supplier dihapus", "success");
-      } catch (e) { showNotification("Gagal menghapus", "error"); }
+      } catch (e: any) { 
+          console.error(e);
+          showNotification("Gagal menghapus: " + e.message, "error"); 
+      }
   };
 
   const handleImportSuppliers = (e: React.ChangeEvent<HTMLInputElement>) => {
