@@ -74,44 +74,39 @@ const AppContent: React.FC = () => {
   const closeModal = () => setModalState({ isOpen: false, type: null, data: null });
 
   // Handlers
-  const handleAddJob = async (formData: Partial<Job>) => {
+  const handleSaveJob = async (formData: Partial<Job>) => {
       try {
-          const newJob: any = {
-              ...formData,
-              createdAt: serverTimestamp(),
-              isClosed: false,
-              costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
-              estimateData: { grandTotal: 0 }
-          };
-          if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
-          await addDoc(collection(db, JOBS_COLLECTION), newJob);
-          showNotification("Data berhasil ditambahkan", "success");
+          // If ID exists, it's an UPDATE
+          if (formData.id) {
+              const jobRef = doc(db, JOBS_COLLECTION, formData.id);
+              const cleanData = Object.fromEntries(Object.entries(formData).filter(([_, v]) => v !== undefined));
+              await updateDoc(jobRef, cleanData);
+              showNotification("Data berhasil diperbarui", "success");
+          } else {
+              // CREATE NEW
+              const newJob: any = {
+                  ...formData,
+                  createdAt: serverTimestamp(),
+                  isClosed: false,
+                  costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
+                  estimateData: { grandTotal: 0 }
+              };
+              if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
+              await addDoc(collection(db, JOBS_COLLECTION), newJob);
+              showNotification("Data berhasil ditambahkan", "success");
+          }
           
           closeModal();
-          // If we came from adding a job via EstimationForm, we might want to stay there, 
-          // but going to entry_data is safer default.
-          if (currentView === 'estimation') {
-              // Optionally stay on estimation view or handle selection logic there
-              // For now, let's keep it simple
-          }
+          
+          // Optional: If on input_data view, we can reset or stay.
+          // Since we use the same handler for modal and view, we might need to handle navigation manually in JobForm or here.
+          // For now, if currentView is input_data, we redirect to entry_data to show result? 
+          // Or stay to input more? The prompt implied Input Unit is the new manager.
+          // Let's stay on input_data if we are there, otherwise close modal.
+          
       } catch (e) { 
           console.error(e);
-          showNotification("Gagal menambahkan data. Periksa izin database.", "error"); 
-      }
-  };
-
-  const handleUpdateJob = async (formData: Partial<Job>) => {
-      if (!modalState.data?.id) return;
-
-      try {
-          const jobRef = doc(db, JOBS_COLLECTION, modalState.data.id);
-          const cleanData = Object.fromEntries(Object.entries(formData).filter(([_, v]) => v !== undefined));
-          await updateDoc(jobRef, cleanData);
-          showNotification("Data berhasil diperbarui", "success");
-          closeModal();
-      } catch (e) { 
-          console.error(e);
-          showNotification("Gagal memperbarui data", "error"); 
+          showNotification("Gagal menyimpan data. Periksa izin database.", "error"); 
       }
   };
 
@@ -160,11 +155,21 @@ const AppContent: React.FC = () => {
           };
 
           const jobRef = doc(db, JOBS_COLLECTION, jobId);
-          await updateDoc(jobRef, {
+          
+          // Prepare update data
+          const updatePayload: any = {
               estimateData: updatedEstimateData,
               hargaJasa: updatedEstimateData.subtotalJasa,
               hargaPart: updatedEstimateData.subtotalPart,
-          });
+          };
+          
+          // ALSO UPDATE THE MAIN SA NAME IF IT WAS GENERIC, TO ENSURE TABLE CONSISTENCY
+          const currentJob = allData.find(j => j.id === jobId);
+          if (currentJob && (currentJob.namaSA === 'Pending Allocation' || !currentJob.namaSA)) {
+             updatePayload.namaSA = updatedEstimateData.estimatorName || userData.displayName;
+          }
+
+          await updateDoc(jobRef, updatePayload);
           
           showNotification(`Estimasi ${estimationNumber} berhasil disimpan`, "success");
           closeModal();
@@ -242,15 +247,16 @@ const AppContent: React.FC = () => {
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
                  <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Input Unit Baru</h1>
-                    <p className="text-gray-500 mt-1">Isi formulir lengkap untuk mendaftarkan kendaraan masuk.</p>
+                    <h1 className="text-3xl font-bold text-gray-900">Input Data Unit</h1>
+                    <p className="text-gray-500 mt-1">Isi formulir lengkap untuk mendaftarkan kendaraan masuk, atau edit data lama.</p>
                  </div>
                  
                  <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
                     <JobForm 
                         settings={appSettings}
-                        onSave={handleAddJob}
+                        onSave={handleSaveJob}
                         onCancel={() => setCurrentView('overview')}
+                        allJobs={allData} // Passed for duplicate checking
                     />
                  </div>
              </div>
@@ -322,8 +328,9 @@ const AppContent: React.FC = () => {
                 <JobForm 
                     settings={appSettings}
                     initialData={modalState.data}
-                    onSave={handleUpdateJob}
+                    onSave={handleSaveJob}
                     onCancel={closeModal}
+                    allJobs={allData} // Passed to modal version too
                 />
             )}
             
@@ -331,8 +338,9 @@ const AppContent: React.FC = () => {
                  <JobForm 
                     settings={appSettings}
                     initialData={modalState.data} // Might contain prefilled data from EstimationForm
-                    onSave={handleAddJob}
+                    onSave={handleSaveJob}
                     onCancel={closeModal}
+                    allJobs={allData}
                 />
             )}
             

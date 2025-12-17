@@ -185,13 +185,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                              <div className="flex items-center justify-center gap-2">
-                                <button 
-                                  onClick={() => openModal('edit_data', job)} 
-                                  className="text-gray-400 hover:text-blue-600 transition-colors"
-                                  title="Edit Data Unit"
-                                >
-                                  <Edit size={18}/>
-                                </button>
+                                {/* Edit Button Removed */}
                                 <button 
                                   onClick={() => openModal('create_estimation', job)} 
                                   className="text-indigo-400 hover:text-indigo-700 transition-colors"

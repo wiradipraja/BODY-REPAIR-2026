@@ -33,6 +33,7 @@ export interface EstimateItem {
 
 export interface EstimateData {
   estimationNumber?: string; // New: Nomor Unik Estimasi (e.g. BE24110001)
+  estimatorName?: string; // New: Persisted name of the person who created/signed the estimate
   jasaItems: EstimateItem[];
   partItems: EstimateItem[];
   discountJasa: number;

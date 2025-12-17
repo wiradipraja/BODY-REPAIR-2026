@@ -11,7 +11,7 @@ interface EstimateEditorProps {
   onSave: (jobId: string, estimateData: EstimateData) => Promise<string>; // Returns the generated ID
   onCancel: () => void;
   settings?: Settings; // Added settings for PDF header info
-  creatorName?: string; // For "Hormat Kami" signature
+  creatorName?: string; // Current logged-in user name
 }
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName }) => {
@@ -20,6 +20,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
   const [discountJasa, setDiscountJasa] = useState(0);
   const [discountPart, setDiscountPart] = useState(0);
   const [existingEstimationNumber, setExistingEstimationNumber] = useState<string | undefined>(undefined);
+  const [persistedEstimatorName, setPersistedEstimatorName] = useState<string | undefined>(undefined);
   
   const [totals, setTotals] = useState({
     subtotalJasa: 0, subtotalPart: 0,
@@ -44,6 +45,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       setDiscountJasa(job.estimateData.discountJasa || 0);
       setDiscountPart(job.estimateData.discountPart || 0);
       setExistingEstimationNumber(job.estimateData.estimationNumber);
+      setPersistedEstimatorName(job.estimateData.estimatorName);
     } else {
       // NEW ESTIMATE: Auto-fill discounts from Insurance Master Data
       const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
@@ -114,19 +116,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     else setPartItems(partItems.filter((_, i) => i !== index));
   };
 
-  const prepareEstimateData = (estimationNumber?: string): EstimateData => ({
-      jasaItems,
-      partItems,
-      discountJasa,
-      discountPart,
-      subtotalJasa: totals.subtotalJasa,
-      subtotalPart: totals.subtotalPart,
-      discountJasaAmount: totals.discJasaRp,
-      discountPartAmount: totals.discPartRp,
-      ppnAmount: totals.ppn,
-      grandTotal: totals.grandTotal,
-      estimationNumber: estimationNumber || existingEstimationNumber
-  });
+  const prepareEstimateData = (estimationNumber?: string): EstimateData => {
+      // LOGIC: Use existing persisted name, if null use current creator name (first save), fallback to 'Admin'
+      const finalEstimatorName = persistedEstimatorName || creatorName || 'Admin';
+
+      return {
+        jasaItems,
+        partItems,
+        discountJasa,
+        discountPart,
+        subtotalJasa: totals.subtotalJasa,
+        subtotalPart: totals.subtotalPart,
+        discountJasaAmount: totals.discJasaRp,
+        discountPartAmount: totals.discPartRp,
+        ppnAmount: totals.ppn,
+        grandTotal: totals.grandTotal,
+        estimationNumber: estimationNumber || existingEstimationNumber,
+        estimatorName: finalEstimatorName
+      };
+  };
 
   const handleSave = async () => {
     setIsSubmitting(true);
@@ -141,7 +149,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       
       // Download PDF Automatically
       if (settings) {
-         generateEstimationPDF(job, finalData, settings, creatorName);
+         // Pass the persisted/final name to PDF generator explicitly
+         generateEstimationPDF(job, finalData, settings, finalData.estimatorName);
       }
     } catch (error) {
        console.error("Save failed", error);
@@ -152,7 +161,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   const handleDownloadOnly = () => {
       if (settings) {
-          generateEstimationPDF(job, prepareEstimateData(), settings, creatorName);
+          const currentData = prepareEstimateData();
+          generateEstimationPDF(job, currentData, settings, currentData.estimatorName);
       }
   };
 
@@ -181,7 +191,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       {/* Show Estimation Number if exists */}
       {existingEstimationNumber && (
           <div className="bg-green-50 px-4 py-2 rounded border border-green-200 text-green-800 text-sm font-bold flex items-center justify-between">
-              <span>Nomor Estimasi: {existingEstimationNumber}</span>
+              <div className="flex gap-4">
+                <span>Nomor Estimasi: {existingEstimationNumber}</span>
+                <span className="text-green-600 font-normal">Estimator: {persistedEstimatorName}</span>
+              </div>
               <button onClick={handleDownloadOnly} className="flex items-center gap-1 text-green-700 hover:text-green-900 underline text-xs">
                   <Download size={14}/> Download Ulang PDF
               </button>
