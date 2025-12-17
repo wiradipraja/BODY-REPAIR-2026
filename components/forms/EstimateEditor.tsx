@@ -33,13 +33,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   // Initialize data
   useEffect(() => {
-    const hasExistingData = job.estimateData && (
+    // Cek apakah sudah ada data item yang tersimpan
+    const hasItems = job.estimateData && (
         (job.estimateData.jasaItems && job.estimateData.jasaItems.length > 0) || 
-        (job.estimateData.partItems && job.estimateData.partItems.length > 0) ||
-        job.estimateData.grandTotal > 0
+        (job.estimateData.partItems && job.estimateData.partItems.length > 0)
     );
 
-    if (hasExistingData && job.estimateData) {
+    // Cek apakah ini murni draft baru (belum ada grandTotal atau item)
+    const isNewDraft = !job.estimateData || (!hasItems && (job.estimateData.grandTotal || 0) === 0);
+
+    if (!isNewDraft && job.estimateData) {
+      // Jika sudah ada data tersimpan, gunakan diskon yang tersimpan di dokumen job tersebut
       setJasaItems(job.estimateData.jasaItems || []);
       setPartItems(job.estimateData.partItems || []);
       setDiscountJasa(job.estimateData.discountJasa || 0);
@@ -47,15 +51,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       setExistingEstimationNumber(job.estimateData.estimationNumber);
       setPersistedEstimatorName(job.estimateData.estimatorName);
     } else {
-      const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
+      // LOGIKA DISKON OTOMATIS DARI DATABASE SISTEM
+      const targetInsurance = job.namaAsuransi?.trim().toLowerCase();
+      
+      const matchedInsurance = insuranceOptions.find(ins => 
+        ins.name.trim().toLowerCase() === targetInsurance
+      );
+
       if (matchedInsurance) {
           setDiscountJasa(matchedInsurance.jasa || 0);
           setDiscountPart(matchedInsurance.part || 0);
+      } else {
+          // Fallback jika tidak match sama sekali
+          setDiscountJasa(0);
+          setDiscountPart(0);
       }
+      
+      // Reset items untuk draft baru
+      setJasaItems([]);
+      setPartItems([]);
     }
     
     setExistingWONumber(job.woNumber);
-  }, [job, insuranceOptions]);
+  }, [job.id, job.namaAsuransi, insuranceOptions]); // Track ID & Asuransi perubahan
 
   // Recalculate totals
   useEffect(() => {
@@ -94,10 +112,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
             newItem.price = foundPart.sellPrice;
             newItem.inventoryId = foundPart.id;
         } else {
-            newItem.inventoryId = undefined; // Will be cleaned to null by handleSave cleanObject
+            newItem.inventoryId = undefined;
         }
     }
-    // ----------------------------------------
 
     items[index] = newItem;
     type === 'jasa' ? setJasaItems(items) : setPartItems(items);
@@ -161,7 +178,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   return (
     <div className="space-y-6">
-      {/* DATALIST UNTUK AUTOCOMPLETE SPAREPART */}
       <datalist id="inventory-list">
         {inventoryItems.map(item => (
             <option key={item.id} value={item.code}>
@@ -170,7 +186,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         ))}
       </datalist>
 
-      {/* Header Info Unit */}
       <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         <div>
           <p className="text-gray-500">No. Polisi</p>
@@ -211,7 +226,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* KOLOM JASA PERBAIKAN */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -245,7 +259,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART - UPDATED: NO INDENT CHECKBOX */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -260,8 +273,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
             {partItems.map((item, idx) => (
               <div key={idx} className="p-2 rounded border border-gray-200 bg-gray-50 space-y-2 relative">
                   <div className="grid grid-cols-12 gap-2 items-center">
-                    
-                    {/* INPUT KODE PART */}
                     <div className="col-span-4">
                         <input 
                             type="text" 
@@ -272,12 +283,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                             onChange={e => updateItem('part', idx, 'number', e.target.value)} 
                         />
                     </div>
-
                     <div className="col-span-8 flex gap-1">
                         <input type="text" placeholder="Nama Sparepart" className="w-full p-2 border rounded text-sm" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
                         <button onClick={() => removeItem('part', idx)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
                     </div>
-                    
                     <div className="col-span-4 flex items-center gap-1">
                         <span className="text-xs text-gray-500">Qty:</span>
                         <input type="number" className="w-full p-2 border rounded text-sm text-center font-bold" value={item.qty || ''} onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))} />
@@ -286,8 +295,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                          <span className="text-xs text-gray-500">Rp:</span>
                          <input type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
                     </div>
-                    
-                    {/* INFO STOK JIKA ADA LINK */}
                     {item.inventoryId && (
                         <div className="col-span-12 flex justify-end">
                             <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full border border-green-200 flex items-center gap-1 shadow-sm">
@@ -314,14 +321,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         </div>
       </div>
 
-      {/* FOOTER TOTAL */}
       <div className="bg-gray-900 text-white p-6 rounded-xl shadow-lg mt-4">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-start gap-3 opacity-80 text-sm">
                 <AlertCircle size={20} className="mt-0.5" />
                 <p className="max-w-xs">Grand Total sudah termasuk PPN. Pastikan item dan harga sudah benar sebelum menerbitkan dokumen.</p>
             </div>
-            
             <div className="w-full md:w-auto space-y-1">
                 <div className="flex justify-between gap-12 text-gray-400 text-sm">
                     <span>PPN ({ppnPercentage}%)</span>
@@ -335,7 +340,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         </div>
       </div>
 
-      {/* ACTION BUTTONS */}
       <div className="flex flex-col-reverse md:flex-row justify-end gap-3 pt-2">
         <button 
           onClick={onCancel}
@@ -344,8 +348,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         >
           Tutup
         </button>
-
-        {/* LOGIC TOMBOL AKSI */}
         {!existingEstimationNumber ? (
              <button 
                 onClick={() => handleSave('estimate')}
