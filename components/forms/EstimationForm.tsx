@@ -7,9 +7,10 @@ interface EstimationFormProps {
   allJobs: Job[];
   onNavigate: (view: string) => void;
   openModal: (type: string, data: any) => void;
+  onCreateTransaction?: (vehicleData: Partial<Job>) => void; // NEW PROP
 }
 
-const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, openModal }) => {
+const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, openModal, onCreateTransaction }) => {
   const [searchParams, setSearchParams] = useState({
     policeNumber: '',
     nomorRangka: '',
@@ -74,26 +75,14 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
 
   const handleCreateEstimate = () => {
     if (selectedJob) {
-        // CEK APAKAH ADA ESTIMASI LAIN YG MASIH AKTIF
-        // Logic: Jika selectedJob SUDAH punya estimasi aktif (grandTotal > 0), maka ini dianggap "lanjut edit" atau "buat baru"?
-        // Jika tombol ini diklik, asumsinya adalah mengedit job yang TERPILIH.
-        // Namun jika user ingin buat baru, mereka harusnya pilih opsi "Buat Transaksi Baru".
-        
-        // Cek conflict
         if (activeEstimates.length > 0) {
-            // Cek apakah job yang akan diedit SUDAH ada WO nya
             const currentHasWO = selectedJob.woNumber;
-            
             if (currentHasWO) {
-                // Jika sudah WO, user mungkin ingin bikin estimasi tambahan?
-                // For simplicity, just open modal
                 openModal('create_estimation', selectedJob);
             } else {
-                // Jika belum WO, berarti ini Draft Estimasi
                 openModal('create_estimation', selectedJob);
             }
         } else {
-             // Belum ada estimasi aktif sama sekali, aman.
              openModal('create_estimation', selectedJob);
         }
     }
@@ -110,17 +99,32 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
           if (!confirm) return;
       }
       
-      // Open Job Form with pre-filled vehicle data
-      if (selectedJob) {
-          openModal('add_job', {
+      // Use the new Prop if available to create transaction directly
+      if (onCreateTransaction && selectedJob) {
+          // Prepare clean vehicle data from selectedJob
+          const vehicleData: Partial<Job> = {
              policeNumber: selectedJob.policeNumber,
              carModel: selectedJob.carModel,
              carBrand: selectedJob.carBrand,
              warnaMobil: selectedJob.warnaMobil,
+             nomorRangka: selectedJob.nomorRangka,
+             nomorMesin: selectedJob.nomorMesin,
+             tahunPembuatan: selectedJob.tahunPembuatan,
              customerName: selectedJob.customerName,
              customerPhone: selectedJob.customerPhone,
-             // Reset ID so it creates new
-          });
+             customerAddress: selectedJob.customerAddress,
+             customerKota: selectedJob.customerKota,
+             namaAsuransi: selectedJob.namaAsuransi
+          };
+          onCreateTransaction(vehicleData);
+      } else {
+          // Fallback (Legacy)
+          if (selectedJob) {
+              openModal('add_job', {
+                 policeNumber: selectedJob.policeNumber,
+                 // ... populate others
+              });
+          }
       }
   };
 
@@ -215,11 +219,6 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
                     <div>
                         <label className="text-xs font-semibold text-gray-500 uppercase">Alamat</label>
                         <p className="text-gray-900">{selectedJob.customerAddress || '-'}</p>
-                        <p className="text-sm text-gray-600">
-                            {selectedJob.customerKelurahan ? `${selectedJob.customerKelurahan}, ` : ''}
-                            {selectedJob.customerKecamatan ? `${selectedJob.customerKecamatan}, ` : ''}
-                            {selectedJob.customerKota || ''}
-                        </p>
                     </div>
                 </div>
             </div>
@@ -329,7 +328,6 @@ const EstimationForm: React.FC<EstimationFormProps> = ({ allJobs, onNavigate, op
                         <PlusCircle size={20} />
                         Buat Transaksi Baru
                     </button>
-                    {/* Tombol Lanjut Estimasi hanya muncul jika ada active Estimates, defaultnya edit yg terakhir / selected */}
                     {activeEstimates.length > 0 && (
                         <button 
                             onClick={handleCreateEstimate}

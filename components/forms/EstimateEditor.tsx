@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Job, EstimateItem, EstimateData, Settings } from '../../types';
+import { Job, EstimateItem, EstimateData, Settings, InventoryItem } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User, Search, Package } from 'lucide-react';
 
 interface EstimateEditorProps {
   job: Job;
@@ -12,9 +12,10 @@ interface EstimateEditorProps {
   onCancel: () => void;
   settings?: Settings; 
   creatorName?: string;
+  inventoryItems?: InventoryItem[]; // NEW PROP
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, inventoryItems = [] }) => {
   const [jasaItems, setJasaItems] = useState<EstimateItem[]>([]);
   const [partItems, setPartItems] = useState<EstimateItem[]>([]);
   const [discountJasa, setDiscountJasa] = useState(0);
@@ -53,7 +54,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       }
     }
     
-    // Set WO Number from JOB root data
     setExistingWONumber(job.woNumber);
   }, [job, insuranceOptions]);
 
@@ -88,6 +88,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     type === 'jasa' ? setJasaItems(items) : setPartItems(items);
   };
 
+  // Helper to pick from inventory
+  const handleInventorySelect = (index: number, e: React.ChangeEvent<HTMLSelectElement>) => {
+      const selectedId = e.target.value;
+      if (!selectedId) return;
+
+      const item = inventoryItems.find(i => i.id === selectedId);
+      if (item) {
+          const newParts = [...partItems];
+          newParts[index] = {
+              ...newParts[index],
+              name: item.name,
+              number: item.code,
+              price: item.sellPrice || 0,
+              inventoryId: item.id // Store the link!
+          };
+          setPartItems(newParts);
+      }
+  };
+
   const removeItem = (type: 'jasa' | 'part', index: number) => {
     type === 'jasa' ? setJasaItems(jasaItems.filter((_, i) => i !== index)) : setPartItems(partItems.filter((_, i) => i !== index));
   };
@@ -105,9 +124,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
   };
 
   const handleSave = async (type: 'estimate' | 'wo') => {
-    // Confirmation for WO generation
     if (type === 'wo' && !existingWONumber) {
-        if (!window.confirm("Terbitkan Work Order (WO)?\n\nTindakan ini akan:\n1. Membuat Nomor WO baru.\n2. Mengubah status kendaraan menjadi 'Work In Progress'.\n3. Membuka akses untuk mekanik mengerjakan unit.")) {
+        if (!window.confirm("Terbitkan Work Order (WO)?\n\nTindakan ini akan:\n1. Membuat Nomor WO baru.\n2. Memotong stok inventory jika ada.\n3. Mengubah status unit menjadi WIP.")) {
             return;
         }
     }
@@ -116,20 +134,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     const data = prepareEstimateData();
 
     try {
-      // Call parent to save to Firestore and get the generated ID
       const generatedId = await onSave(job.id, data, type);
       
-      // Update local state immediately so PDF reflects new numbers
       if (type === 'wo') setExistingWONumber(generatedId);
       if (type === 'estimate') setExistingEstimationNumber(generatedId);
       
-      // Prepare temporary job object for PDF generation
       const finalEstimateData = prepareEstimateData(type === 'estimate' ? generatedId : existingEstimationNumber); 
       
       const jobForPDF = { 
           ...job, 
           woNumber: type === 'wo' ? generatedId : existingWONumber,
-          // If just generated WO, update local job object status too for PDF context if needed
       };
       
       if (settings) {
@@ -239,12 +253,42 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {partItems.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                <input type="text" placeholder="No. Part" className="col-span-2 p-2 border rounded text-sm w-full" value={item.number || ''} onChange={e => updateItem('part', idx, 'number', e.target.value)} />
-                <input type="text" placeholder="Nama Sparepart" className="col-span-5 p-2 border rounded text-sm w-full" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
-                <input type="number" placeholder="Qty" className="col-span-1 p-2 border rounded text-sm text-center w-full" value={item.qty || ''} onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))} />
-                <input type="number" placeholder="Harga" className="col-span-3 p-2 border rounded text-sm text-right w-full" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
-                <button onClick={() => removeItem('part', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center"><Trash2 size={16} /></button>
+              <div key={idx} className="bg-gray-50 p-2 rounded border space-y-2">
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    {/* INVENTORY SELECTOR */}
+                    <div className="col-span-12 flex gap-2 items-center">
+                        <Package size={14} className="text-gray-400"/>
+                        <select 
+                            className="w-full p-1 text-xs border rounded bg-white text-gray-700"
+                            onChange={(e) => handleInventorySelect(idx, e)}
+                            value={item.inventoryId || ''}
+                        >
+                            <option value="">-- Pilih dari Inventory (Opsional) --</option>
+                            {inventoryItems.map(inv => (
+                                <option key={inv.id} value={inv.id}>
+                                    {inv.name} (Stok: {inv.stock}) - {formatCurrency(inv.sellPrice)}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="col-span-4">
+                        <input type="text" placeholder="No. Part" className="w-full p-2 border rounded text-sm" value={item.number || ''} onChange={e => updateItem('part', idx, 'number', e.target.value)} />
+                    </div>
+                    <div className="col-span-8 flex gap-1">
+                        <input type="text" placeholder="Nama Sparepart" className="w-full p-2 border rounded text-sm" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
+                        <button onClick={() => removeItem('part', idx)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
+                    </div>
+                    
+                    <div className="col-span-4 flex items-center gap-1">
+                        <span className="text-xs text-gray-500">Qty:</span>
+                        <input type="number" className="w-full p-2 border rounded text-sm text-center font-bold" value={item.qty || ''} onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))} />
+                    </div>
+                    <div className="col-span-8 flex items-center gap-1">
+                         <span className="text-xs text-gray-500">Rp:</span>
+                         <input type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
+                    </div>
+                  </div>
               </div>
             ))}
             {partItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item sparepart</p>}
@@ -296,7 +340,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
         {/* LOGIC TOMBOL AKSI */}
         {!existingEstimationNumber ? (
-             // CASE 1: Belum ada Estimasi (New Draft)
              <button 
                 onClick={() => handleSave('estimate')}
                 disabled={isSubmitting}
@@ -306,7 +349,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                 Simpan Draft Estimasi
              </button>
         ) : !existingWONumber ? (
-             // CASE 2: Ada Estimasi, Belum ada WO (Bisa Update atau Terbitkan WO)
              <>
                 <button 
                     onClick={() => handleSave('estimate')}
@@ -325,7 +367,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                 </button>
              </>
         ) : (
-             // CASE 3: Sudah WO (Update Data & Download ulang WO)
              <button 
                 onClick={() => handleSave('wo')}
                 disabled={isSubmitting}

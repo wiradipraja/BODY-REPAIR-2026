@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useJobs } from './hooks/useJobs';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs } from 'firebase/firestore';
-import { db, JOBS_COLLECTION, SETTINGS_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings } from './types';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, increment, getDoc } from 'firebase/firestore';
+import { db, JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem } from './types';
 import { initialSettingsState } from './utils/constants';
 
 // Components
@@ -16,7 +16,7 @@ import JobForm from './components/forms/JobForm';
 import EstimationForm from './components/forms/EstimationForm';
 import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
-import InventoryView from './components/inventory/InventoryView'; // IMPORTED
+import InventoryView from './components/inventory/InventoryView'; 
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -27,8 +27,9 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
-  // App-wide Settings State (Live update capability)
+  // Data State
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
 
   // Function to refresh settings from DB manually
   const refreshSettings = async () => {
@@ -40,9 +41,19 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error("Failed to refresh settings", e); }
   };
 
+  // Function to fetch inventory for dropdowns
+  const refreshInventory = async () => {
+      try {
+          const q = await getDocs(collection(db, SPAREPART_COLLECTION));
+          const items = q.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem));
+          setInventoryItems(items);
+      } catch (e) { console.error("Failed to load inventory", e); }
+  };
+
   useEffect(() => {
     if (user) {
         refreshSettings();
+        refreshInventory(); // Load inventory on start
     }
   }, [user]);
   
@@ -98,6 +109,37 @@ const AppContent: React.FC = () => {
       }
   };
 
+  // NEW: Handle Create New Transaction directly from Estimation Page
+  const handleCreateTransaction = async (vehicleData: Partial<Job>) => {
+      try {
+          // 1. Create a new Job Document immediately
+          const newJobPayload: any = {
+              ...vehicleData,
+              statusKendaraan: 'Booking Masuk', 
+              statusPekerjaan: 'Belum Mulai Perbaikan',
+              posisiKendaraan: 'Di Bengkel',
+              tanggalMasuk: new Date().toISOString().split('T')[0],
+              createdAt: serverTimestamp(),
+              isClosed: false,
+              costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
+              estimateData: { grandTotal: 0, jasaItems: [], partItems: [] }
+          };
+
+          const docRef = await addDoc(collection(db, JOBS_COLLECTION), newJobPayload);
+          
+          // 2. Refresh local data (Optional, handled by listener usually)
+          // 3. Open Estimation Modal directly with the NEW ID
+          const newJobData = { id: docRef.id, ...newJobPayload };
+          
+          showNotification("Transaksi Baru Dibuat. Silakan input estimasi.", "success");
+          openModal('create_estimation', newJobData);
+
+      } catch (e) {
+          console.error(e);
+          showNotification("Gagal membuat transaksi baru", "error");
+      }
+  };
+
   const handleDeleteJob = async (job: Job) => {
       try {
           await deleteDoc(doc(db, JOBS_COLLECTION, job.id));
@@ -109,20 +151,18 @@ const AppContent: React.FC = () => {
   };
 
   const handleCloseJob = async (job: Job) => {
-      // 1. Validasi Expenses
       const costs = job.costData || { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };
       const hasExpenses = (costs.hargaModalBahan || 0) > 0 || (costs.hargaBeliPart || 0) > 0 || (costs.jasaExternal || 0) > 0;
 
       if (!hasExpenses) {
           const confirmNoExpense = window.confirm(
               `PERINGATAN PENTING!\n\n` +
-              `WO ${job.woNumber || job.policeNumber} belum memiliki pembebanan biaya (Modal Bahan / Beli Part / Jasa Luar masih 0).\n\n` +
-              `Menutup WO tanpa expenses akan menyebabkan laporan Profit tidak akurat.\n` +
+              `WO ${job.woNumber || job.policeNumber} belum memiliki pembebanan biaya.\n` +
               `Apakah Anda yakin ingin tetap menutup WO ini?`
           );
           if (!confirmNoExpense) return;
       } else {
-          if (!window.confirm(`Konfirmasi Close WO ${job.woNumber || job.policeNumber}?\n\nStatus akan berubah menjadi 'Selesai' dan WO akan dikunci.`)) return;
+          if (!window.confirm(`Konfirmasi Close WO ${job.woNumber || job.policeNumber}?`)) return;
       }
 
       try {
@@ -140,26 +180,25 @@ const AppContent: React.FC = () => {
       }
   };
 
-  // UPDATED: Handle Save Estimate OR Generate WO
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
           const jobRef = doc(db, JOBS_COLLECTION, jobId);
           const currentJob = allData.find(j => j.id === jobId);
           
+          // Check if this is the FIRST time generating WO to trigger stock deduction
+          const isFirstTimeWO = saveType === 'wo' && !currentJob?.woNumber;
+
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
 
           const now = new Date();
-          const year = now.getFullYear().toString().slice(-2); // 24
-          const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 12
+          const year = now.getFullYear().toString().slice(-2); 
+          const month = (now.getMonth() + 1).toString().padStart(2, '0'); 
 
-          // 1. GENERATE ESTIMATION NUMBER IF MISSING (Always needed first)
+          // 1. Generate Estimation Number
           if (!estimationNumber) {
-              const prefix = `BE${year}${month}`; // BE2412
-              const existingNumbers = allData
-                  .map(j => j.estimateData?.estimationNumber)
-                  .filter(n => n && n.startsWith(prefix));
-
+              const prefix = `BE${year}${month}`; 
+              const existingNumbers = allData.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
               existingNumbers.forEach(n => {
                   if (n) {
@@ -170,13 +209,10 @@ const AppContent: React.FC = () => {
               estimationNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
-          // 2. GENERATE WO NUMBER IF REQUESTED AND MISSING
+          // 2. Generate WO Number
           if (saveType === 'wo' && !woNumber) {
-              const prefix = `WO${year}${month}`; // WO2412
-              const existingNumbers = allData
-                  .map(j => j.woNumber)
-                  .filter(n => n && n.startsWith(prefix));
-
+              const prefix = `WO${year}${month}`; 
+              const existingNumbers = allData.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
               existingNumbers.forEach(n => {
                   if (n) {
@@ -187,27 +223,42 @@ const AppContent: React.FC = () => {
               woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
+          // 3. STOCK DEDUCTION LOGIC (Only when generating WO for the first time)
+          if (isFirstTimeWO) {
+              for (const item of estimateData.partItems) {
+                  if (item.inventoryId && item.qty) {
+                      try {
+                          const partRef = doc(db, SPAREPART_COLLECTION, item.inventoryId);
+                          // Atomic decrement
+                          await updateDoc(partRef, {
+                              stock: increment(-item.qty)
+                          });
+                      } catch (err) {
+                          console.error(`Failed to deduct stock for ${item.name}`, err);
+                      }
+                  }
+              }
+              showNotification("Stok Inventory berhasil diperbarui (terpotong).", "success");
+              refreshInventory(); // Refresh local inventory state
+          }
+
           const updatedEstimateData = {
               ...estimateData,
               estimationNumber: estimationNumber
           };
 
-          // Prepare update payload
           const updatePayload: any = {
               estimateData: updatedEstimateData,
               hargaJasa: updatedEstimateData.subtotalJasa,
               hargaPart: updatedEstimateData.subtotalPart,
           };
           
-          // Add WO number to payload if generated
           if (woNumber) {
               updatePayload.woNumber = woNumber;
-              // AUTO UPDATE STATUS WHEN WO IS GENERATED
               updatePayload.statusKendaraan = 'Work In Progress';
               updatePayload.statusPekerjaan = 'Belum Mulai Perbaikan';
           }
 
-          // Sync SA Name if generic
           if (currentJob && (currentJob.namaSA === 'Pending Allocation' || !currentJob.namaSA)) {
              updatePayload.namaSA = updatedEstimateData.estimatorName || userData.displayName;
           }
@@ -274,10 +325,6 @@ const AppContent: React.FC = () => {
                 <div>
                     <p className="font-bold">Koneksi Database Gagal</p>
                     <p className="text-sm">{jobsError}</p>
-                    <p className="text-xs mt-2 text-red-600">
-                        <strong>Solusi:</strong> Buka Firebase Console {'>'} Firestore Database {'>'} Rules. 
-                        Pastikan rules diatur ke "Test Mode" atau izinkan akses read/write untuk request.auth != null.
-                    </p>
                 </div>
             </div>
         )}
@@ -309,7 +356,8 @@ const AppContent: React.FC = () => {
                 <EstimationForm 
                     allJobs={allData} 
                     onNavigate={setCurrentView} 
-                    openModal={openModal} 
+                    openModal={openModal}
+                    onCreateTransaction={handleCreateTransaction} // NEW PROP
                 />
             </div>
         )}
@@ -333,7 +381,6 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* INVENTORY MODULE */}
         {currentView === 'inventory' && (
              <InventoryView 
                 userPermissions={userPermissions}
@@ -403,6 +450,7 @@ const AppContent: React.FC = () => {
                     onCancel={closeModal}
                     settings={appSettings} 
                     creatorName={userData.displayName || 'Admin'}
+                    inventoryItems={inventoryItems} // PASS INVENTORY
                 />
             )}
 
@@ -415,6 +463,7 @@ const AppContent: React.FC = () => {
                     onCancel={closeModal}
                     settings={appSettings} 
                     creatorName={userData.displayName || 'Admin'}
+                    inventoryItems={inventoryItems} // PASS INVENTORY
                 />
             )}
         </Modal>
