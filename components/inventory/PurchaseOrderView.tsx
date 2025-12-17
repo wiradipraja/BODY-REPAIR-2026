@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Save, Trash2, Package } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle } from 'lucide-react';
 
 interface PurchaseOrderViewProps {
   suppliers: Supplier[];
@@ -19,6 +19,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
 
   // Form State
@@ -32,14 +33,20 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   // Fetch Orders
   const fetchOrders = async () => {
       setLoading(true);
+      setError(null);
       try {
           const q = query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'), limit(50));
           const snapshot = await getDocs(q);
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder));
           setOrders(data);
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          showNotification("Gagal memuat data PO", "error");
+          let msg = "Gagal memuat data PO.";
+          if (e.code === 'permission-denied') {
+              msg = "Akses Ditolak: Database belum mengizinkan akses ke 'Purchase Orders'. Mohon update Rules di Firebase Console.";
+          }
+          setError(msg);
+          showNotification(msg, "error");
       } finally {
           setLoading(false);
       }
@@ -124,9 +131,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           showNotification(`PO ${poNumber} berhasil dibuat (${status})`, "success");
           setViewMode('list');
           setPoForm({ supplierId: '', items: [], notes: '' });
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          showNotification("Gagal membuat PO", "error");
+          let msg = "Gagal membuat PO";
+          if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
+          showNotification(msg, "error");
       }
   };
 
@@ -147,8 +156,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp()
                   });
               } else {
-                  // If item doesn't exist in master, ideally we should create it or ignore.
-                  // For now, we ignore but log it. In a real app, we might prompt to create.
                   console.warn(`Item ${item.name} not linked to inventory master. Stock not updated.`);
               }
           });
@@ -167,9 +174,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           setViewMode('list');
           setSelectedPO(null);
 
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          showNotification("Gagal memproses penerimaan barang.", "error");
+          let msg = "Gagal memproses penerimaan barang.";
+          if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
+          showNotification(msg, "error");
       }
   };
 
@@ -177,22 +186,19 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       if (!window.confirm("Hapus PO ini?")) return;
       try {
           // Soft delete or hard delete? Firestore hard delete here.
-          // Note: Only allow delete if not Received to avoid stock inconsistency
           if (po.status === 'Received') {
               showNotification("Tidak bisa menghapus PO yang sudah diterima.", "error");
               return;
           }
-          // We actually need deleteDoc from firestore, imported above
-          // Assuming we import deleteDoc
-          // await deleteDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id)); 
-          // For safety, let's just Cancel it
            await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id), {
               status: 'Cancelled'
           });
           showNotification("PO Dibatalkan", "success");
           fetchOrders();
-      } catch (e) {
-          showNotification("Gagal menghapus", "error");
+      } catch (e: any) {
+          let msg = "Gagal membatalkan PO";
+          if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
+          showNotification(msg, "error");
       }
   };
 
@@ -415,9 +421,19 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                 </div>
             </div>
 
+            {error && (
+                <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 m-4 rounded-lg shadow-sm flex items-start gap-3">
+                    <div className="mt-1"><AlertCircle size={20}/></div>
+                    <div>
+                        <p className="font-bold">Koneksi Database Bermasalah</p>
+                        <p className="text-sm mt-1">{error}</p>
+                    </div>
+                </div>
+            )}
+
             {loading ? (
                 <div className="p-12 text-center text-gray-500">Memuat data...</div>
-            ) : orders.length === 0 ? (
+            ) : orders.length === 0 && !error ? (
                 <div className="p-12 text-center text-gray-400">Belum ada Purchase Order.</div>
             ) : (
                 <div className="overflow-x-auto">
