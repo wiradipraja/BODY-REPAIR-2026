@@ -46,8 +46,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [foundJob, setFoundJob] = useState<Job | null>(null);
   const [selectedPartsFromWo, setSelectedPartsFromWo] = useState<Record<number, { selected: boolean, isIndent: boolean }>>({});
 
-  // Manager Access
-  const isManager = userPermissions.role === 'Manager';
+  // Manager Access Check
+  const isManager = userPermissions.role === 'Manager' || userPermissions.role === 'Super Admin';
 
   // Load Settings for PDF Header
   useEffect(() => {
@@ -93,11 +93,68 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   }, [selectedPO]);
 
-  // Fix: Defined toggleItemSelection function to handle checkbox selection in detail view
+  // Handler for checkbox selection in detail view
   const toggleItemSelection = (idx: number) => {
     setSelectedItemsToReceive(prev => 
       prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
     );
+  };
+
+  // --- HANDLERS FOR APPROVAL ---
+
+  const handleApprovePO = async () => {
+      if (!selectedPO) return;
+      if (!isManager) {
+          showNotification("Hanya Manager yang dapat menyetujui PO.", "error");
+          return;
+      }
+      if (!window.confirm("Setujui PO ini? Status akan berubah menjadi Ordered dan dapat dilakukan penerimaan barang.")) return;
+      
+      setLoading(true);
+      try {
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
+              status: 'Ordered',
+              approvedBy: userPermissions.role,
+              approvedAt: serverTimestamp()
+          });
+          showNotification("Purchase Order Disetujui (Approved).", "success");
+          setSelectedPO(null);
+          setViewMode('list');
+          fetchOrders();
+      } catch (e: any) {
+          showNotification("Gagal menyetujui PO: " + e.message, "error");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleRejectPO = async () => {
+      if (!selectedPO) return;
+      if (!isManager) return;
+      const reason = window.prompt("⚠️ TOLAK PO\n\nMasukkan alasan penolakan (Wajib):", "Budget tidak sesuai / revisi item");
+      if (reason === null) return;
+      if (!reason.trim()) {
+          showNotification("Alasan penolakan harus diisi!", "error");
+          return;
+      }
+
+      setLoading(true);
+      try {
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
+              status: 'Rejected',
+              rejectionReason: reason,
+              approvedBy: userPermissions.role,
+              approvedAt: serverTimestamp()
+          });
+          showNotification("PO Berhasil Ditolak.", "success");
+          setSelectedPO(null);
+          setViewMode('list');
+          fetchOrders();
+      } catch (e: any) {
+          showNotification("Gagal menolak PO.", "error");
+      } finally {
+          setLoading(false);
+      }
   };
 
   // --- HANDLERS FOR WO IMPORT ---
@@ -111,7 +168,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
           
-          // 1. CARI DATA DARI DATABASE
           let q = query(collection(db, JOBS_COLLECTION), where('woNumber', '==', termUpper));
           let snapshot = await getDocs(q);
           
@@ -123,18 +179,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           if (!snapshot.empty) {
               const allMatchingDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
               
-              // 2. SORT LOKAL: Utamakan record terbaru (Audit Trail / Multi-visit)
               allMatchingDocs.sort((a, b) => {
                   const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
                   const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
                   return timeB - timeA;
               });
 
-              // 3. FILTER: Cari record terbaru yang PUNYA estimasi part
               const jobWithParts = allMatchingDocs.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
               
               if (!jobWithParts) {
-                  showNotification(`Unit ${termUpper} ditemukan, tapi SA belum menginput list sparepart atau belum klik "Update Estimasi".`, "error");
+                  showNotification(`Unit ${termUpper} ditemukan, tapi estimasi part masih kosong di database. Pastikan SA sudah klik "Update Estimasi".`, "error");
                   return;
               }
 
@@ -172,21 +226,19 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       parts.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
-              // MAPPING LOGIC: Cek ke master stok (jika ada)
               const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
               const invItem = inventoryItems.find(i => 
                   (estItem.inventoryId && i.id === estItem.inventoryId) || 
                   (partCodeUpper && i.code?.toUpperCase() === partCodeUpper)
               );
 
-              // TETAP TAMBAHKAN MESKIPUN PART BARU (BELUM ADA DI MASTER)
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || 'NON-PART-NO',
                   name: estItem.name || 'Nama Part Belum Diisi',
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
-                  price: invItem?.buyPrice || 0, // Partman akan isi harga manual jika 0
+                  price: invItem?.buyPrice || 0,
                   total: (estItem.qty || 1) * (invItem?.buyPrice || 0),
                   inventoryId: estItem.inventoryId || invItem?.id || null,
                   refJobId: foundJob.id,
@@ -295,8 +347,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
           
-          // SYNC: Update Status 'isOrdered' di WO agar SA tahu part sedang dibeli
-          const jobUpdates: Record<string, any> = {};
           for (const item of sanitizedItems) {
               if (item.refJobId && item.refPartIndex !== null) {
                   const jobRef = doc(db, JOBS_COLLECTION, item.refJobId);
@@ -353,7 +403,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp() 
                   });
               } else {
-                  // AUTO REGISTER NEW ITEM
                   const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
                       code: itemCodeUpper, name: item.name, category: 'sparepart',
                       stock: qtyNow, unit: item.unit, minStock: 2, buyPrice: item.price,
@@ -492,6 +541,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   if (viewMode === 'detail' && selectedPO) {
       const isReceivable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial';
+      const showApprovalActions = selectedPO.status === 'Pending Approval' && isManager;
+
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border shadow-sm">
               <div className="flex justify-between items-start mb-6 border-b pb-4">
@@ -503,10 +554,58 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                   </div>
                   <div className="flex gap-2">
-                      {isReceivable && selectedItemsToReceive.length > 0 && <button onClick={handleProcessReceiving} className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold animate-pulse">Simpan Terima ({selectedItemsToReceive.length})</button>}
-                      <button onClick={() => generatePurchaseOrderPDF(selectedPO, settings)} className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50"><Printer size={18}/> Print PO</button>
+                      {/* APPROVAL BUTTONS */}
+                      {showApprovalActions && (
+                          <>
+                            <button 
+                                onClick={handleRejectPO} 
+                                disabled={loading}
+                                className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1"
+                            >
+                                <Ban size={18}/> Tolak
+                            </button>
+                            <button 
+                                onClick={handleApprovePO} 
+                                disabled={loading}
+                                className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold hover:bg-green-700 transition-all flex items-center gap-1"
+                            >
+                                <Check size={18}/> Setujui (Approve)
+                            </button>
+                          </>
+                      )}
+
+                      {/* RECEIVING BUTTON */}
+                      {isReceivable && selectedItemsToReceive.length > 0 && (
+                        <button 
+                            onClick={handleProcessReceiving} 
+                            disabled={loading}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded shadow font-bold animate-pulse hover:bg-indigo-700"
+                        >
+                            Simpan Terima ({selectedItemsToReceive.length})
+                        </button>
+                      )}
+
+                      {/* PRINT BUTTON */}
+                      <button 
+                        onClick={() => generatePurchaseOrderPDF(selectedPO, settings)} 
+                        className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                      >
+                        <Printer size={18}/> Print PO
+                      </button>
                   </div>
               </div>
+
+              {/* REJECTION MESSAGE */}
+              {selectedPO.status === 'Rejected' && selectedPO.rejectionReason && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-red-800 text-sm">
+                      <AlertCircle size={20} className="shrink-0 mt-0.5"/>
+                      <div>
+                          <p className="font-bold">PO DITOLAK</p>
+                          <p className="italic">Alasan: {selectedPO.rejectionReason}</p>
+                      </div>
+                  </div>
+              )}
+
               <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left border">
                       <thead className="bg-gray-100 font-bold">
@@ -528,8 +627,30 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               );
                           })}
                       </tbody>
+                      <tfoot className="bg-gray-50 font-bold">
+                          <tr>
+                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right">SUBTOTAL</td>
+                              <td className="p-3 text-right">{formatCurrency(selectedPO.subtotal)}</td>
+                          </tr>
+                          {selectedPO.hasPpn && (
+                            <tr>
+                                <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right">PPN 11%</td>
+                                <td className="p-3 text-right">{formatCurrency(selectedPO.ppnAmount)}</td>
+                            </tr>
+                          )}
+                          <tr className="text-lg bg-indigo-50">
+                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right font-black text-indigo-900">GRAND TOTAL</td>
+                              <td className="p-3 text-right font-black text-indigo-900">{formatCurrency(selectedPO.totalAmount)}</td>
+                          </tr>
+                      </tfoot>
                   </table>
               </div>
+              {selectedPO.notes && (
+                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-xs font-bold text-gray-500 uppercase">Catatan PO:</p>
+                      <p className="text-sm text-gray-700">{selectedPO.notes}</p>
+                  </div>
+              )}
           </div>
       );
   }
@@ -542,20 +663,20 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         </div>
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
-                <div className="relative w-full max-md"><Search className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Cari PO..." className="w-full pl-10 p-2.5 border rounded-lg" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+                <div className="relative w-full max-w-md"><Search className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Cari No. PO atau Supplier..." className="w-full pl-10 p-2.5 border rounded-lg" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
             </div>
-            {loading ? <div className="p-20 text-center animate-pulse text-gray-500 font-bold">Memuat data...</div> : (
+            {loading && orders.length === 0 ? <div className="p-20 text-center animate-pulse text-gray-500 font-bold">Memuat data...</div> : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4">No. PO</th><th className="px-6 py-4">Supplier</th><th className="px-6 py-4">Status</th><th className="px-6 py-4 text-right">Total</th><th className="px-6 py-4 text-center">Aksi</th></tr></thead>
+                        <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4 text-xs uppercase text-gray-500">No. PO</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Supplier</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Status</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-right">Total</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-center">Aksi</th></tr></thead>
                         <tbody className="divide-y">
                             {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
-                                <tr key={order.id} className="hover:bg-gray-50">
+                                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
-                                    <td className="px-6 py-4 font-bold">{order.supplierName}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
                                     <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
-                                    <td className="px-6 py-4 text-right font-black">{formatCurrency(order.totalAmount)}</td>
-                                    <td className="px-6 py-4 text-center"><button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full"><Eye size={18}/></button></td>
+                                    <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
+                                    <td className="px-6 py-4 text-center"><button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"><Eye size={18}/></button></td>
                                 </tr>
                             ))}
                         </tbody>
