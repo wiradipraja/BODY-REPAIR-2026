@@ -114,7 +114,7 @@ const AppContent: React.FC = () => {
               };
               if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
               await addDoc(collection(db, JOBS_COLLECTION), newJob);
-              showNotification("Data berhasil ditambahkan", "success");
+              showNotification("Data Unit tersimpan. Silakan lanjut ke menu Estimasi untuk memproses.", "success");
           }
           closeModal();
       } catch (e) { 
@@ -318,7 +318,16 @@ const AppContent: React.FC = () => {
   };
 
   const filteredJobs = useMemo(() => {
-      let jobs = [...allData];
+      // Logic filter: Hanya tampilkan yang sudah punya nomor estimasi ATAU memiliki item jasa/part
+      let jobs = allData.filter(job => {
+          const hasEstNumber = job.estimateData?.estimationNumber;
+          const hasJasa = job.estimateData?.jasaItems && job.estimateData.jasaItems.length > 0;
+          const hasParts = job.estimateData?.partItems && job.estimateData.partItems.length > 0;
+          const hasWONumber = !!job.woNumber;
+          
+          return hasEstNumber || hasJasa || hasParts || hasWONumber;
+      });
+
       if (!showClosedJobs) jobs = jobs.filter(job => !job.isClosed);
       if (searchQuery) jobs = jobs.filter(job => job.policeNumber && job.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()));
       if (filterStatus) jobs = jobs.filter(job => job.statusKendaraan === filterStatus);
