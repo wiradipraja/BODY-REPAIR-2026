@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
 import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -106,7 +106,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       setLoading(true);
       try {
           // Find Job by WO Number or Police Number
-          // Ideally use a query index, but for now filtering locally or simple query
           const q = query(collection(db, JOBS_COLLECTION), where('woNumber', '==', woSearchTerm));
           let snapshot = await getDocs(q);
           
@@ -150,14 +149,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       foundJob.estimateData.partItems.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
-              // Find matching inventory item for price/unit details
+              // CASE-INSENSITIVE SEARCH in Inventory
+              const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
               const invItem = inventoryItems.find(i => 
                   (estItem.inventoryId && i.id === estItem.inventoryId) || 
-                  (estItem.number && i.code === estItem.number)
+                  (partCodeUpper && i.code?.toUpperCase() === partCodeUpper)
               );
 
               itemsToAdd.push({
-                  code: estItem.number || invItem?.code || '',
+                  code: partCodeUpper || estItem.number || '',
                   name: estItem.name,
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
@@ -183,7 +183,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           items: [...(prev.items || []), ...itemsToAdd]
       }));
       
-      // Auto fill note if empty
       if (!poForm.notes) {
           setPoForm(prev => ({ ...prev, notes: `Order khusus WO: ${foundJob.woNumber} - ${foundJob.policeNumber}` }));
       }
@@ -214,28 +213,26 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const handleUpdateItem = (index: number, field: keyof PurchaseOrderItem, value: any) => {
       const newItems = [...(poForm.items || [])];
       
-      // Auto-fill logic from inventory ONLY when typing code
       if (field === 'code') {
-          // If user selects/types code, try to find in inventory
-          const match = inventoryItems.find(i => 
-              i.code.toLowerCase() === String(value).toLowerCase()
-          );
+          const codeUpper = String(value).toUpperCase().trim();
+          // Find case-insensitive match
+          const match = inventoryItems.find(i => i.code?.toUpperCase() === codeUpper);
           
           if (match) {
               newItems[index].inventoryId = match.id;
               newItems[index].name = match.name;
               newItems[index].unit = match.unit;
-              newItems[index].price = match.buyPrice; // Default to current buy price
+              newItems[index].price = match.buyPrice;
+              newItems[index].code = match.code; // Use canonical code from DB
           } else {
              newItems[index].inventoryId = null;
+             newItems[index].code = codeUpper;
           }
+      } else {
+          newItems[index] = { ...newItems[index], [field]: value };
       }
-
-      newItems[index] = { ...newItems[index], [field]: value };
       
-      // Recalc Total Row
       newItems[index].total = (newItems[index].qty || 0) * (newItems[index].price || 0);
-      
       setPoForm(prev => ({ ...prev, items: newItems }));
   };
 
@@ -268,18 +265,17 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
       const sanitizedItems = poForm.items.map(item => ({
-          code: item.code || '',
+          code: item.code?.toUpperCase().trim() || '',
           name: item.name || '',
           qty: item.qty || 0,
-          qtyReceived: 0, // Init 0
+          qtyReceived: 0,
           unit: item.unit || 'Pcs',
           price: item.price || 0,
           total: item.total || 0,
           inventoryId: item.inventoryId || null,
-          // Refs
           refJobId: item.refJobId || null,
           refWoNumber: item.refWoNumber || null,
-          refPartIndex: item.refPartIndex ?? null, // use ?? because 0 is falsy
+          refPartIndex: item.refPartIndex ?? null,
           isIndent: item.isIndent || false
       }));
 
@@ -300,11 +296,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       setLoading(true);
       try {
-          // 1. Create PO
-          await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), payload);
+          await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
 
-          // 2. Update Linked Jobs (If any items are linked)
-          // Group updates by Job ID to minimize writes
           const jobUpdates: Record<string, { updates: any[], ref: any, fullArray?: any[] }> = {};
 
           for (const item of sanitizedItems) {
@@ -314,24 +307,17 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       const jobSnap = await getDoc(jobRef);
                       if (jobSnap.exists()) {
                           jobUpdates[item.refJobId] = { updates: [], ref: jobRef };
-                          // We need the current array to update specific index
-                          // Ideally we use a deep update or read-modify-write pattern
-                          // Since Firestore doesn't support array update by index directly easily without reading whole array
-                          // We will read the whole array from the snapshot
                           const currentParts = jobSnap.data().estimateData?.partItems || [];
-                          // Mutate the specific index
                           if (currentParts[item.refPartIndex]) {
                               currentParts[item.refPartIndex] = {
                                   ...currentParts[item.refPartIndex],
                                   isOrdered: true,
                                   isIndent: item.isIndent
                               };
-                              // We store the FULL modified array to update later
                               jobUpdates[item.refJobId].fullArray = currentParts;
                           }
                       }
                   } else {
-                      // Job already fetched, just update array in memory
                       const currentParts = jobUpdates[item.refJobId].fullArray;
                       if (currentParts && currentParts[item.refPartIndex]) {
                           currentParts[item.refPartIndex] = {
@@ -344,10 +330,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
           }
 
-          // Execute Job Updates
           await Promise.all(Object.values(jobUpdates).map(updateObj => {
               // @ts-ignore
-              return updateDoc(updateObj.ref, { 'estimateData.partItems': updateObj.fullArray });
+              return updateDoc(updateObj.ref, cleanObject({ 'estimateData.partItems': updateObj.fullArray }));
           }));
 
           showNotification(`PO ${poNumber} berhasil dibuat dan Status Part WO diupdate!`, "success");
@@ -362,8 +347,107 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
-  // --- REST OF THE FILE (Existing Handlers for Approval, Receive, Detail View) ---
+  // --- HANDLER: PROCESS RECEIVING WITH AUTO-REGISTER ---
   
+  const handleProcessReceiving = async () => {
+      if (!selectedPO) return;
+      if (selectedItemsToReceive.length === 0) { showNotification("Pilih minimal satu item untuk diterima.", "error"); return; }
+      
+      const invalidQty = selectedItemsToReceive.some(idx => {
+          const qtyNow = receiveQtyMap[idx] || 0;
+          return qtyNow <= 0;
+      });
+      if (invalidQty) { showNotification("Jumlah barang yang diterima harus lebih dari 0.", "error"); return; }
+
+      if (!window.confirm("Simpan Penerimaan Barang? Stok akan bertambah dan item baru akan didaftarkan otomatis jika belum ada.")) return;
+
+      setLoading(true);
+      try {
+          const updatedItems = [...selectedPO.items];
+          const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
+
+          // We need an updated inventory list for local check during loop
+          const latestInvQuery = await getDocs(collection(db, SPAREPART_COLLECTION));
+          const currentMasterList = latestInvQuery.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem));
+
+          const updatePromises = selectedItemsToReceive.map(async (idx) => {
+              const item = updatedItems[idx];
+              const qtyNow = receiveQtyMap[idx] || 0;
+              const itemCodeUpper = item.code.toUpperCase().trim();
+              
+              let targetInventoryId = item.inventoryId;
+
+              // CASE-INSENSITIVE SEARCH IF ID IS NULL
+              if (!targetInventoryId && itemCodeUpper) {
+                  const match = currentMasterList.find(m => m.code?.toUpperCase() === itemCodeUpper);
+                  if (match) targetInventoryId = match.id;
+              }
+
+              if (targetInventoryId) {
+                  // Update Existing
+                  const itemRef = doc(db, SPAREPART_COLLECTION, targetInventoryId);
+                  await updateDoc(itemRef, { 
+                      stock: increment(qtyNow), 
+                      buyPrice: item.price, 
+                      updatedAt: serverTimestamp() 
+                  });
+              } else {
+                  // AUTO REGISTER NEW ITEM
+                  const isMaterial = ['Liter', 'Kaleng', 'Kg', 'Gram', 'Galon'].includes(item.unit);
+                  const newItemPayload: any = {
+                      code: itemCodeUpper || `AUTO-${Date.now()}-${idx}`,
+                      name: item.name,
+                      category: isMaterial ? 'material' : 'sparepart',
+                      brand: 'Generic (Auto)',
+                      stock: qtyNow,
+                      unit: item.unit,
+                      minStock: 5,
+                      buyPrice: item.price,
+                      sellPrice: Math.round(item.price * 1.25), // Auto markup 25% for convenience
+                      location: 'Gudang (Auto)',
+                      supplierId: selectedPO.supplierId,
+                      isStockManaged: true,
+                      createdAt: serverTimestamp(),
+                      updatedAt: serverTimestamp()
+                  };
+                  const docRef = await addDoc(collection(db, SPAREPART_COLLECTION), cleanObject(newItemPayload));
+                  targetInventoryId = docRef.id;
+              }
+
+              updatedItems[idx] = {
+                  ...item,
+                  qtyReceived: (item.qtyReceived || 0) + qtyNow,
+                  inventoryId: targetInventoryId 
+              };
+              itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
+          });
+
+          await Promise.all(updatePromises);
+
+          const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
+          const newStatus = isFull ? 'Received' : 'Partial';
+
+          const updatePayload: any = { items: updatedItems, status: newStatus };
+          if (newStatus === 'Received') {
+              updatePayload.receivedAt = serverTimestamp();
+              updatePayload.receivedBy = userPermissions.role;
+          }
+
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), cleanObject(updatePayload));
+          generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
+
+          showNotification("Barang diterima & Master Stok otomatis terupdate.", "success");
+          onRefreshInventory();
+          setViewMode('list');
+          setSelectedPO(null);
+      } catch (e: any) {
+          console.error(e);
+          showNotification("Gagal: " + e.message, "error");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleApprovePO = async () => {
       if (!selectedPO) return;
       if (!isManager) {
@@ -419,85 +503,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
-  const handleProcessReceiving = async () => {
-      if (!selectedPO) return;
-      if (selectedItemsToReceive.length === 0) { showNotification("Pilih minimal satu item untuk diterima.", "error"); return; }
-      
-      const invalidQty = selectedItemsToReceive.some(idx => {
-          const qtyNow = receiveQtyMap[idx] || 0;
-          return qtyNow <= 0;
-      });
-      if (invalidQty) { showNotification("Jumlah barang yang diterima harus lebih dari 0.", "error"); return; }
-
-      if (!window.confirm("Simpan Penerimaan Barang? Stok akan bertambah.")) return;
-
-      try {
-          const updatedItems = [...selectedPO.items];
-          const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
-
-          const updatePromises = selectedItemsToReceive.map(async (idx) => {
-              const item = updatedItems[idx];
-              const qtyNow = receiveQtyMap[idx] || 0;
-              
-              let targetInventoryId = item.inventoryId;
-
-              if (targetInventoryId) {
-                  const itemRef = doc(db, SPAREPART_COLLECTION, targetInventoryId);
-                  await updateDoc(itemRef, { stock: increment(qtyNow), buyPrice: item.price, updatedAt: serverTimestamp() });
-              } else {
-                  const isMaterial = ['Liter', 'Kaleng', 'Kg', 'Gram', 'Galon'].includes(item.unit);
-                  const newItemPayload: any = {
-                      code: item.code || `NEW-${Date.now()}-${idx}`,
-                      name: item.name,
-                      category: isMaterial ? 'material' : 'sparepart',
-                      brand: 'Generic',
-                      stock: qtyNow,
-                      unit: item.unit,
-                      minStock: 5,
-                      buyPrice: item.price,
-                      sellPrice: item.price * 1.25,
-                      location: 'Gudang',
-                      supplierId: selectedPO.supplierId,
-                      isStockManaged: true,
-                      createdAt: serverTimestamp(),
-                      updatedAt: serverTimestamp()
-                  };
-                  const docRef = await addDoc(collection(db, SPAREPART_COLLECTION), newItemPayload);
-                  targetInventoryId = docRef.id;
-              }
-
-              updatedItems[idx] = {
-                  ...item,
-                  qtyReceived: (item.qtyReceived || 0) + qtyNow,
-                  inventoryId: targetInventoryId 
-              };
-              itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
-          });
-
-          await Promise.all(updatePromises);
-
-          const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
-          const newStatus = isFull ? 'Received' : 'Partial';
-
-          const updatePayload: any = { items: updatedItems, status: newStatus };
-          if (newStatus === 'Received') {
-              updatePayload.receivedAt = serverTimestamp();
-              updatePayload.receivedBy = userPermissions.role;
-          }
-
-          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), updatePayload);
-          generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
-
-          showNotification("Barang diterima & stok terupdate.", "success");
-          onRefreshInventory();
-          setViewMode('list');
-          setSelectedPO(null);
-      } catch (e: any) {
-          console.error(e);
-          showNotification("Gagal: " + e.message, "error");
-      }
-  };
-
   const handleDeletePO = async (po: PurchaseOrder) => {
       if (!window.confirm("Hapus PO ini?")) return;
       try {
@@ -508,7 +513,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
            await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id), { status: 'Cancelled' });
           showNotification("PO Dibatalkan", "success");
           fetchOrders();
-      } catch (e: any) { showNotification("Gagal membatalkan PO", "error"); }
+      } catch (e: any) { showNotification("Gagal membakalkan PO", "error"); }
   };
 
   const getStatusBadge = (status: string) => {
@@ -524,8 +529,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
-  // --- VIEWS ---
-
   if (viewMode === 'create') {
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
@@ -536,7 +539,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <h2 className="text-2xl font-bold text-gray-800">Buat Purchase Order Baru</h2>
               </div>
 
-              {/* SUPPLIER & CREATION MODE */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                   <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Supplier *</label>
@@ -568,7 +570,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   </div>
               </div>
 
-              {/* MODE SPECIFIC UI */}
               {poCreationMode === 'wo' && (
                   <div className="mb-8 bg-blue-50 border border-blue-200 p-4 rounded-xl">
                       <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2"><Search size={18}/> Cari Kebutuhan Part dari WO</h3>
@@ -659,7 +660,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   </div>
               )}
 
-              {/* ITEMS TABLE */}
               <div className="mb-6">
                   <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><ShoppingCart size={18}/> Item Pesanan (Draft)</h3>
                   <table className="w-full text-sm text-left border-collapse border border-gray-200">
@@ -685,7 +685,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                           value={item.code}
                                           onChange={e => handleUpdateItem(idx, 'code', e.target.value)}
                                           placeholder="Ketik kode..."
-                                          disabled={!!item.refJobId} // Lock if from WO
+                                          disabled={!!item.refJobId}
                                       />
                                   </td>
                                   <td className="p-2 border">
@@ -743,7 +743,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   </datalist>
               </div>
 
-              {/* NOTE & SUMMARY */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t bg-gray-50 p-4 rounded-lg">
                   <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Catatan PO</label>
@@ -791,14 +790,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       );
   }
 
-  // --- DETAIL VIEW & LIST VIEW REMAIN UNCHANGED (Using existing render logic) ---
   if (viewMode === 'detail' && selectedPO) {
       const isReceivable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial';
       const isPrintable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial' || selectedPO.status === 'Received';
 
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-              {/* Detail View Header & Content same as before */}
               <div className="flex justify-between items-start mb-6 border-b pb-4">
                   <div className="flex items-center gap-4">
                       <button onClick={() => { setViewMode('list'); setSelectedPO(null); }} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
@@ -826,7 +823,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   </div>
               </div>
 
-              {/* Status & Alerts */}
               {isReceivable && (
                   <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3 text-sm text-blue-800">
                       <AlertCircle size={20} className="mt-0.5 shrink-0"/>
@@ -840,7 +836,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   </div>
               )}
 
-              {/* Items Table */}
               <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left border-collapse border border-gray-200">
                       <thead className="bg-gray-100 text-gray-700 uppercase">
@@ -919,7 +914,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       );
   }
 
-  // --- LIST VIEW ---
   return (
     <div className="animate-fade-in space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">

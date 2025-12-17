@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs
 import { db, JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION } from './services/firebase';
 import { Job, EstimateData, Settings, InventoryItem, Supplier } from './types';
 import { initialSettingsState } from './utils/constants';
+import { cleanObject } from './utils/helpers';
 
 // Components
 import MainDashboard from './components/dashboard/MainDashboard';
@@ -101,8 +102,9 @@ const AppContent: React.FC = () => {
       try {
           if (formData.id) {
               const jobRef = doc(db, JOBS_COLLECTION, formData.id);
-              const cleanData = Object.fromEntries(Object.entries(formData).filter(([_, v]) => v !== undefined));
-              await updateDoc(jobRef, cleanData);
+              // Recursively clean undefined values
+              const cleaned = cleanObject(formData);
+              await updateDoc(jobRef, cleaned);
               showNotification("Data berhasil diperbarui", "success");
           } else {
               const newJob: any = {
@@ -113,7 +115,7 @@ const AppContent: React.FC = () => {
                   estimateData: { grandTotal: 0 }
               };
               if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
-              await addDoc(collection(db, JOBS_COLLECTION), newJob);
+              await addDoc(collection(db, JOBS_COLLECTION), cleanObject(newJob));
               showNotification("Data Unit tersimpan. Silakan lanjut ke menu Estimasi untuk memproses.", "success");
           }
           closeModal();
@@ -139,7 +141,7 @@ const AppContent: React.FC = () => {
               estimateData: { grandTotal: 0, jasaItems: [], partItems: [] }
           };
 
-          const docRef = await addDoc(collection(db, JOBS_COLLECTION), newJobPayload);
+          const docRef = await addDoc(collection(db, JOBS_COLLECTION), cleanObject(newJobPayload));
           
           const newJobData = { id: docRef.id, ...newJobPayload };
           
@@ -298,7 +300,8 @@ const AppContent: React.FC = () => {
              updatePayload.namaSA = updatedEstimateData.estimatorName || userData.displayName;
           }
 
-          await updateDoc(jobRef, updatePayload);
+          // Clean payload of any undefined values
+          await updateDoc(jobRef, cleanObject(updatePayload));
           
           const successMsg = saveType === 'wo' 
              ? `Work Order ${woNumber} berhasil diterbitkan!` 

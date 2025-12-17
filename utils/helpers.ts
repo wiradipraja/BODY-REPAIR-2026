@@ -8,6 +8,25 @@ export const formatPoliceNumber = (value: string) => {
     return value.replace(/\s/g, '').toUpperCase();
 };
 
+// Recursive function to remove undefined values for Firestore
+export const cleanObject = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object' || obj instanceof Timestamp || obj instanceof Date) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanObject(item));
+  }
+
+  const newObj: any = {};
+  Object.keys(obj).forEach((key) => {
+    if (obj[key] !== undefined) {
+      newObj[key] = cleanObject(obj[key]);
+    }
+  });
+  return newObj;
+};
+
 // Untuk input type="date" value (Format HTML standar harus YYYY-MM-DD)
 export const toYyyyMmDd = (date: any): string => {
     if (!date) return '';

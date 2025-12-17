@@ -94,7 +94,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
             newItem.price = foundPart.sellPrice;
             newItem.inventoryId = foundPart.id;
         } else {
-            newItem.inventoryId = undefined; 
+            newItem.inventoryId = undefined; // Will be cleaned to null by handleSave cleanObject
         }
     }
     // ----------------------------------------
