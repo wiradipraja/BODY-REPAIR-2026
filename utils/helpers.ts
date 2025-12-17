@@ -27,45 +27,44 @@ export const cleanObject = (obj: any): any => {
   return newObj;
 };
 
-// Untuk input type="date" value (Format HTML standar harus YYYY-MM-DD)
-export const toYyyyMmDd = (date: any): string => {
-    if (!date) return '';
-    let d: Date;
-    if (date instanceof Timestamp) {
-      d = date.toDate();
-    } else if (typeof date === 'string') {
-      d = new Date(date);
-    } else {
-      d = date;
+// Internal helper to convert any date-like object to a real JS Date
+const resolveToDate = (date: any): Date | null => {
+    if (!date) return null;
+    
+    // 1. Handle actual Date object
+    if (date instanceof Date) return date;
+    
+    // 2. Handle Firestore Timestamp Instance
+    if (typeof date.toDate === 'function') return date.toDate();
+    
+    // 3. Handle Plain Object representation of Firestore Timestamp ({seconds, nanoseconds})
+    if (typeof date === 'object' && date.seconds !== undefined) {
+        return new Date(date.seconds * 1000);
     }
     
-    if (isNaN(d.getTime())) return '';
-    let month = '' + (d.getMonth() + 1);
-    let day = '' + d.getDate();
+    // 4. Handle String or Number (ISO string or Epoch)
+    const d = new Date(date);
+    if (!isNaN(d.getTime())) return d;
+
+    return null;
+};
+
+// Untuk input type="date" value (Format HTML standar harus YYYY-MM-DD)
+export const toYyyyMmDd = (date: any): string => {
+    const d = resolveToDate(date);
+    if (!d || isNaN(d.getTime())) return '';
+    
     const year = d.getFullYear();
-    if (month.length < 2) month = '0' + month;
-    if (day.length < 2) day = '0' + day;
-    return [year, month, day].join('-');
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const day = d.getDate().toString().padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
 };
 
 // Untuk Tampilan (Display) format Indonesia (dd/mm/yyyy)
 export const formatDateIndo = (date: any): string => {
-    if (!date) return '-';
-    let d: Date;
-    // Handle Firestore Timestamp
-    if (date instanceof Timestamp) {
-      d = date.toDate();
-    } 
-    // Handle String ISO
-    else if (typeof date === 'string') {
-      d = new Date(date);
-    } 
-    // Handle Date Object
-    else {
-      d = date;
-    }
-
-    if (isNaN(d.getTime())) return '-';
+    const d = resolveToDate(date);
+    if (!d || isNaN(d.getTime())) return '-';
 
     const day = d.getDate().toString().padStart(2, '0');
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
