@@ -3,12 +3,12 @@ import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Suppli
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { Search, Package, Truck, PaintBucket, CheckCircle, AlertCircle, ArrowRight, History, XCircle, Scale, Building } from 'lucide-react';
+import { Search, Package, Truck, PaintBucket, CheckCircle, AlertCircle, ArrowRight, History, XCircle, Scale } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
   inventoryItems: InventoryItem[];
-  suppliers: Supplier[]; // New Prop
+  suppliers: Supplier[]; // Kept for prop compatibility but unused in UI
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
   onRefreshData: () => void;
@@ -16,7 +16,7 @@ interface MaterialIssuanceViewProps {
 }
 
 const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({ 
-  activeJobs, inventoryItems, suppliers, userPermissions, showNotification, onRefreshData, issuanceType
+  activeJobs, inventoryItems, userPermissions, showNotification, onRefreshData, issuanceType
 }) => {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [filterWo, setFilterWo] = useState('');
@@ -25,19 +25,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   // State for Material Mode
   const [materialSearchTerm, setMaterialSearchTerm] = useState(''); 
   const [selectedMaterialId, setSelectedMaterialId] = useState(''); 
-  const [inputQty, setInputQty] = useState(0); // Raw input
+  const [inputQty, setInputQty] = useState(0); 
   const [notes, setNotes] = useState('');
-  
-  // New State for Flexible Unit Selection
   const [selectedUnit, setSelectedUnit] = useState<string>(''); 
-  
-  // New State for Supplier
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
 
   // Derived Data
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
   
-  // Usage History Filtered by Type
   const usageHistory = useMemo(() => {
       if (!selectedJob || !selectedJob.usageLog) return [];
       return selectedJob.usageLog
@@ -49,7 +43,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       return usageHistory.reduce((acc, curr) => acc + curr.totalCost, 0);
   }, [usageHistory]);
 
-  // Filter Jobs
   const filteredJobs = useMemo(() => {
     if (!filterWo) return activeJobs.slice(0, 10);
     const lowerFilter = filterWo.toLowerCase();
@@ -59,82 +52,65 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     );
   }, [activeJobs, filterWo]);
 
-  // Filter Inventory (Material Only)
   const materialInventory = useMemo(() => {
       return inventoryItems.filter(i => i.category === 'material');
   }, [inventoryItems]);
 
-  // Reset material form when job changes
   useEffect(() => {
       setMaterialSearchTerm('');
       setSelectedMaterialId('');
       setInputQty(0);
       setNotes('');
       setSelectedUnit('');
-      setSelectedSupplierId('');
   }, [selectedJobId, issuanceType]);
 
   // --- HANDLER: PEMBEBANAN BAHAN (MATERIAL) ---
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (selectedJob?.isClosed) {
-        showNotification("WO sudah closed. Buka kembali WO untuk melakukan transaksi.", "error");
+    if (!selectedJob) return;
+    if (selectedJob.isClosed) {
+        showNotification("WO sudah closed. Transaksi ditolak.", "error");
         return;
     }
 
-    // 1. Resolve Item
     let targetId = selectedMaterialId;
     if (!targetId && materialSearchTerm) {
-        const match = materialInventory.find(i => i.name.toLowerCase() === materialSearchTerm.toLowerCase() || i.code.toLowerCase() === materialSearchTerm.toLowerCase());
+        const match = materialInventory.find(i => 
+            i.name.toLowerCase() === materialSearchTerm.toLowerCase() || 
+            (i.code && i.code.toLowerCase() === materialSearchTerm.toLowerCase())
+        );
         if (match) targetId = match.id;
     }
 
-    if (!selectedJobId || !targetId || inputQty <= 0) {
-        showNotification("Mohon pilih bahan dan masukkan jumlah yang valid.", "error");
+    if (!targetId || inputQty <= 0) {
+        showNotification("Pilih bahan dan masukkan jumlah yang valid.", "error");
         return;
     }
     
     const item = inventoryItems.find(i => i.id === targetId);
     if (!item) {
-        showNotification("Data bahan tidak ditemukan di database.", "error");
+        showNotification("Data bahan tidak ditemukan.", "error");
         return;
     }
 
-    // 2. Resolve Supplier (Optional but recommended)
-    let finalSupplierId = selectedSupplierId;
-    let finalSupplierName = '';
-    
-    // If user didn't select supplier but item has a default supplier, use that? 
-    // Logic: Form forces user to see dropdown, if empty, it's fine (internal stock), but if selected, we track.
-    if (finalSupplierId) {
-        const supp = suppliers.find(s => s.id === finalSupplierId);
-        if (supp) finalSupplierName = supp.name;
-    }
-
-    // 3. Calculate Final Quantity based on Unit Selection
-    let finalQty = inputQty;
-    
-    // Konversi hanya untuk ML dan Gram
+    let finalQty = Number(inputQty);
     if (selectedUnit === 'ML' || selectedUnit === 'Gram') {
-        finalQty = inputQty / 1000;
+        finalQty = finalQty / 1000;
     }
 
-    // 4. Stock Validation (Skip if Vendor Managed / isStockManaged == false)
     const isVendorManaged = item.isStockManaged === false; 
-    
     if (!isVendorManaged && item.stock < finalQty) {
-        showNotification(`Stok ${item.name} tidak cukup! Tersedia: ${item.stock} ${item.unit}`, "error");
+        showNotification(`Stok ${item.name} tidak cukup! (Tersedia: ${item.stock} ${item.unit})`, "error");
         return;
     }
 
-    if (!window.confirm(`Konfirmasi pemakaian bahan: \n${inputQty} ${selectedUnit} ${item.name}?`)) return;
+    if (!window.confirm(`Simpan pembebanan: ${inputQty} ${selectedUnit} ${item.name}?`)) return;
 
     setIsSubmitting(true);
     try {
         const itemCostTotal = (item.buyPrice || 0) * finalQty;
         
-        // Update Inventory (Allow negative if vendor managed)
         await updateDoc(doc(db, SPAREPART_COLLECTION, targetId), {
             stock: increment(-finalQty),
             updatedAt: serverTimestamp()
@@ -143,16 +119,14 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         const usageRecord: UsageLogItem = {
             itemId: targetId,
             itemName: item.name,
-            itemCode: item.code,
-            qty: finalQty, // Stored in Base Unit (Liter/Kg) for cost calc consistency
-            inputQty: inputQty, // Optional: store what user typed for reference
-            inputUnit: selectedUnit,
+            itemCode: item.code || '-',
+            qty: finalQty, 
+            inputQty: Number(inputQty),
+            inputUnit: selectedUnit || item.unit,
             costPerUnit: item.buyPrice,
             totalCost: itemCostTotal,
             category: 'material',
-            supplierId: finalSupplierId || undefined,
-            supplierName: finalSupplierName || undefined,
-            notes: notes,
+            notes: notes || 'Pemakaian bahan',
             issuedAt: new Date().toISOString(),
             issuedBy: userPermissions.role 
         };
@@ -162,13 +136,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             usageLog: arrayUnion(usageRecord)
         });
 
-        showNotification("Bahan berhasil dibebankan ke WO.", "success");
+        showNotification("Bahan berhasil dibebankan.", "success");
         setInputQty(0);
         setNotes('');
         setMaterialSearchTerm('');
         setSelectedMaterialId('');
-        setSelectedUnit(''); // Reset Unit
-        setSelectedSupplierId(''); // Reset Supplier
         onRefreshData();
     } catch (error: any) {
         console.error("Material Issuance Error:", error);
@@ -181,9 +153,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   // --- HANDLER: PEMBEBANAN PART (SPAREPART) ---
   const handlePartIssuance = async (estItem: EstimateItem, itemIndex: number, linkedInventoryId: string) => {
       if (!selectedJob) return;
-      
       if (selectedJob.isClosed) {
-        showNotification("WO sudah closed. Buka kembali WO untuk melakukan transaksi.", "error");
+        showNotification("WO sudah closed.", "error");
         return;
       }
 
@@ -193,15 +164,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           return;
       }
 
-      const qtyToIssue = estItem.qty || 1;
+      const qtyToIssue = Number(estItem.qty || 1);
 
       if (invItem.stock < qtyToIssue) {
-          showNotification(`Stok GUDANG tidak cukup! (Butuh: ${qtyToIssue}, Ada: ${invItem.stock})`, "error");
+          showNotification(`Stok GUDANG tidak cukup!`, "error");
           return;
       }
-
-      // Auto-detect supplier from Inventory Item master for Parts
-      const supplierName = invItem.supplierId ? suppliers.find(s => s.id === invItem.supplierId)?.name : undefined;
 
       if (!window.confirm(`Keluarkan ${qtyToIssue} ${invItem.unit} ${invItem.name}?`)) return;
 
@@ -217,13 +185,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           const usageRecord: UsageLogItem = {
             itemId: invItem.id,
             itemName: invItem.name,
-            itemCode: invItem.code,
+            itemCode: invItem.code || '-',
             qty: qtyToIssue,
             costPerUnit: invItem.buyPrice,
             totalCost: itemCostTotal,
             category: 'sparepart',
-            supplierId: invItem.supplierId,
-            supplierName: supplierName,
             notes: 'Sesuai Estimasi',
             issuedAt: new Date().toISOString(),
             issuedBy: userPermissions.role
@@ -242,7 +208,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
           showNotification(`Part ${invItem.name} berhasil dikeluarkan.`, "success");
           onRefreshData();
-
       } catch (error: any) {
           console.error("Part Issuance Error:", error);
           showNotification("Gagal: " + error.message, "error");
@@ -251,80 +216,52 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       }
   };
 
-  // --- HANDLER: CANCEL ISSUANCE (MANAGER ONLY) ---
   const handleCancelIssuance = async (logItem: UsageLogItem) => {
-      if (!selectedJob) return;
-
-      // 1. Permission Check
-      if (!userPermissions.role.includes('Manager')) {
-          showNotification("Hanya Manager yang dapat membatalkan pembebanan.", "error");
+      if (!selectedJob || !userPermissions.role.includes('Manager')) {
+          showNotification("Akses ditolak.", "error");
           return;
       }
-
-      // 2. Closed Check
       if (selectedJob.isClosed) {
-          showNotification("WO Sudah Closed! Silakan Buka Kembali WO terlebih dahulu.", "error");
+          showNotification("WO Sudah Closed!", "error");
           return;
       }
 
-      // 3. Ask for Reason
-      const reason = window.prompt(`⚠️ BATALKAN PEMBEBANAN\n\nItem: ${logItem.itemName}\nMasukkan alasan pembatalan (audit log):`, "Salah input / Retur");
-      if (reason === null) return;
-      if (!reason.trim()) {
-          showNotification("Alasan wajib diisi!", "error");
-          return;
-      }
+      const reason = window.prompt(`Batalkan pembebanan ${logItem.itemName}? Masukkan alasan:`, "Salah input");
+      if (reason === null || !reason.trim()) return;
 
       setIsSubmitting(true);
       try {
-          // A. Refund Stock
           await updateDoc(doc(db, SPAREPART_COLLECTION, logItem.itemId), {
-              stock: increment(logItem.qty), // Add back stock
+              stock: increment(logItem.qty),
               updatedAt: serverTimestamp()
           });
 
-          // B. Filter usageLog (Remove the specific item)
           const currentLog = selectedJob.usageLog || [];
           const newUsageLog = currentLog.filter(item => 
               !(item.itemId === logItem.itemId && item.issuedAt === logItem.issuedAt)
           );
 
-          // C. Revert Cost
           const costField = logItem.category === 'material' ? 'costData.hargaModalBahan' : 'costData.hargaBeliPart';
           
-          // D. If Sparepart, revert the 'hasArrived' flag in estimate if possible
-          let newEstimateParts = selectedJob.estimateData?.partItems;
-          if (logItem.category === 'sparepart' && newEstimateParts) {
-              const partIndex = newEstimateParts.findIndex(p => p.inventoryId === logItem.itemId && p.hasArrived);
-              if (partIndex >= 0) {
-                   newEstimateParts = [...newEstimateParts];
-                   newEstimateParts[partIndex] = { ...newEstimateParts[partIndex], hasArrived: false };
-              }
-          }
-
           const updatePayload: any = {
               usageLog: newUsageLog,
               [costField]: increment(-logItem.totalCost)
           };
 
-          if (newEstimateParts) {
-              updatePayload['estimateData.partItems'] = newEstimateParts;
+          if (logItem.category === 'sparepart' && selectedJob.estimateData?.partItems) {
+              const newParts = [...selectedJob.estimateData.partItems];
+              const pIdx = newParts.findIndex(p => p.inventoryId === logItem.itemId && p.hasArrived);
+              if (pIdx >= 0) {
+                  newParts[pIdx] = { ...newParts[pIdx], hasArrived: false };
+                  updatePayload['estimateData.partItems'] = newParts;
+              }
           }
 
-          // In a real audit system, we would push the reason to a separate collection.
-          // Since we are removing the log item from the array, we can't store the reason on the item itself unless we keep it marked as 'cancelled'.
-          // For now, we just proceed with deletion as requested, but conceptually 'reason' was asked.
-          // If we want to persist it, we'd need a 'cancelledLogs' array or similar. 
-          // Given constraints, I will assume console logging is sufficient or alerting success.
-
           await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), updatePayload);
-
-          showNotification("Pembebanan berhasil dibatalkan.", "success");
+          showNotification("Berhasil dibatalkan.", "success");
           onRefreshData();
-
       } catch (e: any) {
-          console.error("Cancel Error:", e);
-          showNotification("Gagal membatalkan: " + e.message, "error");
+          showNotification("Gagal: " + e.message, "error");
       } finally {
           setIsSubmitting(false);
       }
@@ -336,26 +273,20 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       const match = materialInventory.find(i => i.name === val || i.code === val);
       if (match) {
           setSelectedMaterialId(match.id);
-          setSelectedUnit(match.unit); // Set default unit from DB
-          setSelectedSupplierId(match.supplierId || ''); // Auto-select supplier if exists
+          setSelectedUnit(match.unit);
       } else {
           setSelectedMaterialId('');
           setSelectedUnit('');
-          setSelectedSupplierId('');
       }
   };
 
   const currentMaterial = inventoryItems.find(i => i.id === selectedMaterialId);
-  const isVendorItem = currentMaterial?.isStockManaged === false;
-  
-  // Logic to determine available units
   const baseUnit = currentMaterial?.unit || 'Liter';
-  
   const unitOptions = useMemo(() => {
       const opts = [baseUnit];
       if (baseUnit === 'Liter') opts.push('ML');
       if (baseUnit === 'Kg') opts.push('Gram');
-      if (!opts.includes('Pcs')) opts.push('Pcs'); // Always add Pcs option
+      if (!opts.includes('Pcs')) opts.push('Pcs');
       return opts;
   }, [baseUnit]);
 
@@ -369,29 +300,23 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 <h1 className="text-3xl font-bold text-gray-900">
                     {issuanceType === 'sparepart' ? 'Pembebanan Sparepart' : 'Pembebanan Bahan Baku'}
                 </h1>
-                <p className="text-gray-500">
-                    {issuanceType === 'sparepart' 
-                        ? 'Keluarkan part sesuai estimasi WO dan potong stok.' 
-                        : 'Input pemakaian bahan (cat, thinner, dll) untuk pembebanan biaya WO.'}
-                </p>
+                <p className="text-gray-500">Input pengeluaran barang dari gudang ke Work Order.</p>
             </div>
         </div>
 
-        {/* --- SEARCH WO --- */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-            <label className="block text-sm font-bold text-gray-700 mb-2">Cari Nomor Work Order (WO)</label>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Cari Nomor WO atau Nopol</label>
             <div className="relative max-w-2xl">
                 <Search className="absolute left-3 top-3 text-gray-400" size={20}/>
                 <input 
                     type="text" 
-                    placeholder="Ketik No. WO (Contoh: WO2410...) atau Nopol" 
+                    placeholder="Contoh: WO2410... atau B1234" 
                     value={filterWo} 
                     onChange={e => {
                         setFilterWo(e.target.value);
                         if(e.target.value === '') setSelectedJobId('');
                     }}
                     className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg uppercase font-mono"
-                    autoFocus
                 />
             </div>
             
@@ -407,15 +332,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     setFilterWo(job.woNumber || job.policeNumber);
                                     setSelectedJobId(job.id);
                                 }}
-                                className="w-full text-left p-3 hover:bg-indigo-50 border-b last:border-0 flex justify-between items-center group"
+                                className="w-full text-left p-3 hover:bg-indigo-50 border-b last:border-0"
                             >
-                                <div>
-                                    <span className="font-bold text-indigo-700 block">{job.woNumber || 'DRAFT'}</span>
-                                    <span className="text-sm text-gray-600">{job.policeNumber} - {job.carModel}</span>
-                                </div>
-                                <div className="text-xs text-gray-400 group-hover:text-indigo-600">
-                                    Pilih <ArrowRight size={12} className="inline"/>
-                                </div>
+                                <span className="font-bold text-indigo-700 block">{job.woNumber || 'DRAFT'}</span>
+                                <span className="text-sm text-gray-600">{job.policeNumber} - {job.carModel}</span>
                             </button>
                         ))
                     )}
@@ -429,46 +349,26 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         <h3 className="text-xl font-bold text-gray-900">{selectedJob.woNumber}</h3>
                         <p className="text-gray-600">{selectedJob.policeNumber} | {selectedJob.carModel}</p>
                     </div>
-                    
-                    {selectedJob.isClosed && (
-                         <div className="px-4 py-2 bg-red-100 text-red-800 rounded-lg font-bold border border-red-200 flex items-center gap-2">
-                             <XCircle size={18}/> WO CLOSED
-                         </div>
-                    )}
-
-                    <button 
-                        onClick={() => { setSelectedJobId(''); setFilterWo(''); }}
-                        className="text-sm text-red-500 hover:text-red-700 underline"
-                    >
-                        Ganti WO
-                    </button>
+                    {selectedJob.isClosed && <div className="px-4 py-2 bg-red-100 text-red-800 rounded-lg font-bold border border-red-200">WO CLOSED</div>}
+                    <button onClick={() => { setSelectedJobId(''); setFilterWo(''); }} className="text-sm text-red-500 underline">Ganti WO</button>
                 </div>
             )}
         </div>
 
-        {/* --- CONTENT --- */}
-        
-        {/* MODE A: SPAREPART */}
         {issuanceType === 'sparepart' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <Truck size={20} className="text-indigo-600"/> Daftar Part di Estimasi
-                </h3>
-                
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Truck size={20} className="text-indigo-600"/> Daftar Part Estimasi</h3>
                 {(!selectedJob.estimateData?.partItems || selectedJob.estimateData.partItems.length === 0) ? (
-                    <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
-                        Tidak ada item sparepart dalam estimasi WO ini.
-                    </div>
+                    <div className="text-center py-8 text-gray-400 italic bg-gray-50 rounded-lg">Tidak ada item sparepart.</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-100 text-gray-600 uppercase font-bold">
                                 <tr>
-                                    <th className="p-3">No. Part & Nama</th>
-                                    <th className="p-3 text-center">Qty Est</th>
-                                    <th className="p-3 text-right text-emerald-700">H. Beli (Modal)</th>
-                                    <th className="p-3 text-right text-indigo-700">H. Jual (Est)</th>
-                                    <th className="p-3 text-center">Status Stok</th>
+                                    <th className="p-3">Nama Part</th>
+                                    <th className="p-3 text-center">Qty</th>
+                                    <th className="p-3 text-right">Modal @</th>
+                                    <th className="p-3 text-center">Stok Gudang</th>
                                     <th className="p-3 text-right">Aksi</th>
                                 </tr>
                             </thead>
@@ -482,33 +382,20 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     return (
                                         <tr key={idx} className={isIssued ? "bg-green-50 opacity-70" : "hover:bg-gray-50"}>
                                             <td className="p-3">
-                                                <div className="font-bold text-gray-800">{item.name}</div>
-                                                <div className="text-xs text-gray-500 font-mono">{item.number || 'No Part #'}</div>
+                                                <div className="font-bold">{item.name}</div>
+                                                <div className="text-xs text-gray-500 font-mono">{item.number || '-'}</div>
                                             </td>
                                             <td className="p-3 text-center font-bold">{item.qty || 1}</td>
-                                            <td className="p-3 text-right font-mono text-gray-600">
-                                                {invItem ? formatCurrency(invItem.buyPrice) : '-'}
-                                            </td>
-                                            <td className="p-3 text-right font-mono font-bold text-gray-800">
-                                                {invItem ? formatCurrency(invItem.sellPrice) : formatCurrency(item.price)}
-                                            </td>
+                                            <td className="p-3 text-right">{invItem ? formatCurrency(invItem.buyPrice) : '-'}</td>
                                             <td className="p-3 text-center">
-                                                {isIssued ? (
-                                                    <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-xs font-bold">Sudah Keluar</span>
-                                                ) : invItem ? (
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${invItem.stock >= (item.qty || 1) ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
-                                                        Gudang: {invItem.stock}
-                                                    </span>
-                                                ) : (
-                                                    <span className="px-2 py-1 bg-gray-100 text-gray-400 rounded text-xs italic">Unlinked</span>
-                                                )}
+                                                {invItem ? <span className={`font-bold ${invItem.stock > 0 ? 'text-blue-600' : 'text-red-500'}`}>{invItem.stock}</span> : '-'}
                                             </td>
                                             <td className="p-3 text-right">
                                                 {!isIssued && invItem && !selectedJob.isClosed && (
                                                     <button 
                                                         onClick={() => handlePartIssuance(item, idx, invItem.id)}
                                                         disabled={isSubmitting || invItem.stock < (item.qty || 1)}
-                                                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-xs font-bold shadow-sm"
+                                                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-xs font-bold"
                                                     >
                                                         Keluarkan
                                                     </button>
@@ -524,23 +411,14 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* MODE B: MATERIAL */}
         {issuanceType === 'material' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <PaintBucket size={20} className="text-orange-600"/> Input Pemakaian Bahan
-                </h3>
-                
-                {selectedJob.isClosed ? (
-                     <div className="text-center py-6 text-red-500 bg-red-50 border border-red-200 rounded-lg">
-                        WO sudah ditutup. Tidak dapat menambah pembebanan bahan.
-                     </div>
-                ) : (
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><PaintBucket size={20} className="text-orange-600"/> Input Pemakaian Bahan</h3>
+                {!selectedJob.isClosed ? (
                     <form onSubmit={handleMaterialIssuance} className="space-y-5">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* KOLOM KIRI: Cari Barang */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan (Inventory)</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan</label>
                                 <div className="relative">
                                     <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
                                     <input 
@@ -550,182 +428,88 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                         className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                                         value={materialSearchTerm}
                                         onChange={handleMaterialSearch}
-                                        autoComplete="off"
                                     />
                                     <datalist id="material-datalist">
                                         {materialInventory.map(item => (
-                                            <option key={item.id} value={item.name}>
-                                                Kode: {item.code} | Stok: {item.stock} {item.unit}
-                                            </option>
+                                            <option key={item.id} value={item.name}>Stok: {item.stock} {item.unit}</option>
                                         ))}
                                     </datalist>
                                 </div>
-                                
-                                {/* ITEM DETAIL */}
-                                {currentMaterial ? (
-                                    <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
-                                        <div>
-                                            <p className="font-bold text-orange-900">{currentMaterial.name}</p>
-                                            <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
-                                            {isVendorItem && (
-                                                <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
-                                                    STOK VENDOR (Ready Use)
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-orange-900 font-bold">
-                                                Sisa: {currentMaterial.stock} {currentMaterial.unit}
-                                            </p>
-                                            <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
-                                        </div>
+                                {currentMaterial && (
+                                    <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm">
+                                        <div><p className="font-bold">{currentMaterial.name}</p><p className="text-xs font-mono">{currentMaterial.code}</p></div>
+                                        <div className="text-right font-bold">Tersedia: {currentMaterial.stock} {currentMaterial.unit}</div>
                                     </div>
-                                ) : materialSearchTerm.length > 2 && (
-                                    <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
                                 )}
                             </div>
-                            
-                            {/* KOLOM KANAN: Supplier Selection */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Supplier</label>
-                                <div className="relative">
-                                    <select 
-                                        value={selectedSupplierId} 
-                                        onChange={e => setSelectedSupplierId(e.target.value)}
-                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 appearance-none bg-white"
-                                    >
-                                        <option value="">- Pilih Supplier (Opsional) -</option>
-                                        {suppliers.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
-                                        ))}
-                                    </select>
-                                    <Building className="absolute left-3 top-3.5 text-gray-400" size={18}/>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">
-                                    Supplier otomatis terisi jika item terhubung. Ubah jika pembelian dari supplier lain.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* INPUT QTY WITH UNIT DROPDOWN */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah Pakai</label>
-                                <div className="relative">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah & Satuan</label>
+                                <div className="flex gap-2">
                                     <input 
-                                        type="number" 
-                                        min="0.01" step="0.01"
-                                        value={inputQty} 
+                                        type="number" step="0.01"
+                                        value={inputQty || ''} 
                                         onChange={e => setInputQty(Number(e.target.value))}
-                                        className="w-full p-3 pr-24 border border-gray-300 rounded-lg text-lg font-bold focus:ring-2 focus:ring-orange-500"
+                                        className="flex-grow p-3 border border-gray-300 rounded-lg text-lg font-bold"
                                         placeholder="0.00"
                                     />
-                                    <div className="absolute right-1 top-1 bottom-1 flex items-center">
-                                        <select 
-                                            value={selectedUnit} 
-                                            onChange={e => setSelectedUnit(e.target.value)}
-                                            className="h-full bg-gray-100 border-l border-gray-300 rounded-r-md text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer hover:bg-gray-200 px-3 py-2 outline-none appearance-none text-center min-w-[80px]"
-                                            disabled={!selectedMaterialId}
-                                        >
-                                            {(!selectedMaterialId) && <option value="">-</option>}
-                                            {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
-                                        </select>
-                                    </div>
+                                    <select 
+                                        value={selectedUnit} 
+                                        onChange={e => setSelectedUnit(e.target.value)}
+                                        className="w-32 p-3 border border-gray-300 rounded-lg bg-gray-50 font-bold"
+                                    >
+                                        {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                                    </select>
                                 </div>
-                                {(selectedUnit === 'ML' || selectedUnit === 'Gram') && inputQty > 0 && (
-                                    <p className="text-xs text-gray-500 mt-1 text-center bg-yellow-50 p-1 rounded border border-yellow-100">
-                                        Konversi: <strong>{inputQty / 1000} {baseUnit}</strong>
-                                    </p>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
-                                <input 
-                                    type="text"
-                                    value={notes}
-                                    onChange={e => setNotes(e.target.value)}
-                                    placeholder="Keterangan..."
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                />
+                                {(selectedUnit === 'ML' || selectedUnit === 'Gram') && inputQty > 0 && <p className="text-xs text-orange-600 mt-1">Konversi: {(inputQty / 1000).toFixed(3)} {baseUnit}</p>}
                             </div>
                         </div>
-
-                        <button 
-                            type="submit" 
-                            disabled={isSubmitting}
-                            className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 font-bold shadow-lg disabled:opacity-50 flex justify-center items-center gap-2"
-                        >
-                            {isSubmitting ? 'Menyimpan...' : <><CheckCircle size={18}/> Simpan Pembebanan</>}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
+                                <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Keterangan pemakaian..." className="w-full p-3 border border-gray-300 rounded-lg"/>
+                            </div>
+                        </div>
+                        <button type="submit" disabled={isSubmitting || !selectedMaterialId} className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 font-bold shadow-lg disabled:opacity-50">
+                            {isSubmitting ? 'Menyimpan...' : 'Simpan Pembebanan Bahan'}
                         </button>
                     </form>
+                ) : (
+                    <div className="text-center py-6 text-red-500 bg-red-50 border rounded-lg">WO sudah ditutup.</div>
                 )}
             </div>
         )}
 
-        {/* --- RIWAYAT PEMBEBANAN (HISTORY LOG) --- */}
         {selectedJob && (
              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <History size={18} className="text-gray-500"/> 
-                        Riwayat {issuanceType === 'sparepart' ? 'Keluar Part' : 'Pemakaian Bahan'}
-                     </h3>
-                     <div className="text-right">
-                         <span className="text-xs text-gray-500 uppercase font-bold mr-2">Total Biaya:</span>
-                         <span className="text-lg font-bold text-indigo-700">{formatCurrency(totalUsageCost)}</span>
-                     </div>
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><History size={18}/> Riwayat Keluar Barang</h3>
+                     <span className="text-lg font-bold text-indigo-700">{formatCurrency(totalUsageCost)}</span>
                 </div>
-
                 {usageHistory.length > 0 ? (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-100 text-gray-600 uppercase font-bold text-xs">
+                            <thead className="bg-gray-100 text-gray-600 font-bold">
                                 <tr>
                                     <th className="px-4 py-3">Tanggal</th>
                                     <th className="px-4 py-3">Item</th>
                                     <th className="px-4 py-3 text-center">Qty</th>
-                                    <th className="px-4 py-3 text-right">Modal @</th>
-                                    <th className="px-4 py-3 text-right">Total</th>
-                                    <th className="px-4 py-3 text-center">Supplier</th>
+                                    <th className="px-4 py-3 text-right">Total Biaya</th>
                                     <th className="px-4 py-3 text-center">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {usageHistory.map((log, idx) => (
                                     <tr key={idx} className="hover:bg-gray-50">
-                                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
-                                            {formatDateIndo(log.issuedAt)} <span className="text-[10px] ml-1">{new Date(log.issuedAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</span>
-                                        </td>
+                                        <td className="px-4 py-2 text-gray-500">{formatDateIndo(log.issuedAt)}</td>
                                         <td className="px-4 py-2">
-                                            <div className="font-medium text-gray-900">{log.itemName}</div>
-                                            <div className="text-xs text-gray-500 font-mono">{log.itemCode} {log.notes && `(${log.notes})`}</div>
+                                            <div className="font-medium">{log.itemName}</div>
+                                            <div className="text-[10px] text-gray-400 font-mono">{log.itemCode}</div>
                                         </td>
+                                        <td className="px-4 py-2 text-center font-bold">{log.qty} {log.inputUnit || ''}</td>
+                                        <td className="px-4 py-2 text-right font-bold">{formatCurrency(log.totalCost)}</td>
                                         <td className="px-4 py-2 text-center">
-                                            <span className="font-bold">{log.qty}</span>
-                                            {log.inputUnit && log.inputUnit !== baseUnit && (
-                                                <div className="text-[10px] text-gray-400">({log.inputQty} {log.inputUnit})</div>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2 text-right text-gray-500">{formatCurrency(log.costPerUnit)}</td>
-                                        <td className="px-4 py-2 text-right font-bold text-gray-800">{formatCurrency(log.totalCost)}</td>
-                                        <td className="px-4 py-2 text-center text-xs">
-                                            {log.supplierName ? (
-                                                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{log.supplierName}</span>
-                                            ) : (
-                                                <span className="text-gray-400 italic">-</span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2 text-center">
-                                            {/* Cancel Button - Manager Only */}
                                             {userPermissions.role.includes('Manager') && !selectedJob.isClosed && (
-                                                <button 
-                                                    onClick={() => handleCancelIssuance(log)}
-                                                    className="text-red-500 hover:text-red-700 text-xs underline"
-                                                    disabled={isSubmitting}
-                                                >
-                                                    Batalkan
-                                                </button>
+                                                <button onClick={() => handleCancelIssuance(log)} className="text-red-500 text-xs underline">Batal</button>
                                             )}
                                         </td>
                                     </tr>
@@ -734,18 +518,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         </table>
                     </div>
                 ) : (
-                    <div className="p-8 text-center text-gray-400 italic">
-                        Belum ada riwayat pembebanan untuk WO ini.
-                    </div>
+                    <div className="p-8 text-center text-gray-400 italic">Belum ada pemakaian.</div>
                 )}
              </div>
-        )}
-
-        {!selectedJob && (
-            <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                <AlertCircle className="mx-auto text-gray-400 mb-2" size={48}/>
-                <p className="text-gray-500 font-medium">Silakan cari dan pilih Nomor Work Order (WO) terlebih dahulu.</p>
-            </div>
         )}
     </div>
   );
