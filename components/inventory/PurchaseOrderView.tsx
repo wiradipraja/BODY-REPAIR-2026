@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit } from 'firebase/firestore';
-import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
-import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions } from '../../types';
+import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
+import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square } from 'lucide-react';
+import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save } from 'lucide-react';
+import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
   suppliers: Supplier[];
@@ -23,6 +25,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [settings, setSettings] = useState<Settings>(initialSettingsState);
+
+  // Partial Receive State
+  const [selectedItemsToReceive, setSelectedItemsToReceive] = useState<number[]>([]);
+  const [receiveQtyMap, setReceiveQtyMap] = useState<Record<number, number>>({});
 
   // Form State
   const [poForm, setPoForm] = useState<Partial<PurchaseOrder>>({
@@ -32,6 +39,17 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       hasPpn: false // Default no PPN
   });
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Load Settings for PDF Header
+  useEffect(() => {
+    const fetchSettings = async () => {
+        try {
+            const q = await getDocs(collection(db, SETTINGS_COLLECTION));
+            if (!q.empty) setSettings(q.docs[0].data() as Settings);
+        } catch (e) { console.error(e); }
+    };
+    fetchSettings();
+  }, []);
 
   // Fetch Orders
   const fetchOrders = async () => {
@@ -59,6 +77,19 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       if (viewMode === 'list') fetchOrders();
   }, [viewMode]);
 
+  // Reset Receiving state when opening a PO
+  useEffect(() => {
+      if (selectedPO && (selectedPO.status === 'Ordered' || selectedPO.status === 'Partial')) {
+          setSelectedItemsToReceive([]);
+          const initialQtyMap: Record<number, number> = {};
+          selectedPO.items.forEach((item, idx) => {
+              const remaining = item.qty - (item.qtyReceived || 0);
+              if (remaining > 0) initialQtyMap[idx] = remaining;
+          });
+          setReceiveQtyMap(initialQtyMap);
+      }
+  }, [selectedPO]);
+
   // --- HANDLERS FOR CREATE ---
 
   const handleAddItem = () => {
@@ -71,7 +102,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               price: 0, 
               total: 0, 
               unit: 'Pcs',
-              inventoryId: null // Initialize as null to prevent undefined error
+              inventoryId: null,
+              qtyReceived: 0
           }]
       }));
   };
@@ -92,8 +124,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               newItems[index].unit = match.unit;
               newItems[index].price = match.buyPrice; // Default to current buy price
           } else {
-             // If code changed and no match, unlink inventoryId to treat as new item
-             // Use null, NOT undefined, to satisfy Firestore
              newItems[index].inventoryId = null;
           }
       }
@@ -127,7 +157,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const supplier = suppliers.find(s => s.id === poForm.supplierId);
       if (!supplier) return;
 
-      // Generate PO Number (Simple Logic: PO-YYMM-RANDOM4)
       const date = new Date();
       const prefix = `PO-${date.getFullYear().toString().substr(-2)}${(date.getMonth()+1).toString().padStart(2,'0')}`;
       const random = Math.floor(1000 + Math.random() * 9000);
@@ -135,15 +164,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
-      // Clean items to ensure no undefined values (Fixes "addDoc called with invalid data")
       const sanitizedItems = poForm.items.map(item => ({
           code: item.code || '',
           name: item.name || '',
           qty: item.qty || 0,
+          qtyReceived: 0, // Init 0
           unit: item.unit || 'Pcs',
           price: item.price || 0,
           total: item.total || 0,
-          inventoryId: item.inventoryId || null // Explicitly use null if undefined
+          inventoryId: item.inventoryId || null 
       }));
 
       const payload: any = {
@@ -177,36 +206,73 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   // --- HANDLERS FOR DETAIL / RECEIVE ---
 
-  const handleReceivePO = async () => {
+  const handlePrintPO = () => {
       if (!selectedPO) return;
-      if (!window.confirm("Konfirmasi penerimaan barang? \n1. Stok inventory akan bertambah.\n2. Item baru yang belum ada di database akan dibuat otomatis.\n3. Harga modal akan diperbarui.")) return;
+      generatePurchaseOrderPDF(selectedPO, settings);
+  };
+
+  const toggleItemSelection = (index: number) => {
+      if (selectedItemsToReceive.includes(index)) {
+          setSelectedItemsToReceive(prev => prev.filter(i => i !== index));
+      } else {
+          setSelectedItemsToReceive(prev => [...prev, index]);
+      }
+  };
+
+  const handleProcessReceiving = async () => {
+      if (!selectedPO) return;
+      if (selectedItemsToReceive.length === 0) {
+          showNotification("Pilih minimal satu item untuk diterima.", "error");
+          return;
+      }
+
+      const invalidQty = selectedItemsToReceive.some(idx => {
+          const qtyNow = receiveQtyMap[idx] || 0;
+          return qtyNow <= 0;
+      });
+
+      if (invalidQty) {
+          showNotification("Jumlah barang yang diterima harus lebih dari 0.", "error");
+          return;
+      }
+
+      if (!window.confirm("Simpan Penerimaan Barang?\n\n- Stok Inventory akan bertambah otomatis.\n- Bukti Serah Terima akan didownload.")) return;
 
       try {
-          // 1. Process Items (Update or Create)
-          const promises = selectedPO.items.map(async (item) => {
-              if (item.inventoryId) {
-                  // CASE A: Existing Item -> Update Stock & Price
-                  const itemRef = doc(db, SPAREPART_COLLECTION, item.inventoryId);
+          const updatedItems = [...selectedPO.items];
+          let allItemsFullyReceived = true;
+          
+          // Helper to track items for PDF report
+          const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
+
+          const updatePromises = selectedItemsToReceive.map(async (idx) => {
+              const item = updatedItems[idx];
+              const qtyNow = receiveQtyMap[idx] || 0;
+              
+              // 1. Update Inventory
+              let targetInventoryId = item.inventoryId;
+
+              if (targetInventoryId) {
+                  // Existing Item -> Update Stock & Price
+                  const itemRef = doc(db, SPAREPART_COLLECTION, targetInventoryId);
                   await updateDoc(itemRef, {
-                      stock: increment(item.qty),
-                      buyPrice: item.price, // Update master price to latest PO price
+                      stock: increment(qtyNow),
+                      buyPrice: item.price, 
                       updatedAt: serverTimestamp()
                   });
               } else {
-                  // CASE B: New Item (Auto Create)
-                  // Use heuristic to guess category based on unit
+                  // New Item -> Create in Master
                   const isMaterial = ['Liter', 'Kaleng', 'Kg', 'Gram', 'Galon'].includes(item.unit);
-                  
                   const newItemPayload: any = {
-                      code: item.code || `NEW-${Date.now()}-${Math.floor(Math.random()*100)}`,
+                      code: item.code || `NEW-${Date.now()}-${idx}`,
                       name: item.name,
                       category: isMaterial ? 'material' : 'sparepart',
-                      brand: 'Generic', // Default
-                      stock: item.qty,
+                      brand: 'Generic',
+                      stock: qtyNow,
                       unit: item.unit,
                       minStock: 5,
                       buyPrice: item.price,
-                      sellPrice: item.price * 1.25, // Default margin 25%
+                      sellPrice: item.price * 1.25,
                       location: 'Gudang',
                       supplierId: selectedPO.supplierId,
                       isStockManaged: true,
@@ -214,38 +280,57 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp()
                   };
                   
-                  await addDoc(collection(db, SPAREPART_COLLECTION), newItemPayload);
+                  const docRef = await addDoc(collection(db, SPAREPART_COLLECTION), newItemPayload);
+                  targetInventoryId = docRef.id; // SAVE NEW ID
               }
+
+              // 2. Update Local PO Item State
+              updatedItems[idx] = {
+                  ...item,
+                  qtyReceived: (item.qtyReceived || 0) + qtyNow,
+                  inventoryId: targetInventoryId // Ensure future partial receives map to this ID
+              };
+              
+              itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
           });
 
-          await Promise.all(promises);
+          await Promise.all(updatePromises);
 
-          // 2. Update PO Status
-          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
-              status: 'Received',
-              receivedAt: serverTimestamp(),
-              receivedBy: userPermissions.role
-          });
+          // 3. Determine New Status
+          const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
+          const newStatus = isFull ? 'Received' : 'Partial';
 
-          showNotification("Barang diterima. Data Master Stock telah diperbarui.", "success");
-          onRefreshInventory(); // Refresh master inventory in App
+          // 4. Update PO Doc
+          const updatePayload: any = {
+              items: updatedItems,
+              status: newStatus,
+          };
+          if (newStatus === 'Received') {
+              updatePayload.receivedAt = serverTimestamp();
+              updatePayload.receivedBy = userPermissions.role;
+          }
+
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), updatePayload);
+
+          // 5. Generate Receiving Report PDF (Only for items received NOW)
+          generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
+
+          showNotification("Barang berhasil diterima & stok terupdate.", "success");
+          onRefreshInventory();
           setViewMode('list');
           setSelectedPO(null);
 
       } catch (e: any) {
           console.error(e);
-          let msg = "Gagal memproses penerimaan barang.";
-          if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
-          showNotification(msg, "error");
+          showNotification("Gagal memproses penerimaan: " + e.message, "error");
       }
   };
 
   const handleDeletePO = async (po: PurchaseOrder) => {
       if (!window.confirm("Hapus PO ini?")) return;
       try {
-          // Soft delete or hard delete? Firestore hard delete here.
-          if (po.status === 'Received') {
-              showNotification("Tidak bisa menghapus PO yang sudah diterima.", "error");
+          if (po.status === 'Received' || po.status === 'Partial') {
+              showNotification("Tidak bisa menghapus PO yang sudah ada penerimaan.", "error");
               return;
           }
            await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id), {
@@ -255,7 +340,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           fetchOrders();
       } catch (e: any) {
           let msg = "Gagal membatalkan PO";
-          if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
           showNotification(msg, "error");
       }
   };
@@ -266,7 +350,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       switch (status) {
           case 'Draft': return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">Draft</span>;
           case 'Ordered': return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">Ordered</span>;
-          case 'Received': return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Received</span>;
+          case 'Partial': return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold">Partial (Sebagian)</span>;
+          case 'Received': return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Received (Lengkap)</span>;
           case 'Cancelled': return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">Cancelled</span>;
           default: return null;
       }
@@ -334,7 +419,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                           onChange={e => handleUpdateItem(idx, 'code', e.target.value)}
                                           placeholder="Ketik kode..."
                                       />
-                                      {/* Indicator for New Item */}
                                       {!item.inventoryId && item.code && (
                                           <span className="text-[10px] text-orange-600 absolute right-2 top-2 font-bold bg-white px-1 rounded shadow-sm border border-orange-200">NEW</span>
                                       )}
@@ -426,6 +510,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   }
 
   if (viewMode === 'detail' && selectedPO) {
+      const isReceivable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial';
+
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-start mb-6 border-b pb-4">
@@ -442,28 +528,31 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                   </div>
                   <div className="flex gap-2">
-                      {/* Action Buttons */}
-                      {selectedPO.status === 'Ordered' && (
+                      {isReceivable && selectedItemsToReceive.length > 0 && (
                           <button 
-                              onClick={handleReceivePO}
-                              className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 flex items-center gap-2 font-bold"
+                              onClick={handleProcessReceiving}
+                              className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 flex items-center gap-2 font-bold animate-pulse"
                           >
-                              <CheckCircle size={18}/> Terima Barang
+                              <Save size={18}/> Simpan Terima Barang ({selectedItemsToReceive.length})
                           </button>
                       )}
-                      <button className="px-4 py-2 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 flex items-center gap-2">
-                          <Download size={18}/> Print
+                      
+                      <button 
+                          onClick={handlePrintPO}
+                          className="px-4 py-2 border border-indigo-200 text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 flex items-center gap-2 font-medium"
+                      >
+                          <Printer size={18}/> Print PO
                       </button>
                   </div>
               </div>
 
               {/* Status Banner */}
-              {selectedPO.status === 'Ordered' && (
+              {isReceivable && (
                   <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3 text-sm text-blue-800">
                       <AlertCircle size={20} className="mt-0.5 shrink-0"/>
                       <div>
-                          <p className="font-bold">Menunggu Penerimaan Barang</p>
-                          <p>Jika barang sudah sampai, klik tombol <strong>Terima Barang</strong> di pojok kanan atas. Sistem akan otomatis menambah stok dan membuat data item baru jika belum terdaftar.</p>
+                          <p className="font-bold">Penerimaan Barang (Receiving)</p>
+                          <p>Centang item yang sudah datang, masukkan jumlah yang diterima, lalu klik tombol <strong>Simpan Terima Barang</strong> di atas.</p>
                       </div>
                   </div>
               )}
@@ -472,39 +561,87 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <table className="w-full text-sm text-left border-collapse border border-gray-200">
                       <thead className="bg-gray-100 text-gray-700 uppercase">
                           <tr>
-                              <th className="p-3 border">Kode Part/Bahan</th>
-                              <th className="p-3 border">Nama Barang</th>
-                              <th className="p-3 border text-center">Qty</th>
+                              {isReceivable && <th className="p-3 border w-10 text-center">✔</th>}
+                              <th className="p-3 border">Kode & Nama Barang</th>
                               <th className="p-3 border text-center">Satuan</th>
+                              <th className="p-3 border text-center">Qty Order</th>
+                              <th className="p-3 border text-center bg-green-50 text-green-800">Sdh Terima</th>
+                              {isReceivable && <th className="p-3 border text-center bg-blue-50 text-blue-800 w-32">Qty Datang</th>}
                               <th className="p-3 border text-right">Harga</th>
                               <th className="p-3 border text-right">Total</th>
                           </tr>
                       </thead>
                       <tbody>
-                          {selectedPO.items.map((item, idx) => (
-                              <tr key={idx} className="hover:bg-gray-50">
-                                  <td className="p-3 border font-mono">{item.code}</td>
-                                  <td className="p-3 border">{item.name}</td>
-                                  <td className="p-3 border text-center font-bold">{item.qty}</td>
-                                  <td className="p-3 border text-center text-gray-500">{item.unit}</td>
-                                  <td className="p-3 border text-right">{formatCurrency(item.price)}</td>
-                                  <td className="p-3 border text-right font-bold text-gray-800">{formatCurrency(item.total)}</td>
-                              </tr>
-                          ))}
+                          {selectedPO.items.map((item, idx) => {
+                              const remaining = item.qty - (item.qtyReceived || 0);
+                              const isFullyReceived = remaining <= 0;
+                              const isChecked = selectedItemsToReceive.includes(idx);
+
+                              return (
+                                  <tr key={idx} className={`hover:bg-gray-50 ${isFullyReceived ? 'bg-gray-50 text-gray-400' : ''}`}>
+                                      {isReceivable && (
+                                          <td className="p-3 border text-center">
+                                              {!isFullyReceived && (
+                                                  <input 
+                                                      type="checkbox" 
+                                                      className="w-5 h-5 cursor-pointer text-indigo-600 rounded"
+                                                      checked={isChecked}
+                                                      onChange={() => toggleItemSelection(idx)}
+                                                  />
+                                              )}
+                                              {isFullyReceived && <CheckCircle size={16} className="text-green-500 mx-auto"/>}
+                                          </td>
+                                      )}
+                                      <td className="p-3 border">
+                                          <div className="font-bold">{item.name}</div>
+                                          <div className="font-mono text-xs">{item.code}</div>
+                                      </td>
+                                      <td className="p-3 border text-center">{item.unit}</td>
+                                      <td className="p-3 border text-center font-bold">{item.qty}</td>
+                                      <td className="p-3 border text-center bg-green-50 font-medium text-green-700">{item.qtyReceived || 0}</td>
+                                      
+                                      {/* INPUT QTY RECEIVE */}
+                                      {isReceivable && (
+                                          <td className="p-3 border text-center bg-blue-50">
+                                              {!isFullyReceived && isChecked ? (
+                                                  <input 
+                                                      type="number" 
+                                                      min="1" 
+                                                      max={remaining}
+                                                      className="w-full p-1 border border-blue-300 rounded text-center font-bold text-blue-800"
+                                                      value={receiveQtyMap[idx]}
+                                                      onChange={(e) => {
+                                                          const val = Number(e.target.value);
+                                                          if (val <= remaining) {
+                                                              setReceiveQtyMap(prev => ({...prev, [idx]: val}));
+                                                          }
+                                                      }}
+                                                  />
+                                              ) : (
+                                                  <span className="text-gray-400">-</span>
+                                              )}
+                                          </td>
+                                      )}
+
+                                      <td className="p-3 border text-right">{formatCurrency(item.price)}</td>
+                                      <td className="p-3 border text-right font-bold">{formatCurrency(item.total)}</td>
+                                  </tr>
+                              );
+                          })}
                       </tbody>
                       <tfoot className="bg-gray-50 font-bold">
                           <tr>
-                              <td colSpan={5} className="p-3 text-right text-gray-600">Subtotal</td>
+                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right text-gray-600">Subtotal</td>
                               <td className="p-3 text-right text-gray-800">{formatCurrency(selectedPO.subtotal || selectedPO.totalAmount)}</td>
                           </tr>
                           {selectedPO.hasPpn && (
                              <tr>
-                                <td colSpan={5} className="p-3 text-right text-gray-600">PPN (11%)</td>
+                                <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right text-gray-600">PPN (11%)</td>
                                 <td className="p-3 text-right text-gray-800">{formatCurrency(selectedPO.ppnAmount)}</td>
                              </tr>
                           )}
                           <tr className="bg-gray-100 border-t-2 border-gray-300 text-lg">
-                              <td colSpan={5} className="p-3 text-right text-indigo-900">GRAND TOTAL</td>
+                              <td colSpan={isReceivable ? 6 : 4} className="p-3 text-right text-indigo-900">GRAND TOTAL</td>
                               <td className="p-3 text-right text-indigo-900">{formatCurrency(selectedPO.totalAmount)}</td>
                           </tr>
                       </tfoot>
@@ -599,7 +736,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                         >
                                             <Eye size={18}/>
                                         </button>
-                                        {order.status !== 'Received' && order.status !== 'Cancelled' && (
+                                        {order.status !== 'Received' && order.status !== 'Cancelled' && order.status !== 'Partial' && (
                                             <button 
                                                 onClick={() => handleDeletePO(order)}
                                                 className="text-red-400 hover:text-red-600"

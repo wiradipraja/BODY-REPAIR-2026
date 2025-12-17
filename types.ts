@@ -160,6 +160,7 @@ export interface PurchaseOrderItem {
   code: string;
   name: string;
   qty: number;
+  qtyReceived?: number; // Supports partial shipment
   unit: string;
   price: number; // Harga Beli Satuan
   total: number;
@@ -170,7 +171,7 @@ export interface PurchaseOrder {
   poNumber: string;
   supplierId: string;
   supplierName: string;
-  status: 'Draft' | 'Ordered' | 'Received' | 'Cancelled';
+  status: 'Draft' | 'Ordered' | 'Partial' | 'Received' | 'Cancelled';
   items: PurchaseOrderItem[];
   
   // Financials
