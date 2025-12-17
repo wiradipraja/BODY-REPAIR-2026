@@ -12,7 +12,7 @@ interface EstimateEditorProps {
   onCancel: () => void;
   settings?: Settings; 
   creatorName?: string;
-  inventoryItems?: InventoryItem[]; // NEW PROP
+  inventoryItems?: InventoryItem[]; 
 }
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, inventoryItems = [] }) => {
@@ -77,7 +77,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   // Handlers for Items
   const addItem = (type: 'jasa' | 'part') => {
-    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '', isIndent: false };
+    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '' };
     if (type === 'jasa') setJasaItems([...jasaItems, newItem]);
     else setPartItems([...partItems, newItem]);
   };
@@ -87,18 +87,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     let newItem = { ...items[index], [field]: value };
 
     // --- AUTO-FETCH LOGIC FOR SPAREPARTS ---
-    // Ketika user mengetik No. Part, kita cari di inventoryItems
     if (type === 'part' && field === 'number') {
-        // Cari item yang cocok kodenya (case insensitive)
         const foundPart = inventoryItems.find(inv => inv.code.toUpperCase() === String(value).toUpperCase());
-        
         if (foundPart) {
-            // Jika ketemu, auto-fill nama, harga, dan link ID
             newItem.name = foundPart.name;
             newItem.price = foundPart.sellPrice;
             newItem.inventoryId = foundPart.id;
         } else {
-            // Jika kode berubah dan tidak ketemu, kita lepas link inventoryId-nya
             newItem.inventoryId = undefined; 
         }
     }
@@ -250,7 +245,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART - UPDATED: ADD INDENT CHECKBOX */}
+        {/* KOLOM SPAREPART - UPDATED: NO INDENT CHECKBOX */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -263,7 +258,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {partItems.map((item, idx) => (
-              <div key={idx} className={`p-2 rounded border space-y-2 relative ${item.isIndent ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+              <div key={idx} className="p-2 rounded border border-gray-200 bg-gray-50 space-y-2 relative">
                   <div className="grid grid-cols-12 gap-2 items-center">
                     
                     {/* INPUT KODE PART */}
@@ -292,27 +287,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                          <input type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
                     </div>
                     
-                    {/* INDENT CHECKBOX ROW */}
-                    <div className="col-span-12 flex items-center gap-4 mt-1 border-t pt-1">
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <input 
-                                type="checkbox" 
-                                checked={item.isIndent || false} 
-                                onChange={(e) => updateItem('part', idx, 'isIndent', e.target.checked)}
-                                className="rounded text-red-600 focus:ring-red-500"
-                            />
-                            <span className={`text-xs font-bold ${item.isIndent ? 'text-red-600' : 'text-gray-500'}`}>
-                                <Clock size={12} className="inline mr-1"/>
-                                INDENT (Order Supplier)
+                    {/* INFO STOK JIKA ADA LINK */}
+                    {item.inventoryId && (
+                        <div className="col-span-12 flex justify-end">
+                            <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full border border-green-200 flex items-center gap-1 shadow-sm">
+                                <Package size={10}/> Linked to Stock
                             </span>
-                        </label>
-                        
-                        {item.inventoryId && (
-                            <span className="bg-green-100 text-green-700 text-[10px] px-1.5 rounded-full border border-green-200 flex items-center gap-0.5 shadow-sm ml-auto">
-                                <Package size={8}/> Linked Stock
-                            </span>
-                        )}
-                    </div>
+                        </div>
+                    )}
                   </div>
               </div>
             ))}

@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { Job, InventoryItem, EstimateItem } from '../../types';
 import { formatDateIndo } from '../../utils/helpers';
-import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X, AlertTriangle } from 'lucide-react';
+import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save } from 'lucide-react';
 import Modal from '../ui/Modal';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db, JOBS_COLLECTION } from '../../services/firebase';
 
 interface PartMonitoringViewProps {
   jobs: Job[];
@@ -13,6 +15,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'LENGKAP' | 'PARTIAL' | 'INDENT'>('ALL');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // --- LOGIC: FIFO Stock Allocation Algorithm ---
   const processedJobs = useMemo(() => {
@@ -53,7 +56,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                 status = 'ISSUED';
                 readyCount++; // Considered "Complete" for this car
             }
-            // Priority 2: Explicitly marked as Indent
+            // Priority 2: Explicitly marked as Indent (Override Stock Check)
             else if (part.isIndent) {
                 status = 'INDENT_MANUAL';
             }
@@ -98,13 +101,63 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
     });
   }, [jobs, inventoryItems, searchTerm, statusFilter]);
 
-  // --- STATS CALCULATION (From processed data to ensure consistency) ---
+  // --- STATS CALCULATION ---
   const stats = useMemo(() => {
       const lengkap = processedJobs.filter(j => j.partStatus === 'LENGKAP').length;
       const partial = processedJobs.filter(j => j.partStatus === 'PARTIAL').length;
       const indent = processedJobs.filter(j => j.partStatus === 'INDENT').length;
       return { total: processedJobs.length, lengkap, partial, indent };
   }, [processedJobs]);
+
+  // --- ACTIONS: PARTMAN SET INDENT ---
+  const handleToggleIndent = async (partIndex: number, currentIndentStatus: boolean, currentETA?: string) => {
+      if (!selectedJob) return;
+      
+      // If toggling ON indent, allow input ETA
+      let newETA = currentETA || '';
+      if (!currentIndentStatus) {
+          const input = prompt("Masukkan Estimasi Tanggal Datang (ETA) (Opsional):", newETA);
+          if (input === null) return; // Cancelled
+          newETA = input;
+      } else {
+          // If toggling OFF, clear ETA
+          newETA = '';
+      }
+
+      setIsUpdating(true);
+      try {
+          // Deep clone the parts array
+          const updatedParts = [...(selectedJob.estimateData?.partItems || [])];
+          
+          // Update the specific part
+          updatedParts[partIndex] = {
+              ...updatedParts[partIndex],
+              isIndent: !currentIndentStatus,
+              indentETA: newETA
+          };
+
+          // Update Firestore
+          const jobRef = doc(db, JOBS_COLLECTION, selectedJob.id);
+          await updateDoc(jobRef, {
+              'estimateData.partItems': updatedParts
+          });
+
+          // Optimistic Update for UI smoothness (optional since realtime listener will catch it)
+          setSelectedJob(prev => prev ? ({
+              ...prev,
+              estimateData: {
+                  ...prev.estimateData!,
+                  partItems: updatedParts
+              }
+          }) : null);
+
+      } catch (e) {
+          console.error("Failed to update indent status", e);
+          alert("Gagal update status.");
+      } finally {
+          setIsUpdating(false);
+      }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -240,7 +293,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                         <button 
                                             onClick={() => setSelectedJob(job)}
                                             className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-full transition-colors"
-                                            title="Lihat Detail Part"
+                                            title="Kelola Part"
                                         >
                                             <Eye size={18}/>
                                         </button>
@@ -253,48 +306,73 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             </div>
         </div>
 
-        {/* MODAL DETAIL PART */}
+        {/* MODAL DETAIL PART - CONTROL TOWER */}
         <Modal 
             isOpen={!!selectedJob} 
             onClose={() => setSelectedJob(null)} 
-            title={`Detail Part - ${selectedJob?.policeNumber} (${selectedJob?.woNumber})`}
-            maxWidth="max-w-4xl"
+            title={`Kontrol Part - ${selectedJob?.policeNumber} (${selectedJob?.woNumber})`}
+            maxWidth="max-w-5xl"
         >
             {selectedJob && (
                 <div className="space-y-4">
+                    {/* Header Summary */}
                     <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg text-sm border border-gray-200">
                         <div>
-                            <span className="block text-gray-500">Pelanggan</span>
-                            <span className="font-bold">{selectedJob.customerName}</span>
+                            <span className="block text-gray-500 text-xs uppercase">Pelanggan / Asuransi</span>
+                            <span className="font-bold text-gray-900">{selectedJob.customerName}</span>
+                            <span className="text-gray-500 mx-2">|</span>
+                            <span className="text-indigo-600 font-semibold">{selectedJob.namaAsuransi}</span>
                         </div>
+                        <div className="text-right">
+                            <span className="block text-gray-500 text-xs uppercase">SA / Tgl Masuk</span>
+                            <span className="font-bold">{selectedJob.namaSA || '-'}</span>
+                            <span className="text-gray-500 mx-2">|</span>
+                            <span>{formatDateIndo(selectedJob.tanggalMasuk)}</span>
+                        </div>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-xs text-blue-800 flex items-start gap-2">
+                        <AlertCircle size={16} className="shrink-0 mt-0.5"/>
                         <div>
-                            <span className="block text-gray-500">Asuransi</span>
-                            <span className="font-bold">{selectedJob.namaAsuransi}</span>
+                            <strong>Partman Control Area:</strong> <br/>
+                            - Klik tombol <strong>SET INDENT</strong> jika stok kosong dan perlu order ke supplier. <br/>
+                            - Sistem alokasi otomatis (FIFO) akan dilewati jika status manual Indent aktif.
                         </div>
                     </div>
 
                     <table className="w-full text-sm text-left border border-gray-200 rounded-lg overflow-hidden">
-                        <thead className="bg-gray-100 text-gray-700 font-semibold">
+                        <thead className="bg-gray-800 text-white font-semibold">
                             <tr>
-                                <th className="p-3 border-b">No. Part</th>
-                                <th className="p-3 border-b">Nama Part</th>
-                                <th className="p-3 border-b text-center">Qty</th>
-                                <th className="p-3 border-b">Status Alokasi</th>
+                                <th className="p-3 border-b border-gray-700">No. Part</th>
+                                <th className="p-3 border-b border-gray-700">Nama Part</th>
+                                <th className="p-3 border-b border-gray-700 text-center">Qty</th>
+                                <th className="p-3 border-b border-gray-700">Status Alokasi</th>
+                                <th className="p-3 border-b border-gray-700 text-center">Aksi Partman</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {/* Use the detailedParts from the processedJobs logic, we need to find the processed version of selectedJob */}
-                            {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || selectedJob.estimateData?.partItems || []).map((part: any, idx: number) => {
+                        <tbody className="divide-y divide-gray-200">
+                            {/* Use the detailedParts from the processedJobs logic */}
+                            {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || []).map((part: any, idx: number) => {
                                 let statusBadge;
+                                let rowClass = 'bg-white';
+
                                 switch(part.allocationStatus) {
                                     case 'ISSUED':
                                         statusBadge = <span className="text-green-700 font-bold flex items-center gap-1"><CheckCircle size={14}/> Sudah Keluar</span>;
+                                        rowClass = 'bg-green-50 opacity-75';
                                         break;
                                     case 'READY':
                                         statusBadge = <span className="text-blue-600 font-bold flex items-center gap-1"><Package size={14}/> Ready Gudang (Booked)</span>;
+                                        rowClass = 'bg-blue-50';
                                         break;
                                     case 'INDENT_MANUAL':
-                                        statusBadge = <span className="text-red-600 font-bold flex items-center gap-1"><Clock size={14}/> INDENT SUPPLIER</span>;
+                                        statusBadge = (
+                                            <div>
+                                                <span className="text-red-600 font-bold flex items-center gap-1"><Clock size={14}/> INDENT SUPPLIER</span>
+                                                {part.indentETA && <span className="text-[10px] text-red-500 block ml-5">ETA: {part.indentETA}</span>}
+                                            </div>
+                                        );
+                                        rowClass = 'bg-red-50';
                                         break;
                                     case 'WAITING':
                                         statusBadge = <span className="text-orange-600 font-bold flex items-center gap-1"><AlertTriangle size={14}/> Menunggu Stok</span>;
@@ -304,29 +382,34 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                 }
 
                                 return (
-                                    <tr key={idx} className={part.allocationStatus === 'READY' ? 'bg-blue-50' : part.allocationStatus === 'ISSUED' ? 'bg-green-50' : 'bg-white'}>
+                                    <tr key={idx} className={rowClass}>
                                         <td className="p-3 font-mono text-xs">{part.number || '-'}</td>
                                         <td className="p-3">
                                             {part.name}
-                                            {part.isIndent && <span className="ml-2 text-[10px] text-white bg-red-500 px-1 rounded">INDENT</span>}
                                         </td>
                                         <td className="p-3 text-center font-bold">{part.qty}</td>
                                         <td className="p-3">
                                             {statusBadge}
+                                        </td>
+                                        <td className="p-3 text-center">
+                                            {part.allocationStatus !== 'ISSUED' && (
+                                                <button 
+                                                    disabled={isUpdating}
+                                                    onClick={() => handleToggleIndent(idx, part.isIndent, part.indentETA)}
+                                                    className={`px-3 py-1.5 rounded text-xs font-bold shadow-sm transition-colors border ${part.isIndent 
+                                                        ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' 
+                                                        : 'bg-red-600 text-white border-red-700 hover:bg-red-700'
+                                                    }`}
+                                                >
+                                                    {part.isIndent ? 'Batalkan Indent' : 'Set Indent'}
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 );
                             })}
                         </tbody>
                     </table>
-                    
-                    <div className="bg-yellow-50 p-3 rounded-lg text-xs text-yellow-800 flex items-start gap-2">
-                        <AlertCircle size={16} className="shrink-0 mt-0.5"/>
-                        <p>
-                            <strong>Catatan Sistem:</strong> Status "Ready Gudang" menggunakan sistem antrian (First-In-First-Out) berdasarkan tanggal masuk mobil. 
-                            Jika stok terbatas, mobil yang masuk lebih dulu diprioritaskan.
-                        </p>
-                    </div>
 
                     <div className="flex justify-end pt-4">
                         <button 

@@ -27,6 +27,7 @@ export interface EstimateItem {
   qty?: number;
   isOrdered?: boolean;
   isIndent?: boolean;
+  indentETA?: string; // New: Tanggal Estimasi Barang Datang
   hasArrived?: boolean;
   hargaBeliAktual?: number;
   inventoryId?: string; // Linked to Inventory Master
