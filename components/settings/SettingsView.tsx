@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile } from 'firebase/auth';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail, 
+  updateProfile,
+  reauthenticateWithCredential,
+  updatePassword,
+  EmailAuthProvider
+} from 'firebase/auth';
 import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION } from '../../services/firebase';
 import { Settings, Supplier } from '../../types';
 import * as XLSX from 'xlsx';
-import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus } from 'lucide-react';
+import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock } from 'lucide-react';
 
 // --- CONFIG FOR SECONDARY AUTH APP (To create user without logging out) ---
 // Using the same config as main app
@@ -31,6 +39,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   // --- STATE FOR USERS ---
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'Staff' });
   const [resetEmail, setResetEmail] = useState('');
+  
+  // State for Change Password (Current User)
+  const [changePass, setChangePass] = useState({ current: '', new: '', confirm: '' });
 
   // --- STATE FOR SYSTEM ---
   const [localSettings, setLocalSettings] = useState<Settings>(currentSettings);
@@ -92,17 +103,51 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
+  const handleChangeMyPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (changePass.new !== changePass.confirm) {
+        showNotification("Password baru dan konfirmasi tidak cocok.", "error");
+        return;
+    }
+    if (changePass.new.length < 6) {
+        showNotification("Password minimal 6 karakter.", "error");
+        return;
+    }
+
+    setIsLoading(true);
+    try {
+        const auth = getAuth();
+        const user = auth.currentUser;
+
+        if (user && user.email) {
+            // 1. Re-authenticate user
+            const credential = EmailAuthProvider.credential(user.email, changePass.current);
+            await reauthenticateWithCredential(user, credential);
+
+            // 2. Update Password
+            await updatePassword(user, changePass.new);
+            
+            showNotification("Password Anda berhasil diubah.", "success");
+            setChangePass({ current: '', new: '', confirm: '' });
+        } else {
+            showNotification("User tidak ditemukan.", "error");
+        }
+    } catch (error: any) {
+        console.error("Change Password Error:", error);
+        if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            showNotification("Password saat ini salah.", "error");
+        } else {
+            showNotification("Gagal mengubah password. Silakan login ulang.", "error");
+        }
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
   // --- HANDLERS: SYSTEM SETTINGS (Insurance & PPN) ---
   const handleSaveSettings = async () => {
     setIsLoading(true);
     try {
-        // Assuming there is a single document for settings, e.g., 'global' or 'default'
-        // But the app might rely on `onSnapshot`. We need to know the DOC ID.
-        // Assuming 'default' based on typical structure, or we query.
-        // For this code, let's assume we update the doc if we had the ID. 
-        // Since `currentSettings` usually doesn't carry ID in `types.ts`, we need to find it.
-        // *Workaround*: We query the collection and update the first doc found or create 'global'.
-        
         const q = await getDocs(collection(db, SETTINGS_COLLECTION));
         let docRef;
         if (q.empty) {
@@ -254,7 +299,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
       {/* CONTENT: USERS */}
       {activeTab === 'users' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {/* CARD 1: TAMBAH USER */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                       <UserPlus className="text-indigo-600" size={20}/> Tambah Pengguna Baru
@@ -262,33 +308,76 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   <form onSubmit={handleCreateUser} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Nama Lengkap</label>
-                          <input type="text" required value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                          <input type="text" required value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Email</label>
-                          <input type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                          <input type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Password Default</label>
-                          <input type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                          <input type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
                       </div>
-                      <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium">
+                      <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium shadow-sm">
                           {isLoading ? 'Memproses...' : 'Buat Akun'}
                       </button>
                   </form>
               </div>
 
+              {/* CARD 2: CHANGE MY PASSWORD */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                      <Lock className="text-emerald-600" size={20}/> Ganti Password Saya
+                  </h3>
+                  <form onSubmit={handleChangeMyPassword} className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">Password Saat Ini</label>
+                          <input 
+                            type="password" required 
+                            value={changePass.current} 
+                            onChange={e => setChangePass({...changePass, current: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1 focus:ring-1 ring-emerald-500"
+                            placeholder="Verifikasi user..."
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">Password Baru</label>
+                          <input 
+                            type="password" required 
+                            value={changePass.new} 
+                            onChange={e => setChangePass({...changePass, new: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1 focus:ring-1 ring-emerald-500"
+                            placeholder="Min. 6 karakter"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">Konfirmasi Password</label>
+                          <input 
+                            type="password" required 
+                            value={changePass.confirm} 
+                            onChange={e => setChangePass({...changePass, confirm: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1 focus:ring-1 ring-emerald-500"
+                            placeholder="Ulangi password baru"
+                          />
+                      </div>
+                      <button disabled={isLoading} type="submit" className="w-full bg-emerald-600 text-white py-2 rounded hover:bg-emerald-700 font-medium shadow-sm">
+                          {isLoading ? 'Memproses...' : 'Ubah Password'}
+                      </button>
+                  </form>
+              </div>
+
+              {/* CARD 3: RESET OTHER USER */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                      <KeyRound className="text-orange-500" size={20}/> Reset Password
+                      <KeyRound className="text-orange-500" size={20}/> Reset Password User Lain
                   </h3>
-                  <p className="text-sm text-gray-500 mb-4">Link reset password akan dikirimkan ke email pengguna.</p>
+                  <p className="text-sm text-gray-500 mb-4">Link untuk mereset password akan dikirimkan ke email pengguna terkait.</p>
                   <form onSubmit={handleResetPassword} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Email Pengguna</label>
-                          <input type="email" required value={resetEmail} onChange={e => setResetEmail(e.target.value)} className="w-full p-2 border rounded mt-1"/>
+                          <input type="email" required value={resetEmail} onChange={e => setResetEmail(e.target.value)} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-orange-500"/>
                       </div>
-                      <button disabled={isLoading} type="submit" className="w-full bg-orange-500 text-white py-2 rounded hover:bg-orange-600 font-medium">
+                      <button disabled={isLoading} type="submit" className="w-full bg-orange-500 text-white py-2 rounded hover:bg-orange-600 font-medium shadow-sm">
                           Kirim Link Reset
                       </button>
                   </form>
