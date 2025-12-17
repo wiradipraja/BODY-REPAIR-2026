@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -20,6 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'input_data', label: 'Input Data Unit', icon: PlusCircle },
     { id: 'estimation', label: 'Estimasi & WO', icon: FileText },
     { id: 'entry_data', label: 'Daftar Pekerjaan', icon: List },
+    { id: 'inventory', label: 'Stok & Bahan', icon: Package }, // Updated Label & Icon
   ];
 
   return (

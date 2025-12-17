@@ -29,6 +29,7 @@ export interface EstimateItem {
   isIndent?: boolean;
   hasArrived?: boolean;
   hargaBeliAktual?: number;
+  inventoryId?: string; // Linked to Inventory Master
 }
 
 export interface EstimateData {
@@ -112,6 +113,23 @@ export interface Supplier {
   address: string;
   picName: string;
   createdAt: any;
+}
+
+export interface InventoryItem {
+  id: string;
+  code: string; // Part Number or SKU
+  name: string;
+  category: 'sparepart' | 'material';
+  brand?: string; // Merk (e.g. Mazda Genuine, Nippon Paint)
+  stock: number;
+  unit: string; // Pcs, Liter, Kg, Set
+  minStock: number;
+  buyPrice: number; // Harga Modal / HPP
+  sellPrice: number; // Harga Jual ke Customer
+  location?: string; // Lokasi Rak/Gudang
+  supplierId?: string; // Link to Supplier
+  createdAt: any;
+  updatedAt?: any;
 }
 
 export interface Settings {

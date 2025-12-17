@@ -1,0 +1,199 @@
+import React, { useState, useEffect } from 'react';
+import { InventoryItem } from '../../types';
+import { Save, Loader2, Package } from 'lucide-react';
+
+interface InventoryFormProps {
+  initialData: Partial<InventoryItem>;
+  activeCategory: 'sparepart' | 'material';
+  onSave: (data: Partial<InventoryItem>) => Promise<void>;
+  onCancel: () => void;
+}
+
+const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCategory, onSave, onCancel }) => {
+  const [formData, setFormData] = useState<Partial<InventoryItem>>({
+      code: '',
+      name: '',
+      brand: '',
+      stock: 0,
+      unit: activeCategory === 'sparepart' ? 'Pcs' : 'Liter',
+      minStock: 5,
+      buyPrice: 0,
+      sellPrice: 0,
+      location: '',
+      ...initialData
+  });
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Auto-set unit defaults when switching categories if creating new
+  useEffect(() => {
+      if (!initialData.id) {
+          setFormData(prev => ({
+              ...prev,
+              unit: activeCategory === 'sparepart' ? 'Pcs' : 'Liter',
+              category: activeCategory
+          }));
+      }
+  }, [activeCategory, initialData.id]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const { name, value, type } = e.target;
+      setFormData(prev => ({
+          ...prev,
+          [name]: type === 'number' ? Number(value) : value
+      }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSubmitting(true);
+      await onSave(formData);
+      setIsSubmitting(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="bg-blue-50 p-3 rounded-lg flex items-center gap-3 text-blue-800 text-sm font-medium">
+            <Package size={20}/>
+            Modul: {activeCategory === 'sparepart' ? 'Suku Cadang (Part)' : 'Bahan Baku (Consumables)'}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Item *</label>
+                <input 
+                    type="text" required name="name" 
+                    value={formData.name} onChange={handleChange} 
+                    className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder={activeCategory === 'sparepart' ? "Contoh: Bumper Depan CX-5" : "Contoh: Thinner A Special"}
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {activeCategory === 'sparepart' ? 'Part Number (Kode)' : 'Kode Barang'}
+                </label>
+                <input 
+                    type="text" name="code" 
+                    value={formData.code} onChange={handleChange} 
+                    className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono uppercase"
+                    placeholder="X001-222..."
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Merk / Brand</label>
+                <input 
+                    type="text" name="brand" 
+                    value={formData.brand} onChange={handleChange} 
+                    className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder={activeCategory === 'sparepart' ? "Mazda Genuine Parts" : "Nippon Paint"}
+                />
+            </div>
+        </div>
+
+        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <h4 className="text-sm font-bold text-gray-800 mb-3 border-b pb-2">Informasi Stok</h4>
+            <div className="grid grid-cols-3 gap-4">
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Sisa Stok</label>
+                    <input 
+                        type="number" name="stock" required
+                        value={formData.stock} onChange={handleChange} 
+                        className="w-full p-2 border rounded font-bold text-gray-900"
+                    />
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Satuan</label>
+                    <select 
+                        name="unit" value={formData.unit} onChange={handleChange}
+                        className="w-full p-2 border rounded bg-white"
+                    >
+                        {activeCategory === 'sparepart' ? (
+                            <>
+                                <option value="Pcs">Pcs</option>
+                                <option value="Set">Set</option>
+                                <option value="Unit">Unit</option>
+                            </>
+                        ) : (
+                            <>
+                                <option value="Liter">Liter</option>
+                                <option value="Kaleng">Kaleng</option>
+                                <option value="Kg">Kg</option>
+                                <option value="Pcs">Pcs (Lembar/Roll)</option>
+                            </>
+                        )}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Min. Alert</label>
+                    <input 
+                        type="number" name="minStock" 
+                        value={formData.minStock} onChange={handleChange} 
+                        className="w-full p-2 border rounded"
+                    />
+                </div>
+                <div className="col-span-3">
+                     <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Lokasi Penyimpanan</label>
+                     <input 
+                        type="text" name="location" 
+                        value={formData.location || ''} onChange={handleChange} 
+                        className="w-full p-2 border rounded"
+                        placeholder="Contoh: Rak A-12, Gudang Cat..."
+                    />
+                </div>
+            </div>
+        </div>
+
+        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <h4 className="text-sm font-bold text-gray-800 mb-3 border-b pb-2">Harga & Modal</h4>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Harga Beli (Modal)</label>
+                    <div className="relative">
+                        <span className="absolute left-3 top-2 text-gray-500 text-sm">Rp</span>
+                        <input 
+                            type="number" name="buyPrice" 
+                            value={formData.buyPrice} onChange={handleChange} 
+                            className="w-full p-2 pl-9 border rounded"
+                            placeholder="0"
+                        />
+                    </div>
+                </div>
+
+                {activeCategory === 'sparepart' ? (
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Harga Jual (Est)</label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-2 text-gray-500 text-sm">Rp</span>
+                            <input 
+                                type="number" name="sellPrice" 
+                                value={formData.sellPrice} onChange={handleChange} 
+                                className="w-full p-2 pl-9 border rounded font-bold text-emerald-700"
+                                placeholder="0"
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex items-center text-xs text-gray-500 italic bg-white p-2 border rounded">
+                        Bahan baku biasanya tidak dijual langsung, namun dibebankan sebagai biaya produksi.
+                    </div>
+                )}
+            </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2 border-t">
+            <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Batal</button>
+            <button 
+                type="submit" disabled={isSubmitting}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 transition-colors disabled:opacity-70"
+            >
+                {isSubmitting ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
+                Simpan Item
+            </button>
+        </div>
+    </form>
+  );
+};
+
+export default InventoryForm;

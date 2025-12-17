@@ -16,6 +16,7 @@ import JobForm from './components/forms/JobForm';
 import EstimationForm from './components/forms/EstimationForm';
 import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
+import InventoryView from './components/inventory/InventoryView'; // IMPORTED
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -320,7 +321,7 @@ const AppContent: React.FC = () => {
                     allData={filteredJobs}
                     openModal={openModal}
                     onDelete={handleDeleteJob}
-                    onCloseJob={handleCloseJob} // Pass logic to Close WO
+                    onCloseJob={handleCloseJob} 
                     userPermissions={userPermissions}
                     showNotification={showNotification}
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
@@ -330,6 +331,14 @@ const AppContent: React.FC = () => {
                     settings={appSettings}
                 />
             </div>
+        )}
+
+        {/* INVENTORY MODULE */}
+        {currentView === 'inventory' && (
+             <InventoryView 
+                userPermissions={userPermissions}
+                showNotification={showNotification}
+             />
         )}
 
         {currentView === 'settings' && (
@@ -343,7 +352,7 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {['job_control', 'finance', 'inventory'].includes(currentView) && (
+        {['job_control', 'finance'].includes(currentView) && (
             <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
                  <SettingsIcon className="text-gray-400 mb-2" size={32} />
                 <p className="text-gray-500 font-medium">Modul {currentView} sedang dalam pengembangan.</p>
