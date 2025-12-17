@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
-import { formatDateIndo, exportToCsv, formatCurrency, formatPoliceNumber } from '../../utils/helpers';
-import { Search, Filter, Download, Calendar, Trash2, Edit, FileText } from 'lucide-react';
+import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
@@ -19,84 +19,6 @@ interface MainDashboardProps {
   setShowClosedJobs: (b: boolean) => void;
   settings: Settings;
 }
-
-const JobCard = ({ job, openModal, userPermissions, onDelete }: any) => {
-    const getStatusColor = (status: string) => {
-        if (!status) return 'bg-gray-100 text-gray-800';
-        if (status.includes('Selesai') || status.includes('Di ambil')) return 'bg-green-100 text-green-800';
-        if (status.includes('Booking')) return 'bg-blue-100 text-blue-800';
-        if (status.includes('Tunggu')) return 'bg-yellow-100 text-yellow-800';
-        return 'bg-indigo-100 text-indigo-800';
-    };
-
-    const handleDelete = () => {
-        if(window.confirm(`Hapus Pekerjaan ${job.policeNumber}?`)) {
-             onDelete(job);
-        }
-    };
-
-    const calculatedGrossProfit = (job.hargaJasa || 0) + (job.hargaPart || 0) - 
-                                  ((job.costData?.hargaModalBahan || 0) + 
-                                   (job.costData?.hargaBeliPart || 0) + 
-                                   (job.costData?.jasaExternal || 0));
-
-    return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between hover:shadow-md transition-shadow duration-200">
-            <div className="p-5">
-                <div className="flex justify-between items-start mb-3">
-                    <p className="font-extrabold text-sky-700 text-lg tracking-tight">{job.policeNumber}</p>
-                    <span className={`px-2 py-0.5 text-[10px] uppercase font-bold rounded-full tracking-wider ${getStatusColor(job.statusKendaraan)}`}>
-                        {job.statusKendaraan}
-                    </span>
-                </div>
-                <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-800">{job.carModel}</p>
-                    <p className="text-xs text-gray-500">{job.namaAsuransi}</p>
-                </div>
-                
-                <div className="border-t border-dashed pt-3 space-y-2 text-sm text-gray-600">
-                    <div className="flex justify-between"><span>Tgl Masuk:</span> <span className="font-medium text-gray-900">{formatDateIndo(job.tanggalMasuk)}</span></div>
-                    <div className="flex justify-between"><span>SA:</span> <span className="font-medium text-gray-900">{job.namaSA || '-'}</span></div>
-                    <div className="flex justify-between"><span>Panel:</span> <span className="font-medium text-gray-900">{job.jumlahPanel || 0}</span></div>
-                    <div className="flex justify-between"><span>Status:</span> <span className="font-medium text-gray-900">{job.statusPekerjaan || '-'}</span></div>
-                    
-                    {job.woNumber && (
-                        <div className="bg-gray-50 p-2 rounded mt-2 text-xs">
-                            <p className="flex justify-between"><span>No. WO:</span> <span className="font-mono">{job.woNumber}</span></p>
-                            <p className="flex justify-between mt-1">
-                                <span>Status WO:</span>
-                                <span className={`font-bold ${job.isClosed ? 'text-red-600' : 'text-green-600'}`}>
-                                    {job.isClosed ? 'Closed' : 'Open'}
-                                </span>
-                            </p>
-                        </div>
-                    )}
-
-                    <div className="pt-2 mt-2 border-t">
-                         <p className="text-xs text-gray-500">Gross Profit</p>
-                         <p className="font-bold text-green-600 text-lg">{formatCurrency(calculatedGrossProfit)}</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div className="bg-gray-50 px-4 py-3 flex justify-between items-center rounded-b-xl border-t">
-                {userPermissions.role === 'Manager' && (
-                     <button onClick={handleDelete} className="p-2 text-red-600 hover:bg-red-100 rounded-full transition-colors" title="Hapus">
-                        <Trash2 size={16} />
-                     </button>
-                )}
-                <div className="flex gap-2 ml-auto">
-                    <button onClick={() => openModal('edit_data', job)} className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900 px-3 py-1.5 bg-white border rounded hover:bg-gray-50 transition-colors">
-                        <Edit size={12}/> Edit
-                    </button>
-                    <button onClick={() => openModal('create_estimation', job)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 transition-colors">
-                        <FileText size={12}/> Estimasi
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 const MainDashboard: React.FC<MainDashboardProps> = ({
   allData, openModal, onDelete, userPermissions, showNotification,
@@ -116,8 +38,24 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
           'Status Kendaraan': job.statusKendaraan || '',
           'Status Pekerjaan': job.statusPekerjaan || '',
           'Tgl Estimasi Selesai': formatDateIndo(job.tanggalEstimasiSelesai),
+          'Gross Profit': (job.hargaJasa || 0) + (job.hargaPart || 0) - ((job.costData?.hargaModalBahan || 0) + (job.costData?.hargaBeliPart || 0) + (job.costData?.jasaExternal || 0))
       }));
       exportToCsv('Laporan_Data_Unit.csv', dataToExport);
+  };
+
+  const getStatusColor = (status: string) => {
+      if (!status) return 'bg-gray-100 text-gray-800';
+      if (status.includes('Selesai') || status.includes('Di ambil')) return 'bg-green-100 text-green-800 border-green-200';
+      if (status.includes('Booking')) return 'bg-blue-100 text-blue-800 border-blue-200';
+      if (status.includes('Tunggu')) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      if (status.includes('Banding')) return 'bg-orange-100 text-orange-800 border-orange-200';
+      return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  };
+
+  const handleDelete = (job: Job) => {
+    if(window.confirm(`Hapus Pekerjaan ${job.policeNumber}?`)) {
+         onDelete(job);
+    }
   };
 
   return (
@@ -166,7 +104,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
             {/* Actions */}
             <div className="flex items-center gap-3 w-full lg:w-auto">
                 <button onClick={handleExportGeneralData} className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white font-semibold py-2.5 px-5 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
-                    <Download size={18} /> <span className="hidden sm:inline">Export</span>
+                    <Download size={18} /> <span className="hidden sm:inline">Export CSV</span>
                 </button>
             </div>
         </div>
@@ -181,17 +119,110 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
               <p className="text-sm text-gray-400 mt-1">Coba ubah filter atau tambah data baru di menu Input Data.</p>
           </div>
       ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {allData.map(job => (
-                  <JobCard 
-                      key={job.id} 
-                      job={job} 
-                      openModal={openModal} 
-                      onDelete={onDelete}
-                      userPermissions={userPermissions} 
-                      showNotification={showNotification} 
-                  />
-              ))}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tgl Masuk</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">No. Polisi</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Kendaraan</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">SA & Asuransi</th>
+                    <th scope="col" className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Panel</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status Unit</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status WO</th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Est. Profit</th>
+                    <th scope="col" className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allData.map((job) => {
+                     const calculatedGrossProfit = (job.hargaJasa || 0) + (job.hargaPart || 0) - 
+                                  ((job.costData?.hargaModalBahan || 0) + 
+                                   (job.costData?.hargaBeliPart || 0) + 
+                                   (job.costData?.jasaExternal || 0));
+                     
+                     return (
+                        <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                             {formatDateIndo(job.tanggalMasuk)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                             <div className="text-sm font-extrabold text-indigo-700">{job.policeNumber}</div>
+                             <div className="text-xs text-gray-500">{job.customerName?.split(' ')[0]}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                             <div className="text-sm font-medium text-gray-900">{job.carModel}</div>
+                             <div className="text-xs text-gray-500">{job.warnaMobil}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                             <div className="text-sm text-gray-900">{job.namaSA || '-'}</div>
+                             <div className="text-xs text-gray-500">{job.namaAsuransi}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                             <span className="px-2 py-1 text-xs font-medium bg-gray-100 rounded-full">{job.jumlahPanel || 0}</span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                             <span className={`px-2 py-1 text-xs leading-5 font-semibold rounded-full border ${getStatusColor(job.statusKendaraan)}`}>
+                               {job.statusKendaraan}
+                             </span>
+                             <div className="text-xs text-gray-500 mt-1">{job.statusPekerjaan}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                             {job.woNumber ? (
+                                <div>
+                                   <div className="text-sm font-mono text-gray-700">{job.woNumber}</div>
+                                   <span className={`text-[10px] uppercase font-bold ${job.isClosed ? 'text-red-600' : 'text-green-600'}`}>
+                                      {job.isClosed ? 'Closed' : 'Open'}
+                                   </span>
+                                </div>
+                             ) : (
+                                <span className="text-xs text-gray-400 italic">Draft</span>
+                             )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right">
+                             <div className="text-sm font-bold text-emerald-600">{formatCurrency(calculatedGrossProfit)}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                             <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => openModal('edit_data', job)} 
+                                  className="text-gray-400 hover:text-blue-600 transition-colors"
+                                  title="Edit Data Unit"
+                                >
+                                  <Edit size={18}/>
+                                </button>
+                                <button 
+                                  onClick={() => openModal('create_estimation', job)} 
+                                  className="text-indigo-400 hover:text-indigo-700 transition-colors"
+                                  title="Buka Estimasi / WO"
+                                >
+                                  <FileText size={18}/>
+                                </button>
+                                {userPermissions.role === 'Manager' && (
+                                  <button 
+                                    onClick={() => handleDelete(job)} 
+                                    className="text-red-300 hover:text-red-600 transition-colors"
+                                    title="Hapus Data"
+                                  >
+                                    <Trash2 size={18}/>
+                                  </button>
+                                )}
+                             </div>
+                          </td>
+                        </tr>
+                     );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+               <span>Menampilkan {allData.length} data pekerjaan</span>
+               <div className="flex gap-2 items-center">
+                  <AlertCircle size={14}/>
+                  <span>Gross Profit = (Jasa + Part) - (Modal Bahan + Beli Part + Jasa Luar)</span>
+               </div>
+            </div>
           </div>
       )}
     </div>
