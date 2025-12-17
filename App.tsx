@@ -17,7 +17,7 @@ import EstimationForm from './components/forms/EstimationForm';
 import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
-import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; // NEW IMPORT
+import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -110,7 +110,7 @@ const AppContent: React.FC = () => {
       }
   };
 
-  // NEW: Handle Create New Transaction directly from Estimation Page
+  // Handle Create New Transaction directly from Estimation Page
   const handleCreateTransaction = async (vehicleData: Partial<Job>) => {
       try {
           // 1. Create a new Job Document immediately
@@ -128,8 +128,6 @@ const AppContent: React.FC = () => {
 
           const docRef = await addDoc(collection(db, JOBS_COLLECTION), newJobPayload);
           
-          // 2. Refresh local data (Optional, handled by listener usually)
-          // 3. Open Estimation Modal directly with the NEW ID
           const newJobData = { id: docRef.id, ...newJobPayload };
           
           showNotification("Transaksi Baru Dibuat. Silakan input estimasi.", "success");
@@ -186,9 +184,6 @@ const AppContent: React.FC = () => {
           const jobRef = doc(db, JOBS_COLLECTION, jobId);
           const currentJob = allData.find(j => j.id === jobId);
           
-          // Check if this is the FIRST time generating WO to trigger stock deduction
-          const isFirstTimeWO = saveType === 'wo' && !currentJob?.woNumber;
-
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
 
@@ -224,24 +219,10 @@ const AppContent: React.FC = () => {
               woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
-          // 3. STOCK DEDUCTION LOGIC (Only when generating WO for the first time)
-          if (isFirstTimeWO) {
-              for (const item of estimateData.partItems) {
-                  if (item.inventoryId && item.qty) {
-                      try {
-                          const partRef = doc(db, SPAREPART_COLLECTION, item.inventoryId);
-                          // Atomic decrement
-                          await updateDoc(partRef, {
-                              stock: increment(-item.qty)
-                          });
-                      } catch (err) {
-                          console.error(`Failed to deduct stock for ${item.name}`, err);
-                      }
-                  }
-              }
-              showNotification("Stok Inventory berhasil diperbarui (terpotong).", "success");
-              refreshInventory(); // Refresh local inventory state
-          }
+          // 3. REMOVED AUTOMATIC STOCK DEDUCTION LOGIC
+          // Stock will now be deducted manually via the 'Pembebanan Part' menu 
+          // to prevent double deduction and give more control to the Partman.
+          // Note: If you want to keep automatic deduction, uncomment the logic in previous versions.
 
           const updatedEstimateData = {
               ...estimateData,
@@ -358,7 +339,7 @@ const AppContent: React.FC = () => {
                     allJobs={allData} 
                     onNavigate={setCurrentView} 
                     openModal={openModal}
-                    onCreateTransaction={handleCreateTransaction} // NEW PROP
+                    onCreateTransaction={handleCreateTransaction} 
                 />
             </div>
         )}
@@ -382,9 +363,8 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* --- INVENTORY MODULE (SUB-MENU) --- */}
+        {/* --- INVENTORY MODULE --- */}
         
-        {/* 1. STOK & BAHAN */}
         {currentView === 'inventory' && (
              <InventoryView 
                 userPermissions={userPermissions}
@@ -392,14 +372,27 @@ const AppContent: React.FC = () => {
              />
         )}
 
-        {/* 2. PEMBEBANAN (MATERIAL ISSUANCE) - NEW */}
-        {currentView === 'part_usage' && (
+        {/* PEMBEBANAN PART (SYNC WITH ESTIMATE) */}
+        {currentView === 'part_issuance' && (
             <MaterialIssuanceView 
-                activeJobs={allData.filter(j => !j.isClosed)} // Pass only active jobs
+                activeJobs={allData.filter(j => !j.isClosed && j.woNumber)} // Only jobs with WO
                 inventoryItems={inventoryItems}
                 userPermissions={userPermissions}
                 showNotification={showNotification}
                 onRefreshData={refreshInventory}
+                issuanceType="sparepart"
+            />
+        )}
+
+        {/* PEMBEBANAN BAHAN (AD HOC) */}
+        {currentView === 'material_issuance' && (
+            <MaterialIssuanceView 
+                activeJobs={allData.filter(j => !j.isClosed && j.woNumber)} 
+                inventoryItems={inventoryItems}
+                userPermissions={userPermissions}
+                showNotification={showNotification}
+                onRefreshData={refreshInventory}
+                issuanceType="material"
             />
         )}
 
@@ -465,20 +458,7 @@ const AppContent: React.FC = () => {
                     onCancel={closeModal}
                     settings={appSettings} 
                     creatorName={userData.displayName || 'Admin'}
-                    inventoryItems={inventoryItems} // PASS INVENTORY
-                />
-            )}
-
-            {modalState.type === 'edit_job' && (
-                <EstimateEditor
-                    job={modalState.data}
-                    ppnPercentage={appSettings.ppnPercentage}
-                    insuranceOptions={appSettings.insuranceOptions} 
-                    onSave={handleSaveEstimate}
-                    onCancel={closeModal}
-                    settings={appSettings} 
-                    creatorName={userData.displayName || 'Admin'}
-                    inventoryItems={inventoryItems} // PASS INVENTORY
+                    inventoryItems={inventoryItems} 
                 />
             )}
         </Modal>
