@@ -1,5 +1,5 @@
-import React from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -15,12 +15,28 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ 
   isOpen, setIsOpen, currentView, setCurrentView, userData, userPermissions, onLogout 
 }) => {
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+      'sparepart_root': true // Default open for convenience
+  });
+
+  const toggleMenu = (id: string) => {
+    setExpandedMenus(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'input_data', label: 'Input Data Unit', icon: PlusCircle },
     { id: 'estimation', label: 'Estimasi & WO', icon: FileText },
     { id: 'entry_data', label: 'Daftar Pekerjaan', icon: List },
-    { id: 'inventory', label: 'Stok & Bahan', icon: Package }, // Updated Label & Icon
+    { 
+        id: 'sparepart_root', 
+        label: 'Sparepart', 
+        icon: Wrench,
+        children: [
+            { id: 'inventory', label: 'Stok & Bahan', icon: Package },
+            { id: 'part_usage', label: 'Pembebanan', icon: Truck }, // New Sub-menu
+        ]
+    },
   ];
 
   return (
@@ -44,17 +60,56 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-grow p-4 space-y-1 overflow-y-auto">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const hasChildren = item.children && item.children.length > 0;
+            const isExpanded = expandedMenus[item.id];
+            // Check if any child is active to highlight parent
+            const isParentActive = hasChildren && item.children?.some(child => child.id === currentView);
+
             return (
-              <button 
-                key={item.id}
-                onClick={() => { setCurrentView(item.id); setIsOpen(false); }} 
-                className={`flex items-center gap-3 w-full p-3 rounded-lg text-sm font-medium transition ${currentView === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                <Icon size={18}/> {item.label}
-              </button>
+              <div key={item.id} className="mb-1">
+                  {!hasChildren ? (
+                      <button 
+                        onClick={() => { setCurrentView(item.id); setIsOpen(false); }} 
+                        className={`flex items-center gap-3 w-full p-3 rounded-lg text-sm font-medium transition ${currentView === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        <Icon size={18}/> {item.label}
+                      </button>
+                  ) : (
+                      // Parent Menu Item
+                      <div>
+                          <button 
+                            onClick={() => toggleMenu(item.id)}
+                            className={`flex items-center justify-between w-full p-3 rounded-lg text-sm font-medium transition ${isParentActive ? 'text-indigo-700 bg-indigo-50' : 'text-gray-600 hover:bg-gray-50'}`}
+                          >
+                             <div className="flex items-center gap-3">
+                                <Icon size={18}/> {item.label}
+                             </div>
+                             {isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                          </button>
+                          
+                          {/* Sub Menu Items */}
+                          {isExpanded && (
+                              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 pl-2">
+                                  {item.children?.map(child => {
+                                      const ChildIcon = child.icon;
+                                      return (
+                                        <button 
+                                            key={child.id}
+                                            onClick={() => { setCurrentView(child.id); setIsOpen(false); }}
+                                            className={`flex items-center gap-3 w-full p-2 rounded-lg text-sm transition ${currentView === child.id ? 'text-indigo-700 font-bold bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            <ChildIcon size={16}/> {child.label}
+                                        </button>
+                                      )
+                                  })}
+                              </div>
+                          )}
+                      </div>
+                  )}
+              </div>
             )
           })}
         </nav>
@@ -71,7 +126,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
               
-              {/* SETTINGS BUTTON - Visible for everyone now */}
               <button 
                 onClick={() => { setCurrentView('settings'); setIsOpen(false); }}
                 className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-200 text-indigo-800' : 'hover:bg-gray-200 text-gray-600'}`}

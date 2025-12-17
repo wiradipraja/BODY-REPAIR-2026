@@ -17,6 +17,7 @@ import EstimationForm from './components/forms/EstimationForm';
 import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
+import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; // NEW IMPORT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -381,11 +382,25 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
+        {/* --- INVENTORY MODULE (SUB-MENU) --- */}
+        
+        {/* 1. STOK & BAHAN */}
         {currentView === 'inventory' && (
              <InventoryView 
                 userPermissions={userPermissions}
                 showNotification={showNotification}
              />
+        )}
+
+        {/* 2. PEMBEBANAN (MATERIAL ISSUANCE) - NEW */}
+        {currentView === 'part_usage' && (
+            <MaterialIssuanceView 
+                activeJobs={allData.filter(j => !j.isClosed)} // Pass only active jobs
+                inventoryItems={inventoryItems}
+                userPermissions={userPermissions}
+                showNotification={showNotification}
+                onRefreshData={refreshInventory}
+            />
         )}
 
         {currentView === 'settings' && (
