@@ -8,7 +8,7 @@ import { Search, Package, Truck, PaintBucket, CheckCircle, AlertCircle, ArrowRig
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
   inventoryItems: InventoryItem[];
-  suppliers: Supplier[]; // Kept for prop compatibility but unused in UI
+  suppliers: Supplier[]; // Props kept for compatibility, but unused in UI
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
   onRefreshData: () => void;
@@ -68,12 +68,17 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedJob) return;
+    if (!selectedJob) {
+        showNotification("Pilih Work Order terlebih dahulu.", "error");
+        return;
+    }
+    
     if (selectedJob.isClosed) {
         showNotification("WO sudah closed. Transaksi ditolak.", "error");
         return;
     }
 
+    // Resolution for Material ID (Either from selection or typed name)
     let targetId = selectedMaterialId;
     if (!targetId && materialSearchTerm) {
         const match = materialInventory.find(i => 
@@ -90,7 +95,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     
     const item = inventoryItems.find(i => i.id === targetId);
     if (!item) {
-        showNotification("Data bahan tidak ditemukan.", "error");
+        showNotification("Data bahan tidak ditemukan di database.", "error");
         return;
     }
 
@@ -100,7 +105,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     }
 
     const isVendorManaged = item.isStockManaged === false; 
-    if (!isVendorManaged && item.stock < finalQty) {
+    if (!isVendorManaged && Number(item.stock) < finalQty) {
         showNotification(`Stok ${item.name} tidak cukup! (Tersedia: ${item.stock} ${item.unit})`, "error");
         return;
     }
@@ -111,6 +116,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     try {
         const itemCostTotal = (item.buyPrice || 0) * finalQty;
         
+        // Update Stock Master
         await updateDoc(doc(db, SPAREPART_COLLECTION, targetId), {
             stock: increment(-finalQty),
             updatedAt: serverTimestamp()
@@ -131,6 +137,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             issuedBy: userPermissions.role 
         };
 
+        // Update WO / Job document
         await updateDoc(doc(db, JOBS_COLLECTION, selectedJobId), {
             'costData.hargaModalBahan': increment(itemCostTotal),
             usageLog: arrayUnion(usageRecord)
@@ -141,7 +148,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         setNotes('');
         setMaterialSearchTerm('');
         setSelectedMaterialId('');
-        onRefreshData();
+        onRefreshData(); // Refresh Master Stock in App Context
     } catch (error: any) {
         console.error("Material Issuance Error:", error);
         showNotification("Gagal: " + error.message, "error");
@@ -153,6 +160,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   // --- HANDLER: PEMBEBANAN PART (SPAREPART) ---
   const handlePartIssuance = async (estItem: EstimateItem, itemIndex: number, linkedInventoryId: string) => {
       if (!selectedJob) return;
+      
       if (selectedJob.isClosed) {
         showNotification("WO sudah closed.", "error");
         return;
@@ -166,8 +174,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
       const qtyToIssue = Number(estItem.qty || 1);
 
-      if (invItem.stock < qtyToIssue) {
-          showNotification(`Stok GUDANG tidak cukup!`, "error");
+      if (Number(invItem.stock) < qtyToIssue) {
+          showNotification(`Stok GUDANG tidak cukup! (Tersedia: ${invItem.stock})`, "error");
           return;
       }
 
@@ -175,6 +183,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
       setIsSubmitting(true);
       try {
+          // 1. Potong Stok Gudang
           await updateDoc(doc(db, SPAREPART_COLLECTION, linkedInventoryId), {
               stock: increment(-qtyToIssue),
               updatedAt: serverTimestamp()
@@ -182,6 +191,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
           const itemCostTotal = (invItem.buyPrice || 0) * qtyToIssue;
 
+          // 2. Buat Record Log
           const usageRecord: UsageLogItem = {
             itemId: invItem.id,
             itemName: invItem.name,
@@ -195,11 +205,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             issuedBy: userPermissions.role
           };
 
+          // 3. Update Status di Array Part Items Estimasi
           const newPartItems = [...(selectedJob.estimateData?.partItems || [])];
           if (newPartItems[itemIndex]) {
               newPartItems[itemIndex] = { ...newPartItems[itemIndex], hasArrived: true }; 
           }
 
+          // 4. Update Job Document
           await updateDoc(doc(db, JOBS_COLLECTION, selectedJobId), {
               'estimateData.partItems': newPartItems,
               'costData.hargaBeliPart': increment(itemCostTotal),
@@ -218,7 +230,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   const handleCancelIssuance = async (logItem: UsageLogItem) => {
       if (!selectedJob || !userPermissions.role.includes('Manager')) {
-          showNotification("Akses ditolak.", "error");
+          showNotification("Akses ditolak. Hanya Manager yang bisa membatalkan.", "error");
           return;
       }
       if (selectedJob.isClosed) {
@@ -226,11 +238,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           return;
       }
 
-      const reason = window.prompt(`Batalkan pembebanan ${logItem.itemName}? Masukkan alasan:`, "Salah input");
+      const reason = window.prompt(`Batalkan pembebanan ${logItem.itemName}? Stok akan dikembalikan ke gudang.\n\nMasukkan alasan:`, "Salah input");
       if (reason === null || !reason.trim()) return;
 
       setIsSubmitting(true);
       try {
+          // Kembalikan Stok
           await updateDoc(doc(db, SPAREPART_COLLECTION, logItem.itemId), {
               stock: increment(logItem.qty),
               updatedAt: serverTimestamp()
@@ -248,6 +261,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
               [costField]: increment(-logItem.totalCost)
           };
 
+          // Jika sparepart, kembalikan status hasArrived di estimasi
           if (logItem.category === 'sparepart' && selectedJob.estimateData?.partItems) {
               const newParts = [...selectedJob.estimateData.partItems];
               const pIdx = newParts.findIndex(p => p.inventoryId === logItem.itemId && p.hasArrived);
@@ -258,7 +272,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           }
 
           await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), updatePayload);
-          showNotification("Berhasil dibatalkan.", "success");
+          showNotification("Pembebanan berhasil dibatalkan.", "success");
           onRefreshData();
       } catch (e: any) {
           showNotification("Gagal: " + e.message, "error");
@@ -270,7 +284,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const handleMaterialSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = e.target.value;
       setMaterialSearchTerm(val);
-      const match = materialInventory.find(i => i.name === val || i.code === val);
+      
+      // Auto-matching to enable the save button without requiring explicit click from datalist
+      const match = materialInventory.find(i => i.name.toLowerCase() === val.toLowerCase() || (i.code && i.code.toLowerCase() === val.toLowerCase()));
       if (match) {
           setSelectedMaterialId(match.id);
           setSelectedUnit(match.unit);
@@ -350,7 +366,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         <p className="text-gray-600">{selectedJob.policeNumber} | {selectedJob.carModel}</p>
                     </div>
                     {selectedJob.isClosed && <div className="px-4 py-2 bg-red-100 text-red-800 rounded-lg font-bold border border-red-200">WO CLOSED</div>}
-                    <button onClick={() => { setSelectedJobId(''); setFilterWo(''); }} className="text-sm text-red-500 underline">Ganti WO</button>
+                    <button onClick={() => { setSelectedJobId(''); setFilterWo(''); }} className="text-sm text-red-500 underline font-bold">Ganti WO</button>
                 </div>
             )}
         </div>
@@ -359,7 +375,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Truck size={20} className="text-indigo-600"/> Daftar Part Estimasi</h3>
                 {(!selectedJob.estimateData?.partItems || selectedJob.estimateData.partItems.length === 0) ? (
-                    <div className="text-center py-8 text-gray-400 italic bg-gray-50 rounded-lg">Tidak ada item sparepart.</div>
+                    <div className="text-center py-8 text-gray-400 italic bg-gray-50 rounded-lg">Tidak ada item sparepart dalam estimasi ini.</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
@@ -380,7 +396,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     );
                                     const isIssued = item.hasArrived; 
                                     return (
-                                        <tr key={idx} className={isIssued ? "bg-green-50 opacity-70" : "hover:bg-gray-50"}>
+                                        <tr key={idx} className={isIssued ? "bg-green-50/50" : "hover:bg-gray-50"}>
                                             <td className="p-3">
                                                 <div className="font-bold">{item.name}</div>
                                                 <div className="text-xs text-gray-500 font-mono">{item.number || '-'}</div>
@@ -388,18 +404,26 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                             <td className="p-3 text-center font-bold">{item.qty || 1}</td>
                                             <td className="p-3 text-right">{invItem ? formatCurrency(invItem.buyPrice) : '-'}</td>
                                             <td className="p-3 text-center">
-                                                {invItem ? <span className={`font-bold ${invItem.stock > 0 ? 'text-blue-600' : 'text-red-500'}`}>{invItem.stock}</span> : '-'}
+                                                {invItem ? (
+                                                    <span className={`font-bold ${invItem.stock >= (item.qty || 1) ? 'text-blue-600' : 'text-red-500'}`}>
+                                                        {invItem.stock} {invItem.unit}
+                                                    </span>
+                                                ) : <span className="text-red-400">Not in Master</span>}
                                             </td>
                                             <td className="p-3 text-right">
-                                                {!isIssued && invItem && !selectedJob.isClosed && (
+                                                {isIssued ? (
+                                                    <span className="text-green-600 font-black text-xs uppercase flex items-center justify-end gap-1">
+                                                        <CheckCircle size={14}/> DIKELUARKAN
+                                                    </span>
+                                                ) : (invItem && !selectedJob.isClosed) ? (
                                                     <button 
                                                         onClick={() => handlePartIssuance(item, idx, invItem.id)}
                                                         disabled={isSubmitting || invItem.stock < (item.qty || 1)}
-                                                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-xs font-bold"
+                                                        className="px-5 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold shadow-sm transition-all"
                                                     >
-                                                        Keluarkan
+                                                        {isSubmitting ? '...' : 'Keluarkan'}
                                                     </button>
-                                                )}
+                                                ) : <span className="text-gray-400 text-xs italic">Locked</span>}
                                             </td>
                                         </tr>
                                     );
@@ -418,14 +442,14 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                     <form onSubmit={handleMaterialIssuance} className="space-y-5">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan</label>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Cari Nama Bahan</label>
                                 <div className="relative">
                                     <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
                                     <input 
                                         list="material-datalist"
                                         type="text"
                                         placeholder="Ketik nama bahan..."
-                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 font-medium"
                                         value={materialSearchTerm}
                                         onChange={handleMaterialSearch}
                                     />
@@ -437,44 +461,50 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                 </div>
                                 {currentMaterial && (
                                     <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm">
-                                        <div><p className="font-bold">{currentMaterial.name}</p><p className="text-xs font-mono">{currentMaterial.code}</p></div>
-                                        <div className="text-right font-bold">Tersedia: {currentMaterial.stock} {currentMaterial.unit}</div>
+                                        <div><p className="font-bold text-orange-900">{currentMaterial.name}</p><p className="text-xs font-mono text-orange-700">{currentMaterial.code}</p></div>
+                                        <div className="text-right font-black text-indigo-700">Tersedia: {currentMaterial.stock} {currentMaterial.unit}</div>
                                     </div>
                                 )}
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah & Satuan</label>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Jumlah & Satuan Pemakaian</label>
                                 <div className="flex gap-2">
                                     <input 
                                         type="number" step="0.01"
                                         value={inputQty || ''} 
                                         onChange={e => setInputQty(Number(e.target.value))}
-                                        className="flex-grow p-3 border border-gray-300 rounded-lg text-lg font-bold"
+                                        className="flex-grow p-3 border border-gray-300 rounded-lg text-lg font-black text-indigo-900"
                                         placeholder="0.00"
                                     />
                                     <select 
                                         value={selectedUnit} 
                                         onChange={e => setSelectedUnit(e.target.value)}
-                                        className="w-32 p-3 border border-gray-300 rounded-lg bg-gray-50 font-bold"
+                                        className="w-32 p-3 border border-gray-300 rounded-lg bg-gray-50 font-bold text-gray-700"
                                     >
                                         {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                                     </select>
                                 </div>
-                                {(selectedUnit === 'ML' || selectedUnit === 'Gram') && inputQty > 0 && <p className="text-xs text-orange-600 mt-1">Konversi: {(inputQty / 1000).toFixed(3)} {baseUnit}</p>}
+                                {(selectedUnit === 'ML' || selectedUnit === 'Gram') && inputQty > 0 && (
+                                    <p className="text-xs text-orange-600 mt-1 font-bold">Konversi ke {baseUnit}: {(inputQty / 1000).toFixed(3)}</p>
+                                )}
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="md:col-span-2">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
-                                <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Keterangan pemakaian..." className="w-full p-3 border border-gray-300 rounded-lg"/>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Catatan Pemakaian</label>
+                                <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Contoh: Pemakaian untuk pintu depan kanan..." className="w-full p-3 border border-gray-300 rounded-lg"/>
                             </div>
                         </div>
-                        <button type="submit" disabled={isSubmitting || !selectedMaterialId} className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 font-bold shadow-lg disabled:opacity-50">
-                            {isSubmitting ? 'Menyimpan...' : 'Simpan Pembebanan Bahan'}
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting || (!selectedMaterialId && !materialSearchTerm) || inputQty <= 0} 
+                            className="w-full bg-orange-600 text-white py-4 rounded-lg hover:bg-orange-700 font-black text-lg shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all transform active:scale-[0.98]"
+                        >
+                            {isSubmitting ? 'SEDANG MENYIMPAN...' : 'SIMPAN PEMBEBANAN BAHAN'}
                         </button>
                     </form>
                 ) : (
-                    <div className="text-center py-6 text-red-500 bg-red-50 border rounded-lg">WO sudah ditutup.</div>
+                    <div className="text-center py-6 text-red-500 bg-red-50 border border-red-200 rounded-lg font-bold">WORK ORDER SUDAH CLOSED. TIDAK BISA INPUT PEMAKAIAN.</div>
                 )}
             </div>
         )}
@@ -482,17 +512,17 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         {selectedJob && (
              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><History size={18}/> Riwayat Keluar Barang</h3>
-                     <span className="text-lg font-bold text-indigo-700">{formatCurrency(totalUsageCost)}</span>
+                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><History size={18} className="text-indigo-600"/> Riwayat Keluar Barang (WO Ini)</h3>
+                     <span className="text-lg font-black text-indigo-700">{formatCurrency(totalUsageCost)}</span>
                 </div>
                 {usageHistory.length > 0 ? (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-100 text-gray-600 font-bold">
+                            <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px]">
                                 <tr>
                                     <th className="px-4 py-3">Tanggal</th>
-                                    <th className="px-4 py-3">Item</th>
-                                    <th className="px-4 py-3 text-center">Qty</th>
+                                    <th className="px-4 py-3">Item Barang</th>
+                                    <th className="px-4 py-3 text-center">Qty Keluar</th>
                                     <th className="px-4 py-3 text-right">Total Biaya</th>
                                     <th className="px-4 py-3 text-center">Aksi</th>
                                 </tr>
@@ -500,16 +530,16 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                             <tbody className="divide-y divide-gray-100">
                                 {usageHistory.map((log, idx) => (
                                     <tr key={idx} className="hover:bg-gray-50">
-                                        <td className="px-4 py-2 text-gray-500">{formatDateIndo(log.issuedAt)}</td>
-                                        <td className="px-4 py-2">
-                                            <div className="font-medium">{log.itemName}</div>
-                                            <div className="text-[10px] text-gray-400 font-mono">{log.itemCode}</div>
+                                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateIndo(log.issuedAt)}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="font-bold text-gray-800">{log.itemName}</div>
+                                            <div className="text-[10px] text-gray-400 font-mono">{log.itemCode} | {log.notes}</div>
                                         </td>
-                                        <td className="px-4 py-2 text-center font-bold">{log.qty} {log.inputUnit || ''}</td>
-                                        <td className="px-4 py-2 text-right font-bold">{formatCurrency(log.totalCost)}</td>
-                                        <td className="px-4 py-2 text-center">
+                                        <td className="px-4 py-3 text-center font-black text-indigo-900">{log.inputQty || log.qty} {log.inputUnit || ''}</td>
+                                        <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(log.totalCost)}</td>
+                                        <td className="px-4 py-3 text-center">
                                             {userPermissions.role.includes('Manager') && !selectedJob.isClosed && (
-                                                <button onClick={() => handleCancelIssuance(log)} className="text-red-500 text-xs underline">Batal</button>
+                                                <button onClick={() => handleCancelIssuance(log)} className="text-red-500 text-xs font-bold hover:underline p-1">BATAL</button>
                                             )}
                                         </td>
                                     </tr>
@@ -518,7 +548,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         </table>
                     </div>
                 ) : (
-                    <div className="p-8 text-center text-gray-400 italic">Belum ada pemakaian.</div>
+                    <div className="p-12 text-center text-gray-400 italic bg-white">Belum ada riwayat pengeluaran barang untuk WO ini.</div>
                 )}
              </div>
         )}
