@@ -19,6 +19,7 @@ import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
 import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
 import PurchaseOrderView from './components/inventory/PurchaseOrderView'; 
+import PartMonitoringView from './components/inventory/PartMonitoringView'; // NEW IMPORT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -421,6 +422,14 @@ const AppContent: React.FC = () => {
                 userPermissions={userPermissions}
                 showNotification={showNotification}
              />
+        )}
+
+        {/* PART MONITORING (NEW) */}
+        {currentView === 'part_monitoring' && (
+            <PartMonitoringView
+                jobs={allData}
+                inventoryItems={inventoryItems}
+            />
         )}
 
         {/* PURCHASE ORDER (NEW) */}

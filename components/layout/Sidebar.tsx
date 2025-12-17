@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -33,8 +33,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Sparepart & Gudang', 
         icon: Wrench,
         children: [
+            { id: 'part_monitoring', label: 'Monitoring Part WO', icon: ClipboardList }, // NEW
             { id: 'inventory', label: 'Master Stok', icon: Package },
-            { id: 'purchase_order', label: 'Purchase Order (PO)', icon: ShoppingCart }, // NEW
+            { id: 'purchase_order', label: 'Purchase Order (PO)', icon: ShoppingCart },
             { id: 'part_issuance', label: 'Keluar Part (WO)', icon: Truck }, 
             { id: 'material_issuance', label: 'Pakai Bahan', icon: PaintBucket }, 
         ]
