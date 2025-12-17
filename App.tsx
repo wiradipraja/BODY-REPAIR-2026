@@ -29,12 +29,8 @@ const AppContent: React.FC = () => {
   // App-wide Settings State (Live update capability)
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
 
-  // Sync settings from Context initially
-  useEffect(() => {
-    setAppSettings(defaultSettings);
-  }, [defaultSettings]);
-
   // Function to refresh settings from DB manually
+  // Defined before useEffect to avoid hoisting issues and allow usage in useEffect
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -43,6 +39,14 @@ const AppContent: React.FC = () => {
           }
       } catch (e) { console.error("Failed to refresh settings", e); }
   };
+
+  // Sync settings from DB on load (Fix: Ensure all roles see updated settings)
+  // This replaces the previous useEffect that only used defaultSettings
+  useEffect(() => {
+    if (user) {
+        refreshSettings();
+    }
+  }, [user]);
   
   // Filter State
   const [searchQuery, setSearchQuery] = useState('');
