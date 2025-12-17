@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Job, InventoryItem, UserPermissions, EstimateItem } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -11,7 +11,7 @@ interface MaterialIssuanceViewProps {
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
   onRefreshData: () => void;
-  issuanceType: 'sparepart' | 'material'; // New Prop to distinguish modes
+  issuanceType: 'sparepart' | 'material';
 }
 
 const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({ 
@@ -22,16 +22,17 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // State for Material Mode
-  const [selectedItemId, setSelectedItemId] = useState('');
+  const [materialSearchTerm, setMaterialSearchTerm] = useState(''); // Text input
+  const [selectedMaterialId, setSelectedMaterialId] = useState(''); // Actual ID
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState('');
 
   // Derived Data
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
   
-  // Filter Jobs by WO Number (Prioritized) or Police Number
+  // Filter Jobs
   const filteredJobs = useMemo(() => {
-    if (!filterWo) return activeJobs.slice(0, 10); // Show recent 10 if empty
+    if (!filterWo) return activeJobs.slice(0, 10);
     const lowerFilter = filterWo.toLowerCase();
     return activeJobs.filter(j => 
         (j.woNumber && j.woNumber.toLowerCase().includes(lowerFilter)) || 
@@ -39,21 +40,40 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     );
   }, [activeJobs, filterWo]);
 
-  // Filter Inventory: Only show Materials for 'material' mode
+  // Filter Inventory (Material Only)
   const materialInventory = useMemo(() => {
       return inventoryItems.filter(i => i.category === 'material');
   }, [inventoryItems]);
 
-  // --- HANDLER: PEMBEBANAN BAHAN (MATERIAL) - AD HOC ---
+  // Reset material form when job changes
+  useEffect(() => {
+      setMaterialSearchTerm('');
+      setSelectedMaterialId('');
+      setQty(1);
+      setNotes('');
+  }, [selectedJobId, issuanceType]);
+
+  // --- HANDLER: PEMBEBANAN BAHAN (MATERIAL) ---
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedJobId || !selectedItemId || qty <= 0) {
-        showNotification("Mohon lengkapi data pembebanan bahan.", "error");
+    
+    // Find item based on ID state OR try to match name from text input if user didn't click dropdown
+    let targetId = selectedMaterialId;
+    if (!targetId && materialSearchTerm) {
+        const match = materialInventory.find(i => i.name.toLowerCase() === materialSearchTerm.toLowerCase() || i.code.toLowerCase() === materialSearchTerm.toLowerCase());
+        if (match) targetId = match.id;
+    }
+
+    if (!selectedJobId || !targetId || qty <= 0) {
+        showNotification("Mohon pilih bahan dan masukkan jumlah yang valid.", "error");
         return;
     }
     
-    const item = inventoryItems.find(i => i.id === selectedItemId);
-    if (!item) return;
+    const item = inventoryItems.find(i => i.id === targetId);
+    if (!item) {
+        showNotification("Data bahan tidak ditemukan di database.", "error");
+        return;
+    }
 
     if (item.stock < qty) {
         showNotification(`Stok ${item.name} tidak cukup! Tersedia: ${item.stock}`, "error");
@@ -66,15 +86,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     try {
         const itemCostTotal = (item.buyPrice || 0) * qty;
         
-        // 1. Update Inventory
-        await updateDoc(doc(db, SPAREPART_COLLECTION, selectedItemId), {
+        await updateDoc(doc(db, SPAREPART_COLLECTION, targetId), {
             stock: increment(-qty),
             updatedAt: serverTimestamp()
         });
 
-        // 2. Update Job
         const usageRecord = {
-            itemId: selectedItemId,
+            itemId: targetId,
             itemName: item.name,
             itemCode: item.code,
             qty: qty,
@@ -94,7 +112,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         showNotification("Bahan berhasil dibebankan ke WO.", "success");
         setQty(1);
         setNotes('');
-        setSelectedItemId('');
+        setMaterialSearchTerm('');
+        setSelectedMaterialId('');
         onRefreshData();
     } catch (error: any) {
         console.error("Material Issuance Error:", error);
@@ -104,46 +123,32 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     }
   };
 
-  // --- HANDLER: PEMBEBANAN PART (SPAREPART) - SYNC WITH ESTIMATE ---
-  const handlePartIssuance = async (estItem: EstimateItem, itemIndex: number) => {
+  // --- HANDLER: PEMBEBANAN PART (SPAREPART) ---
+  const handlePartIssuance = async (estItem: EstimateItem, itemIndex: number, linkedInventoryId: string) => {
       if (!selectedJob) return;
       
-      // 1. Validate Inventory Link
-      if (!estItem.inventoryId) {
-          showNotification("Item ini tidak terhubung dengan database inventory.", "error");
-          return;
-      }
-
-      const invItem = inventoryItems.find(i => i.id === estItem.inventoryId);
+      const invItem = inventoryItems.find(i => i.id === linkedInventoryId);
       if (!invItem) {
-          showNotification("Data inventory tidak ditemukan (mungkin terhapus).", "error");
+          showNotification("Data inventory tidak ditemukan.", "error");
           return;
       }
 
       const qtyToIssue = estItem.qty || 1;
 
-      // 2. Check Stock
       if (invItem.stock < qtyToIssue) {
-          showNotification(`Stok GUDANG tidak cukup untuk item ini! (Butuh: ${qtyToIssue}, Ada: ${invItem.stock})`, "error");
+          showNotification(`Stok GUDANG tidak cukup! (Butuh: ${qtyToIssue}, Ada: ${invItem.stock})`, "error");
           return;
       }
 
-      // 3. Confirm
-      if (!window.confirm(`Keluarkan ${qtyToIssue} ${invItem.unit} ${invItem.name} untuk WO ${selectedJob.woNumber}?`)) return;
+      if (!window.confirm(`Keluarkan ${qtyToIssue} ${invItem.unit} ${invItem.name}?`)) return;
 
       setIsSubmitting(true);
       try {
-          // A. Deduct Stock
-          await updateDoc(doc(db, SPAREPART_COLLECTION, estItem.inventoryId), {
+          await updateDoc(doc(db, SPAREPART_COLLECTION, linkedInventoryId), {
               stock: increment(-qtyToIssue),
               updatedAt: serverTimestamp()
           });
 
-          // B. Mark Estimate Item as 'Issued' (Need to update the specific array item)
-          // Since Firestore array update by index is hard, we replace the whole array usually, or utilize a 'usageLog' to track.
-          // Strategy: We will add to usageLog AND update costData. 
-          // Note: Assuming cost was NOT added during WO creation (based on new requirement).
-          
           const itemCostTotal = (invItem.buyPrice || 0) * qtyToIssue;
 
           const usageRecord = {
@@ -159,12 +164,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             issuedBy: 'Partman'
           };
 
-          // We also want to flag the item in estimateData as "issued" visually.
-          // This requires reading, modifying array, writing back.
           const newPartItems = [...(selectedJob.estimateData?.partItems || [])];
-          // Simple match by name/inventoryId/index
           if (newPartItems[itemIndex]) {
-              newPartItems[itemIndex] = { ...newPartItems[itemIndex], hasArrived: true }; // Using hasArrived as 'Issued' flag or add new field
+              newPartItems[itemIndex] = { ...newPartItems[itemIndex], hasArrived: true }; 
           }
 
           await updateDoc(doc(db, JOBS_COLLECTION, selectedJobId), {
@@ -184,8 +186,22 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       }
   };
 
+  // Helper to handle material search input
+  const handleMaterialSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setMaterialSearchTerm(val);
+      
+      // Try to find exact match in name or code to auto-select ID
+      const match = materialInventory.find(i => i.name === val || i.code === val);
+      if (match) {
+          setSelectedMaterialId(match.id);
+      } else {
+          setSelectedMaterialId('');
+      }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
         <div className="flex items-center gap-3">
             <div className={`p-3 rounded-xl ${issuanceType === 'sparepart' ? 'bg-indigo-100 text-indigo-700' : 'bg-orange-100 text-orange-700'}`}>
                 {issuanceType === 'sparepart' ? <Truck size={32}/> : <PaintBucket size={32}/>}
@@ -202,7 +218,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         </div>
 
-        {/* --- SECTION 1: SEARCH WO (COMMON) --- */}
+        {/* --- SEARCH WO --- */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <label className="block text-sm font-bold text-gray-700 mb-2">Cari Nomor Work Order (WO)</label>
             <div className="relative max-w-2xl">
@@ -220,7 +236,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 />
             </div>
             
-            {/* SEARCH RESULTS LIST */}
             {filterWo.length > 1 && !selectedJobId && (
                 <div className="mt-2 border rounded-lg bg-white shadow-lg max-h-60 overflow-y-auto absolute z-10 w-full max-w-2xl">
                     {filteredJobs.length === 0 ? (
@@ -248,7 +263,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 </div>
             )}
 
-            {/* SELECTED JOB INFO */}
             {selectedJob && (
                 <div className="mt-4 p-4 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center">
                     <div>
@@ -266,9 +280,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             )}
         </div>
 
-        {/* --- SECTION 2: CONTENT BASED ON TYPE --- */}
+        {/* --- CONTENT --- */}
         
-        {/* MODE A: SPAREPART (SYNCED WITH ESTIMATE) */}
+        {/* MODE A: SPAREPART */}
         {issuanceType === 'sparepart' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -286,15 +300,21 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                 <tr>
                                     <th className="p-3">No. Part & Nama</th>
                                     <th className="p-3 text-center">Qty Est</th>
+                                    <th className="p-3 text-right text-emerald-700">H. Beli (Modal)</th>
+                                    <th className="p-3 text-right text-indigo-700">H. Jual (Est)</th>
                                     <th className="p-3 text-center">Status Stok</th>
                                     <th className="p-3 text-right">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {selectedJob.estimateData.partItems.map((item, idx) => {
-                                    // Check if linked inventory exists and gets stock
-                                    const invItem = item.inventoryId ? inventoryItems.find(i => i.id === item.inventoryId) : null;
-                                    const isIssued = item.hasArrived; // Using hasArrived as "Issued" flag for now
+                                    // IMPROVED LOOKUP: Try ID first, then Code
+                                    const invItem = inventoryItems.find(i => 
+                                        (item.inventoryId && i.id === item.inventoryId) || 
+                                        (item.number && i.code && i.code.toUpperCase() === item.number.toUpperCase())
+                                    );
+
+                                    const isIssued = item.hasArrived; 
                                     
                                     return (
                                         <tr key={idx} className={isIssued ? "bg-green-50 opacity-70" : "hover:bg-gray-50"}>
@@ -303,6 +323,17 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 <div className="text-xs text-gray-500 font-mono">{item.number || 'No Part #'}</div>
                                             </td>
                                             <td className="p-3 text-center font-bold">{item.qty || 1}</td>
+                                            
+                                            {/* HARGA BELI (Dari Inventory) */}
+                                            <td className="p-3 text-right font-mono text-gray-600">
+                                                {invItem ? formatCurrency(invItem.buyPrice) : '-'}
+                                            </td>
+
+                                            {/* HARGA JUAL (Dari Estimasi atau Inventory) */}
+                                            <td className="p-3 text-right font-mono font-bold text-gray-800">
+                                                {invItem ? formatCurrency(invItem.sellPrice) : formatCurrency(item.price)}
+                                            </td>
+
                                             <td className="p-3 text-center">
                                                 {isIssued ? (
                                                     <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-xs font-bold">Sudah Keluar</span>
@@ -311,13 +342,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                         Gudang: {invItem.stock}
                                                     </span>
                                                 ) : (
-                                                    <span className="text-xs text-gray-400 italic">Unlinked</span>
+                                                    <span className="px-2 py-1 bg-gray-100 text-gray-400 rounded text-xs italic">Unlinked</span>
                                                 )}
                                             </td>
                                             <td className="p-3 text-right">
                                                 {!isIssued && invItem && (
                                                     <button 
-                                                        onClick={() => handlePartIssuance(item, idx)}
+                                                        onClick={() => handlePartIssuance(item, idx, invItem.id)}
                                                         disabled={isSubmitting || invItem.stock < (item.qty || 1)}
                                                         className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-xs font-bold shadow-sm"
                                                     >
@@ -325,7 +356,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                     </button>
                                                 )}
                                                 {!invItem && !isIssued && (
-                                                     <span className="text-xs text-red-400">Hubungkan di Estimasi dulu</span>
+                                                     <div className="text-xs text-red-400 max-w-[120px] ml-auto">
+                                                         Stok tidak terhubung. Cek kode part.
+                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
@@ -338,7 +371,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* MODE B: MATERIAL (AD HOC) */}
+        {/* MODE B: MATERIAL */}
         {issuanceType === 'material' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -351,31 +384,44 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         <div className="relative">
                             <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
                             <input 
-                                list="material-list"
+                                list="material-datalist"
+                                type="text"
                                 placeholder="Ketik nama bahan (Thinner, Clear, Amplas...)"
                                 className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                value={selectedItemId}
-                                onChange={e => setSelectedItemId(e.target.value)}
+                                value={materialSearchTerm}
+                                onChange={handleMaterialSearch}
+                                autoComplete="off"
                             />
-                            {/* CUSTOM DATALIST DISPLAY */}
-                            <datalist id="material-list">
+                            {/* Datalist values must be the visible text string, not ID */}
+                            <datalist id="material-datalist">
                                 {materialInventory.map(item => (
-                                    <option key={item.id} value={item.id}>
-                                        {item.name} (Stok: {item.stock} {item.unit})
+                                    <option key={item.id} value={item.name}>
+                                        Kode: {item.code} | Stok: {item.stock} {item.unit}
                                     </option>
                                 ))}
                             </datalist>
                         </div>
+                        
                         {/* Selected Item Detail Preview */}
-                        {selectedItemId && inventoryItems.find(i => i.id === selectedItemId) && (
-                            <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm">
-                                <span className="font-bold text-orange-900">
-                                    {inventoryItems.find(i => i.id === selectedItemId)?.name}
-                                </span>
-                                <span className="text-orange-700">
-                                    Sisa Stok: {inventoryItems.find(i => i.id === selectedItemId)?.stock} {inventoryItems.find(i => i.id === selectedItemId)?.unit}
-                                </span>
-                            </div>
+                        {(selectedMaterialId || materialInventory.find(i => i.name === materialSearchTerm)) ? (
+                            (() => {
+                                const matched = materialInventory.find(i => i.id === selectedMaterialId || i.name === materialSearchTerm);
+                                if (!matched) return null;
+                                return (
+                                    <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
+                                        <div>
+                                            <p className="font-bold text-orange-900">{matched.name}</p>
+                                            <p className="text-xs text-orange-700 font-mono">{matched.code}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-orange-900 font-bold">Sisa Stok: {matched.stock} {matched.unit}</p>
+                                            <p className="text-xs text-gray-500">HPP: {formatCurrency(matched.buyPrice)}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })()
+                        ) : materialSearchTerm.length > 2 && (
+                            <p className="text-xs text-red-400 mt-1 ml-1">Tekan opsi di menu drop-down untuk memilih.</p>
                         )}
                     </div>
 
@@ -413,7 +459,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* EMPTY STATE */}
         {!selectedJob && (
             <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
                 <AlertCircle className="mx-auto text-gray-400 mb-2" size={48}/>
