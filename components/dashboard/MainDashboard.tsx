@@ -1,12 +1,13 @@
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
-import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle } from 'lucide-react';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
   openModal: (type: string, data?: any) => void;
   onDelete: (job: Job) => Promise<void>;
+  onCloseJob: (job: Job) => Promise<void>; // New prop for closing WO
   userPermissions: UserPermissions;
   showNotification: (msg: string, type?: string) => void;
   searchQuery: string;
@@ -21,25 +22,34 @@ interface MainDashboardProps {
 }
 
 const MainDashboard: React.FC<MainDashboardProps> = ({
-  allData, openModal, onDelete, userPermissions, showNotification,
+  allData, openModal, onDelete, onCloseJob, userPermissions, showNotification,
   searchQuery, setSearchQuery, filterStatus, setFilterStatus,
   filterWorkStatus, setFilterWorkStatus, showClosedJobs, setShowClosedJobs, settings
 }) => {
 
   const handleExportGeneralData = () => {
-      const dataToExport = allData.map(job => ({
-          'Tanggal Masuk': formatDateIndo(job.tanggalMasuk),
-          'No Polisi': job.policeNumber || '',
-          'Nama Pelanggan': job.customerName || '',
-          'Nama Asuransi': job.namaAsuransi || '',
-          'No. HP/WA': `="${job.customerPhone || ''}"`,
-          'Model Mobil': job.carModel || '',
-          'Jumlah Panel': job.jumlahPanel || 0,
-          'Status Kendaraan': job.statusKendaraan || '',
-          'Status Pekerjaan': job.statusPekerjaan || '',
-          'Tgl Estimasi Selesai': formatDateIndo(job.tanggalEstimasiSelesai),
-          'Gross Profit': (job.hargaJasa || 0) + (job.hargaPart || 0) - ((job.costData?.hargaModalBahan || 0) + (job.costData?.hargaBeliPart || 0) + (job.costData?.jasaExternal || 0))
-      }));
+      const dataToExport = allData.map(job => {
+           // Export with same simulation logic for consistency
+           const revenueJasa = job.hargaJasa || 0;
+           const revenuePart = job.hargaPart || 0;
+           const simBahan = revenueJasa * 0.15;
+           const simBeliPart = revenuePart * 0.80;
+           const grossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
+
+          return {
+            'Tanggal Masuk': formatDateIndo(job.tanggalMasuk),
+            'No Polisi': job.policeNumber || '',
+            'Nama Pelanggan': job.customerName || '',
+            'Nama Asuransi': job.namaAsuransi || '',
+            'No. HP/WA': `="${job.customerPhone || ''}"`,
+            'Model Mobil': job.carModel || '',
+            'Jumlah Panel': job.estimateData?.jasaItems?.length || 0,
+            'Status Kendaraan': job.statusKendaraan || '',
+            'Status Pekerjaan': job.statusPekerjaan || '',
+            'Tgl Estimasi Selesai': formatDateIndo(job.tanggalEstimasiSelesai),
+            'Est. Gross Profit': grossProfit
+          };
+      });
       exportToCsv('Laporan_Data_Unit.csv', dataToExport);
   };
 
@@ -137,10 +147,20 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {allData.map((job) => {
-                     const calculatedGrossProfit = (job.hargaJasa || 0) + (job.hargaPart || 0) - 
-                                  ((job.costData?.hargaModalBahan || 0) + 
-                                   (job.costData?.hargaBeliPart || 0) + 
-                                   (job.costData?.jasaExternal || 0));
+                     // 1. UPDATE: Panel Count from Estimate
+                     const panelCount = job.estimateData?.jasaItems?.length || 0;
+
+                     // 2. UPDATE: Simulated Profit Calculation
+                     // Revenue
+                     const revenueJasa = job.hargaJasa || 0;
+                     const revenuePart = job.hargaPart || 0;
+                     
+                     // Simulated Cost (Asumsi Dasar)
+                     const simBahan = revenueJasa * 0.15; // 15% dari Jasa
+                     const simBeliPart = revenuePart * 0.80; // 80% dari Part
+                     
+                     // Profit = Revenue - Simulated Costs
+                     const calculatedGrossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
                      
                      return (
                         <tr key={job.id} className="hover:bg-gray-50 transition-colors">
@@ -160,7 +180,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                              <div className="text-xs text-gray-500">{job.namaAsuransi}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                             <span className="px-2 py-1 text-xs font-medium bg-gray-100 rounded-full">{job.jumlahPanel || 0}</span>
+                             <span className="px-2 py-1 text-xs font-medium bg-gray-100 rounded-full">{panelCount}</span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                              <span className={`px-2 py-1 text-xs leading-5 font-semibold rounded-full border ${getStatusColor(job.statusKendaraan)}`}>
@@ -185,7 +205,6 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                              <div className="flex items-center justify-center gap-2">
-                                {/* Edit Button Removed */}
                                 <button 
                                   onClick={() => openModal('create_estimation', job)} 
                                   className="text-indigo-400 hover:text-indigo-700 transition-colors"
@@ -193,6 +212,18 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                                 >
                                   <FileText size={18}/>
                                 </button>
+
+                                {/* 3. UPDATE: Close WO Button */}
+                                {!job.isClosed && job.woNumber && (
+                                    <button 
+                                        onClick={() => onCloseJob(job)} 
+                                        className="text-green-500 hover:text-green-700 transition-colors"
+                                        title="Close WO (Selesai)"
+                                    >
+                                        <CheckCircle size={18}/>
+                                    </button>
+                                )}
+
                                 {userPermissions.role === 'Manager' && (
                                   <button 
                                     onClick={() => handleDelete(job)} 
@@ -214,7 +245,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                <span>Menampilkan {allData.length} data pekerjaan</span>
                <div className="flex gap-2 items-center">
                   <AlertCircle size={14}/>
-                  <span>Gross Profit = (Jasa + Part) - (Modal Bahan + Beli Part + Jasa Luar)</span>
+                  <span>Est. Profit = (Jasa + Part) - (15% Jasa + 80% Part)</span>
                </div>
             </div>
           </div>

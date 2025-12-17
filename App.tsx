@@ -107,6 +107,38 @@ const AppContent: React.FC = () => {
       }
   };
 
+  const handleCloseJob = async (job: Job) => {
+      // 1. Validasi Expenses
+      const costs = job.costData || { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };
+      const hasExpenses = (costs.hargaModalBahan || 0) > 0 || (costs.hargaBeliPart || 0) > 0 || (costs.jasaExternal || 0) > 0;
+
+      if (!hasExpenses) {
+          const confirmNoExpense = window.confirm(
+              `PERINGATAN PENTING!\n\n` +
+              `WO ${job.woNumber || job.policeNumber} belum memiliki pembebanan biaya (Modal Bahan / Beli Part / Jasa Luar masih 0).\n\n` +
+              `Menutup WO tanpa expenses akan menyebabkan laporan Profit tidak akurat.\n` +
+              `Apakah Anda yakin ingin tetap menutup WO ini?`
+          );
+          if (!confirmNoExpense) return;
+      } else {
+          if (!window.confirm(`Konfirmasi Close WO ${job.woNumber || job.policeNumber}?\n\nStatus akan berubah menjadi 'Selesai' dan WO akan dikunci.`)) return;
+      }
+
+      try {
+          const jobRef = doc(db, JOBS_COLLECTION, job.id);
+          await updateDoc(jobRef, {
+              isClosed: true,
+              statusPekerjaan: 'Selesai',
+              statusKendaraan: 'Selesai',
+              closedAt: serverTimestamp()
+          });
+          showNotification("Work Order Berhasil Ditutup (Closed)", "success");
+      } catch (e) {
+          console.error(e);
+          showNotification("Gagal menutup WO", "error");
+      }
+  };
+
   // UPDATED: Handle Save Estimate OR Generate WO
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
@@ -288,6 +320,7 @@ const AppContent: React.FC = () => {
                     allData={filteredJobs}
                     openModal={openModal}
                     onDelete={handleDeleteJob}
+                    onCloseJob={handleCloseJob} // Pass logic to Close WO
                     userPermissions={userPermissions}
                     showNotification={showNotification}
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
