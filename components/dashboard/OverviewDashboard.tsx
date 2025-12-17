@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { Job, Settings } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
@@ -32,8 +33,13 @@ const StatCard = ({ title, value, icon: Icon, color, subValue }: any) => (
 
 const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, settings, onNavigate }) => {
   const stats = useMemo(() => {
+    // Total Database UNIT: Menghitung semua data unit yang ada di sistem (non-deleted)
     const totalJobs = allJobs.length;
-    const activeJobs = allJobs.filter(j => !j.isClosed).length;
+    
+    // Unit Aktif (WIP): Hanya unit yang punya nomor WO dan belum Closed
+    const activeJobs = allJobs.filter(j => j.woNumber && !j.isClosed).length;
+    
+    // Siap Diserahkan: Unit yang sudah selesai pengerjaan tapi belum serah terima (Closed)
     const completedJobs = allJobs.filter(j => j.statusPekerjaan === 'Selesai' && !j.isClosed).length;
     
     // Financials (Simple approximation)
@@ -47,9 +53,9 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, settings, onNavig
 
     const revenueThisMonth = jobsThisMonth.reduce((acc, curr) => acc + (curr.estimateData?.grandTotal || 0), 0);
     
-    // Status Distribution
+    // Status Distribution (Based on WIP units)
     const statusCounts: Record<string, number> = {};
-    allJobs.filter(j => !j.isClosed).forEach(j => {
+    allJobs.filter(j => j.woNumber && !j.isClosed).forEach(j => {
       statusCounts[j.statusPekerjaan] = (statusCounts[j.statusPekerjaan] || 0) + 1;
     });
 
@@ -88,7 +94,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, settings, onNavig
           value={stats.activeJobs} 
           icon={Car} 
           color="bg-blue-500" 
-          subValue="Kendaraan di bengkel"
+          subValue="WO Terbit & Belum Selesai"
         />
         <StatCard 
           title="Siap Diserahkan" 
@@ -128,7 +134,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, settings, onNavig
                  }} 
                />
              ) : (
-               <div className="h-full flex items-center justify-center text-gray-400">Belum ada data aktif</div>
+               <div className="h-full flex items-center justify-center text-gray-400">Belum ada data aktif (WIP)</div>
              )}
           </div>
         </div>
