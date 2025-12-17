@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Job, InventoryItem, UserPermissions, EstimateItem } from '../../types';
+import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign, Scale } from 'lucide-react';
+import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign, Scale, History, XCircle } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -31,6 +31,18 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   // Derived Data
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
   
+  // Usage History Filtered by Type
+  const usageHistory = useMemo(() => {
+      if (!selectedJob || !selectedJob.usageLog) return [];
+      return selectedJob.usageLog
+        .filter(log => log.category === issuanceType)
+        .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
+  }, [selectedJob, issuanceType]);
+
+  const totalUsageCost = useMemo(() => {
+      return usageHistory.reduce((acc, curr) => acc + curr.totalCost, 0);
+  }, [usageHistory]);
+
   // Filter Jobs
   const filteredJobs = useMemo(() => {
     if (!filterWo) return activeJobs.slice(0, 10);
@@ -59,6 +71,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (selectedJob?.isClosed) {
+        showNotification("WO sudah closed. Buka kembali WO untuk melakukan transaksi.", "error");
+        return;
+    }
+
     // 1. Resolve Item
     let targetId = selectedMaterialId;
     if (!targetId && materialSearchTerm) {
@@ -78,8 +95,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     }
 
     // 2. Calculate Final Quantity based on Unit Selection
-    // If user checks "Input in Grams" and item unit is Liter/Kg, we divide by 1000
-    // Logic assumption: 1 Liter = 1000 ML = 1000 Gram (approx for UI simplicity)
     let finalQty = inputQty;
     let unitLabel = item.unit;
 
@@ -89,7 +104,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     }
 
     // 3. Stock Validation (Skip if Vendor Managed / isStockManaged == false)
-    const isVendorManaged = item.isStockManaged === false; // Explicit false check
+    const isVendorManaged = item.isStockManaged === false; 
     
     if (!isVendorManaged && item.stock < finalQty) {
         showNotification(`Stok ${item.name} tidak cukup! Tersedia: ${item.stock} ${item.unit}`, "error");
@@ -108,7 +123,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             updatedAt: serverTimestamp()
         });
 
-        const usageRecord = {
+        const usageRecord: UsageLogItem = {
             itemId: targetId,
             itemName: item.name,
             itemCode: item.code,
@@ -120,7 +135,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             category: 'material',
             notes: notes,
             issuedAt: new Date().toISOString(),
-            issuedBy: 'Partman' 
+            issuedBy: userPermissions.role 
         };
 
         await updateDoc(doc(db, JOBS_COLLECTION, selectedJobId), {
@@ -146,6 +161,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const handlePartIssuance = async (estItem: EstimateItem, itemIndex: number, linkedInventoryId: string) => {
       if (!selectedJob) return;
       
+      if (selectedJob.isClosed) {
+        showNotification("WO sudah closed. Buka kembali WO untuk melakukan transaksi.", "error");
+        return;
+      }
+
       const invItem = inventoryItems.find(i => i.id === linkedInventoryId);
       if (!invItem) {
           showNotification("Data inventory tidak ditemukan.", "error");
@@ -170,7 +190,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
           const itemCostTotal = (invItem.buyPrice || 0) * qtyToIssue;
 
-          const usageRecord = {
+          const usageRecord: UsageLogItem = {
             itemId: invItem.id,
             itemName: invItem.name,
             itemCode: invItem.code,
@@ -180,7 +200,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             category: 'sparepart',
             notes: 'Sesuai Estimasi',
             issuedAt: new Date().toISOString(),
-            issuedBy: 'Partman'
+            issuedBy: userPermissions.role
           };
 
           const newPartItems = [...(selectedJob.estimateData?.partItems || [])];
@@ -200,6 +220,78 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       } catch (error: any) {
           console.error("Part Issuance Error:", error);
           showNotification("Gagal: " + error.message, "error");
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
+  // --- HANDLER: CANCEL ISSUANCE (MANAGER ONLY) ---
+  const handleCancelIssuance = async (logItem: UsageLogItem) => {
+      if (!selectedJob) return;
+
+      // 1. Permission Check
+      if (!userPermissions.role.includes('Manager')) {
+          showNotification("Hanya Manager yang dapat membatalkan pembebanan.", "error");
+          return;
+      }
+
+      // 2. Closed Check
+      if (selectedJob.isClosed) {
+          showNotification("WO Sudah Closed! Silakan Buka Kembali WO terlebih dahulu.", "error");
+          return;
+      }
+
+      if (!window.confirm(`Batalkan pembebanan item: ${logItem.itemName}? \nStok akan dikembalikan ke gudang.`)) return;
+
+      setIsSubmitting(true);
+      try {
+          // A. Refund Stock
+          await updateDoc(doc(db, SPAREPART_COLLECTION, logItem.itemId), {
+              stock: increment(logItem.qty), // Add back stock
+              updatedAt: serverTimestamp()
+          });
+
+          // B. Filter usageLog (Remove the specific item)
+          // Since Firestore arrayRemove needs exact object, and we have many objects, 
+          // best way is to filter the array in memory and write back the new array.
+          const currentLog = selectedJob.usageLog || [];
+          
+          // We try to match by timestamp and itemId to be unique enough
+          const newUsageLog = currentLog.filter(item => 
+              !(item.itemId === logItem.itemId && item.issuedAt === logItem.issuedAt)
+          );
+
+          // C. Revert Cost
+          const costField = logItem.category === 'material' ? 'costData.hargaModalBahan' : 'costData.hargaBeliPart';
+          
+          // D. If Sparepart, revert the 'hasArrived' flag in estimate if possible
+          let newEstimateParts = selectedJob.estimateData?.partItems;
+          if (logItem.category === 'sparepart' && newEstimateParts) {
+              // Find first item with matching ID that is marked as arrived
+              const partIndex = newEstimateParts.findIndex(p => p.inventoryId === logItem.itemId && p.hasArrived);
+              if (partIndex >= 0) {
+                   newEstimateParts = [...newEstimateParts];
+                   newEstimateParts[partIndex] = { ...newEstimateParts[partIndex], hasArrived: false };
+              }
+          }
+
+          const updatePayload: any = {
+              usageLog: newUsageLog,
+              [costField]: increment(-logItem.totalCost)
+          };
+
+          if (newEstimateParts) {
+              updatePayload['estimateData.partItems'] = newEstimateParts;
+          }
+
+          await updateDoc(doc(db, JOBS_COLLECTION, selectedJob.id), updatePayload);
+
+          showNotification("Pembebanan berhasil dibatalkan.", "success");
+          onRefreshData();
+
+      } catch (e: any) {
+          console.error("Cancel Error:", e);
+          showNotification("Gagal membatalkan: " + e.message, "error");
       } finally {
           setIsSubmitting(false);
       }
@@ -291,6 +383,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         <h3 className="text-xl font-bold text-gray-900">{selectedJob.woNumber}</h3>
                         <p className="text-gray-600">{selectedJob.policeNumber} | {selectedJob.carModel}</p>
                     </div>
+                    
+                    {selectedJob.isClosed && (
+                         <div className="px-4 py-2 bg-red-100 text-red-800 rounded-lg font-bold border border-red-200 flex items-center gap-2">
+                             <XCircle size={18}/> WO CLOSED
+                         </div>
+                    )}
+
                     <button 
                         onClick={() => { setSelectedJobId(''); setFilterWo(''); }}
                         className="text-sm text-red-500 hover:text-red-700 underline"
@@ -359,7 +458,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 )}
                                             </td>
                                             <td className="p-3 text-right">
-                                                {!isIssued && invItem && (
+                                                {!isIssued && invItem && !selectedJob.isClosed && (
                                                     <button 
                                                         onClick={() => handlePartIssuance(item, idx, invItem.id)}
                                                         disabled={isSubmitting || invItem.stock < (item.qty || 1)}
@@ -386,112 +485,190 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                     <PaintBucket size={20} className="text-orange-600"/> Input Pemakaian Bahan
                 </h3>
                 
-                <form onSubmit={handleMaterialIssuance} className="space-y-5">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan (Inventory)</label>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
-                            <input 
-                                list="material-datalist"
-                                type="text"
-                                placeholder="Ketik nama bahan..."
-                                className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                value={materialSearchTerm}
-                                onChange={handleMaterialSearch}
-                                autoComplete="off"
-                            />
-                            <datalist id="material-datalist">
-                                {materialInventory.map(item => (
-                                    <option key={item.id} value={item.name}>
-                                        Kode: {item.code} | Stok: {item.stock} {item.unit}
-                                    </option>
-                                ))}
-                            </datalist>
-                        </div>
-                        
-                        {/* ITEM DETAIL */}
-                        {currentMaterial ? (
-                            <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
-                                <div>
-                                    <p className="font-bold text-orange-900">{currentMaterial.name}</p>
-                                    <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
-                                    {isVendorItem && (
-                                        <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
-                                            STOK VENDOR (Ready Use)
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-orange-900 font-bold">
-                                        Sisa: {currentMaterial.stock} {currentMaterial.unit}
-                                    </p>
-                                    <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
-                                </div>
-                            </div>
-                        ) : materialSearchTerm.length > 2 && (
-                            <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* INPUT QTY WITH UNIT TOGGLE */}
+                {selectedJob.isClosed ? (
+                     <div className="text-center py-6 text-red-500 bg-red-50 border border-red-200 rounded-lg">
+                        WO sudah ditutup. Tidak dapat menambah pembebanan bahan.
+                     </div>
+                ) : (
+                    <form onSubmit={handleMaterialIssuance} className="space-y-5">
                         <div>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="block text-sm font-medium text-gray-700">Jumlah Pakai</label>
-                                {['Liter', 'Kg'].includes(baseUnit) && (
-                                    <label className="flex items-center gap-2 cursor-pointer text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={useSmallUnit}
-                                            onChange={e => setUseSmallUnit(e.target.checked)}
-                                            className="rounded text-indigo-600 focus:ring-indigo-500"
-                                        />
-                                        <Scale size={12}/>
-                                        Input dlm {baseUnit === 'Liter' ? 'ML' : 'Gram'}?
-                                    </label>
-                                )}
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan (Inventory)</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
+                                <input 
+                                    list="material-datalist"
+                                    type="text"
+                                    placeholder="Ketik nama bahan..."
+                                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                    value={materialSearchTerm}
+                                    onChange={handleMaterialSearch}
+                                    autoComplete="off"
+                                />
+                                <datalist id="material-datalist">
+                                    {materialInventory.map(item => (
+                                        <option key={item.id} value={item.name}>
+                                            Kode: {item.code} | Stok: {item.stock} {item.unit}
+                                        </option>
+                                    ))}
+                                </datalist>
                             </div>
                             
-                            <div className="relative">
-                                <input 
-                                    type="number" 
-                                    min="0.01" step="0.01"
-                                    value={inputQty} 
-                                    onChange={e => setInputQty(Number(e.target.value))}
-                                    className="w-full p-3 border border-gray-300 rounded-lg text-center font-bold text-lg"
-                                />
-                                <span className="absolute right-4 top-3.5 text-gray-500 font-bold text-sm">
-                                    {conversionLabel}
-                                </span>
-                            </div>
-                            {useSmallUnit && inputQty > 0 && (
-                                <p className="text-xs text-gray-500 mt-1 text-center">
-                                    Akan tercatat sebagai: <strong>{inputQty / 1000} {baseUnit}</strong>
-                                </p>
+                            {/* ITEM DETAIL */}
+                            {currentMaterial ? (
+                                <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
+                                    <div>
+                                        <p className="font-bold text-orange-900">{currentMaterial.name}</p>
+                                        <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
+                                        {isVendorItem && (
+                                            <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
+                                                STOK VENDOR (Ready Use)
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-orange-900 font-bold">
+                                            Sisa: {currentMaterial.stock} {currentMaterial.unit}
+                                        </p>
+                                        <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
+                                    </div>
+                                </div>
+                            ) : materialSearchTerm.length > 2 && (
+                                <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
                             )}
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
-                            <input 
-                                type="text"
-                                value={notes}
-                                onChange={e => setNotes(e.target.value)}
-                                placeholder="Keterangan..."
-                                className="w-full p-3 border border-gray-300 rounded-lg"
-                            />
-                        </div>
-                    </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* INPUT QTY WITH UNIT TOGGLE */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="block text-sm font-medium text-gray-700">Jumlah Pakai</label>
+                                    {['Liter', 'Kg'].includes(baseUnit) && (
+                                        <label className="flex items-center gap-2 cursor-pointer text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={useSmallUnit}
+                                                onChange={e => setUseSmallUnit(e.target.checked)}
+                                                className="rounded text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            <Scale size={12}/>
+                                            Input dlm {baseUnit === 'Liter' ? 'ML' : 'Gram'}?
+                                        </label>
+                                    )}
+                                </div>
+                                
+                                <div className="relative">
+                                    <input 
+                                        type="number" 
+                                        min="0.01" step="0.01"
+                                        value={inputQty} 
+                                        onChange={e => setInputQty(Number(e.target.value))}
+                                        className="w-full p-3 border border-gray-300 rounded-lg text-center font-bold text-lg"
+                                    />
+                                    <span className="absolute right-4 top-3.5 text-gray-500 font-bold text-sm">
+                                        {conversionLabel}
+                                    </span>
+                                </div>
+                                {useSmallUnit && inputQty > 0 && (
+                                    <p className="text-xs text-gray-500 mt-1 text-center">
+                                        Akan tercatat sebagai: <strong>{inputQty / 1000} {baseUnit}</strong>
+                                    </p>
+                                )}
+                            </div>
 
-                    <button 
-                        type="submit" 
-                        disabled={isSubmitting}
-                        className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 font-bold shadow-lg disabled:opacity-50 flex justify-center items-center gap-2"
-                    >
-                        {isSubmitting ? 'Menyimpan...' : <><CheckCircle size={18}/> Simpan Pembebanan</>}
-                    </button>
-                </form>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
+                                <input 
+                                    type="text"
+                                    value={notes}
+                                    onChange={e => setNotes(e.target.value)}
+                                    placeholder="Keterangan..."
+                                    className="w-full p-3 border border-gray-300 rounded-lg"
+                                />
+                            </div>
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting}
+                            className="w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 font-bold shadow-lg disabled:opacity-50 flex justify-center items-center gap-2"
+                        >
+                            {isSubmitting ? 'Menyimpan...' : <><CheckCircle size={18}/> Simpan Pembebanan</>}
+                        </button>
+                    </form>
+                )}
             </div>
+        )}
+
+        {/* --- RIWAYAT PEMBEBANAN (HISTORY LOG) --- */}
+        {selectedJob && (
+             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <History size={18} className="text-gray-500"/> 
+                        Riwayat {issuanceType === 'sparepart' ? 'Keluar Part' : 'Pemakaian Bahan'}
+                     </h3>
+                     <div className="text-right">
+                         <span className="text-xs text-gray-500 uppercase font-bold mr-2">Total Biaya:</span>
+                         <span className="text-lg font-bold text-indigo-700">{formatCurrency(totalUsageCost)}</span>
+                     </div>
+                </div>
+
+                {usageHistory.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-100 text-gray-600 uppercase font-bold text-xs">
+                                <tr>
+                                    <th className="px-4 py-3">Tanggal</th>
+                                    <th className="px-4 py-3">Item</th>
+                                    <th className="px-4 py-3 text-center">Qty</th>
+                                    <th className="px-4 py-3 text-right">Modal @</th>
+                                    <th className="px-4 py-3 text-right">Total</th>
+                                    <th className="px-4 py-3 text-center">Oleh</th>
+                                    <th className="px-4 py-3 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {usageHistory.map((log, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
+                                            {formatDateIndo(log.issuedAt)} <span className="text-[10px] ml-1">{new Date(log.issuedAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</span>
+                                        </td>
+                                        <td className="px-4 py-2">
+                                            <div className="font-medium text-gray-900">{log.itemName}</div>
+                                            <div className="text-xs text-gray-500 font-mono">{log.itemCode} {log.notes && `(${log.notes})`}</div>
+                                        </td>
+                                        <td className="px-4 py-2 text-center">
+                                            <span className="font-bold">{log.qty}</span>
+                                            {log.inputUnit && log.inputUnit !== 'Liter' && log.inputUnit !== 'Pcs' && (
+                                                <div className="text-[10px] text-gray-400">({log.inputQty} {log.inputUnit})</div>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-2 text-right text-gray-500">{formatCurrency(log.costPerUnit)}</td>
+                                        <td className="px-4 py-2 text-right font-bold text-gray-800">{formatCurrency(log.totalCost)}</td>
+                                        <td className="px-4 py-2 text-center text-xs text-gray-500 capitalize">{log.issuedBy}</td>
+                                        <td className="px-4 py-2 text-center">
+                                            {/* Cancel Button - Manager Only */}
+                                            {userPermissions.role.includes('Manager') && !selectedJob.isClosed && (
+                                                <button 
+                                                    onClick={() => handleCancelIssuance(log)}
+                                                    className="text-red-500 hover:text-red-700 text-xs underline"
+                                                    disabled={isSubmitting}
+                                                >
+                                                    Batalkan
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="p-8 text-center text-gray-400 italic">
+                        Belum ada riwayat pembebanan untuk WO ini.
+                    </div>
+                )}
+             </div>
         )}
 
         {!selectedJob && (

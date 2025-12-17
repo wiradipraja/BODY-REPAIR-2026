@@ -47,6 +47,21 @@ export interface EstimateData {
   grandTotal: number;
 }
 
+export interface UsageLogItem {
+  itemId: string;
+  itemName: string;
+  itemCode: string;
+  qty: number;
+  inputQty?: number;
+  inputUnit?: string;
+  costPerUnit: number;
+  totalCost: number;
+  category: 'sparepart' | 'material';
+  notes?: string;
+  issuedAt: string;
+  issuedBy: string;
+}
+
 export interface Job {
   id: string;
   policeNumber: string;
@@ -92,6 +107,7 @@ export interface Job {
   
   costData?: JobCostData;
   estimateData?: EstimateData;
+  usageLog?: UsageLogItem[]; // History of issued items
   
   hargaJasa?: number;
   hargaPart?: number;

@@ -1,13 +1,14 @@
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
-import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle } from 'lucide-react';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
   openModal: (type: string, data?: any) => void;
   onDelete: (job: Job) => Promise<void>;
-  onCloseJob: (job: Job) => Promise<void>; // New prop for closing WO
+  onCloseJob: (job: Job) => Promise<void>; 
+  onReopenJob: (job: Job) => Promise<void>; // New Prop
   userPermissions: UserPermissions;
   showNotification: (msg: string, type?: string) => void;
   searchQuery: string;
@@ -22,7 +23,7 @@ interface MainDashboardProps {
 }
 
 const MainDashboard: React.FC<MainDashboardProps> = ({
-  allData, openModal, onDelete, onCloseJob, userPermissions, showNotification,
+  allData, openModal, onDelete, onCloseJob, onReopenJob, userPermissions, showNotification,
   searchQuery, setSearchQuery, filterStatus, setFilterStatus,
   filterWorkStatus, setFilterWorkStatus, showClosedJobs, setShowClosedJobs, settings
 }) => {
@@ -213,15 +214,28 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                                   <FileText size={18}/>
                                 </button>
 
-                                {/* 3. UPDATE: Close WO Button */}
-                                {!job.isClosed && job.woNumber && (
-                                    <button 
-                                        onClick={() => onCloseJob(job)} 
-                                        className="text-green-500 hover:text-green-700 transition-colors"
-                                        title="Close WO (Selesai)"
-                                    >
-                                        <CheckCircle size={18}/>
-                                    </button>
+                                {/* CLOSE / RE-OPEN ACTIONS */}
+                                {job.woNumber && (
+                                    !job.isClosed ? (
+                                        <button 
+                                            onClick={() => onCloseJob(job)} 
+                                            className="text-green-500 hover:text-green-700 transition-colors"
+                                            title="Close WO (Selesai)"
+                                        >
+                                            <CheckCircle size={18}/>
+                                        </button>
+                                    ) : (
+                                        // RE-OPEN BUTTON (Manager Only)
+                                        userPermissions.role.includes('Manager') && (
+                                            <button 
+                                                onClick={() => onReopenJob(job)}
+                                                className="text-orange-500 hover:text-orange-700 transition-colors"
+                                                title="Buka Kembali WO (Manager)"
+                                            >
+                                                <RotateCcw size={18}/>
+                                            </button>
+                                        )
+                                    )
                                 )}
 
                                 {userPermissions.role === 'Manager' && (

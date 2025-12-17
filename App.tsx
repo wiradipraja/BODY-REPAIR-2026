@@ -179,6 +179,29 @@ const AppContent: React.FC = () => {
       }
   };
 
+  // Re-Open WO Logic
+  const handleReopenJob = async (job: Job) => {
+      if (!userPermissions.role.includes('Manager')) {
+          showNotification("Akses ditolak. Hanya Manager yang bisa membuka kembali WO.", "error");
+          return;
+      }
+      if (!window.confirm(`Buka Kembali (Re-open) WO ${job.woNumber}? Status akan kembali aktif.`)) return;
+
+      try {
+          const jobRef = doc(db, JOBS_COLLECTION, job.id);
+          await updateDoc(jobRef, {
+              isClosed: false,
+              closedAt: null,
+              statusPekerjaan: 'Finishing', // Set to a safe active status
+              statusKendaraan: 'Work In Progress'
+          });
+          showNotification("WO Berhasil Dibuka Kembali", "success");
+      } catch (e) {
+          console.error(e);
+          showNotification("Gagal membuka WO", "error");
+      }
+  };
+
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
           const jobRef = doc(db, JOBS_COLLECTION, jobId);
@@ -218,11 +241,6 @@ const AppContent: React.FC = () => {
               });
               woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
-
-          // 3. REMOVED AUTOMATIC STOCK DEDUCTION LOGIC
-          // Stock will now be deducted manually via the 'Pembebanan Part' menu 
-          // to prevent double deduction and give more control to the Partman.
-          // Note: If you want to keep automatic deduction, uncomment the logic in previous versions.
 
           const updatedEstimateData = {
               ...estimateData,
@@ -352,6 +370,7 @@ const AppContent: React.FC = () => {
                     openModal={openModal}
                     onDelete={handleDeleteJob}
                     onCloseJob={handleCloseJob} 
+                    onReopenJob={handleReopenJob} // NEW PROP
                     userPermissions={userPermissions}
                     showNotification={showNotification}
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
@@ -363,8 +382,6 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* --- INVENTORY MODULE --- */}
-        
         {currentView === 'inventory' && (
              <InventoryView 
                 userPermissions={userPermissions}
@@ -375,7 +392,7 @@ const AppContent: React.FC = () => {
         {/* PEMBEBANAN PART (SYNC WITH ESTIMATE) */}
         {currentView === 'part_issuance' && (
             <MaterialIssuanceView 
-                activeJobs={allData.filter(j => !j.isClosed && j.woNumber)} // Only jobs with WO
+                activeJobs={allData.filter(j => j.woNumber)} // Allow Closed Jobs to be seen for history, but actions blocked
                 inventoryItems={inventoryItems}
                 userPermissions={userPermissions}
                 showNotification={showNotification}
@@ -387,7 +404,7 @@ const AppContent: React.FC = () => {
         {/* PEMBEBANAN BAHAN (AD HOC) */}
         {currentView === 'material_issuance' && (
             <MaterialIssuanceView 
-                activeJobs={allData.filter(j => !j.isClosed && j.woNumber)} 
+                activeJobs={allData.filter(j => j.woNumber)} 
                 inventoryItems={inventoryItems}
                 userPermissions={userPermissions}
                 showNotification={showNotification}
