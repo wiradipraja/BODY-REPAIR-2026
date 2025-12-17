@@ -84,7 +84,12 @@ const AppContent: React.FC = () => {
           showNotification("Data berhasil ditambahkan", "success");
           
           closeModal();
-          setCurrentView('entry_data');
+          // If we came from adding a job via EstimationForm, we might want to stay there, 
+          // but going to entry_data is safer default.
+          if (currentView === 'estimation') {
+              // Optionally stay on estimation view or handle selection logic there
+              // For now, let's keep it simple
+          }
       } catch (e) { 
           console.error(e);
           showNotification("Gagal menambahkan data. Periksa izin database.", "error"); 
@@ -159,7 +164,9 @@ const AppContent: React.FC = () => {
           
           showNotification(`Estimasi ${estimationNumber} berhasil disimpan`, "success");
           closeModal();
-          setCurrentView('entry_data');
+          
+          // Don't force view change if we are in estimation view
+          if(currentView !== 'estimation') setCurrentView('entry_data');
 
           return estimationNumber;
       } catch (e) {
@@ -303,7 +310,7 @@ const AppContent: React.FC = () => {
             }
             maxWidth={
                 modalState.type === 'edit_job' || modalState.type === 'create_estimation' 
-                ? 'max-w-5xl' 
+                ? 'max-w-7xl' // Widened to fix layout issues
                 : 'max-w-3xl'
             }
         >
@@ -316,6 +323,15 @@ const AppContent: React.FC = () => {
                 />
             )}
             
+            {modalState.type === 'add_job' && (
+                 <JobForm 
+                    settings={appSettings}
+                    initialData={modalState.data} // Might contain prefilled data from EstimationForm
+                    onSave={handleAddJob}
+                    onCancel={closeModal}
+                />
+            )}
+            
             {modalState.type === 'create_estimation' && modalState.data && (
                 <EstimateEditor
                     job={modalState.data}
@@ -324,6 +340,7 @@ const AppContent: React.FC = () => {
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                     settings={appSettings} // Pass settings for PDF
+                    creatorName={userData.displayName || 'Admin'} // Pass User Name
                 />
             )}
 
@@ -335,6 +352,7 @@ const AppContent: React.FC = () => {
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
                     settings={appSettings} // Pass settings for PDF
+                    creatorName={userData.displayName || 'Admin'} // Pass User Name
                 />
             )}
         </Modal>

@@ -13,7 +13,7 @@ import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, setDoc, serverT
 import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
 import { Settings, Supplier, UserPermissions } from '../../types';
 import * as XLSX from 'xlsx';
-import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban } from 'lucide-react';
+import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban, Building } from 'lucide-react';
 
 // --- CONFIG FOR SECONDARY AUTH APP (To create user without logging out) ---
 // Using the same config as main app
@@ -189,6 +189,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
         } else {
             docRef = doc(db, SETTINGS_COLLECTION, q.docs[0].id);
             await updateDoc(docRef, { 
+                workshopName: localSettings.workshopName || '',
+                workshopAddress: localSettings.workshopAddress || '',
+                workshopPhone: localSettings.workshopPhone || '',
+                workshopEmail: localSettings.workshopEmail || '',
                 ppnPercentage: localSettings.ppnPercentage,
                 insuranceOptions: localSettings.insuranceOptions,
                 roleOptions: localSettings.roleOptions || []
@@ -482,6 +486,63 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       {activeTab === 'system' && (
           <div className={`space-y-8 ${restrictedClass}`}>
                <RestrictedOverlay />
+               
+               {/* WORKSHOP IDENTITY (NEW) */}
+               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                      <Building size={20} className="text-indigo-600"/> Identitas Bengkel (Kop Surat)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700">Nama Bengkel</label>
+                          <input 
+                            disabled={!isManager}
+                            type="text" 
+                            value={localSettings.workshopName || ''} 
+                            onChange={e => setLocalSettings({...localSettings, workshopName: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1"
+                            placeholder="Contoh: MAZDA RANGER BODY & PAINT"
+                          />
+                      </div>
+                      <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700">Alamat Lengkap</label>
+                          <input 
+                            disabled={!isManager}
+                            type="text" 
+                            value={localSettings.workshopAddress || ''} 
+                            onChange={e => setLocalSettings({...localSettings, workshopAddress: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1"
+                            placeholder="Alamat bengkel untuk kop surat"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">No. Telepon</label>
+                          <input 
+                            disabled={!isManager}
+                            type="text" 
+                            value={localSettings.workshopPhone || ''} 
+                            onChange={e => setLocalSettings({...localSettings, workshopPhone: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1"
+                            placeholder="(021) xxxx-xxxx"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">Email</label>
+                          <input 
+                            disabled={!isManager}
+                            type="text" 
+                            value={localSettings.workshopEmail || ''} 
+                            onChange={e => setLocalSettings({...localSettings, workshopEmail: e.target.value})} 
+                            className="w-full p-2 border rounded mt-1"
+                            placeholder="service@bengkel.com"
+                          />
+                      </div>
+                  </div>
+                  <button disabled={!isManager} onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
+                       <Save size={18}/> Simpan Identitas
+                  </button>
+               </div>
+
                {/* ROLE MANAGEMENT */}
                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Manajemen Role User</h3>

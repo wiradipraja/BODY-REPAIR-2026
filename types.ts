@@ -114,6 +114,12 @@ export interface Supplier {
 }
 
 export interface Settings {
+  // Workshop Identity
+  workshopName?: string;
+  workshopAddress?: string;
+  workshopPhone?: string;
+  workshopEmail?: string;
+
   ppnPercentage: number;
   monthlyTarget: number;
   weeklyTarget: number;

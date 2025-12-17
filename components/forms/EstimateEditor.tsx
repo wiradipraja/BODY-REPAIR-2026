@@ -11,9 +11,10 @@ interface EstimateEditorProps {
   onSave: (jobId: string, estimateData: EstimateData) => Promise<string>; // Returns the generated ID
   onCancel: () => void;
   settings?: Settings; // Added settings for PDF header info
+  creatorName?: string; // For "Hormat Kami" signature
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName }) => {
   const [jasaItems, setJasaItems] = useState<EstimateItem[]>([]);
   const [partItems, setPartItems] = useState<EstimateItem[]>([]);
   const [discountJasa, setDiscountJasa] = useState(0);
@@ -140,7 +141,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       
       // Download PDF Automatically
       if (settings) {
-         generateEstimationPDF(job, finalData, settings);
+         generateEstimationPDF(job, finalData, settings, creatorName);
       }
     } catch (error) {
        console.error("Save failed", error);
@@ -151,7 +152,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   const handleDownloadOnly = () => {
       if (settings) {
-          generateEstimationPDF(job, prepareEstimateData(), settings);
+          generateEstimationPDF(job, prepareEstimateData(), settings, creatorName);
       }
   };
 
@@ -201,22 +202,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {jasaItems.map((item, idx) => (
-              <div key={idx} className="flex gap-2 items-start">
+              <div key={idx} className="grid grid-cols-12 gap-2 items-start">
                 <input 
                   type="text" 
                   placeholder="Nama Pekerjaan (Panel)" 
-                  className="flex-grow p-2 border rounded text-sm focus:ring-1 ring-blue-500"
+                  className="col-span-7 p-2 border rounded text-sm focus:ring-1 ring-blue-500"
                   value={item.name}
                   onChange={e => updateItem('jasa', idx, 'name', e.target.value)}
                 />
                 <input 
                   type="number" 
                   placeholder="Harga" 
-                  className="w-32 p-2 border rounded text-sm text-right focus:ring-1 ring-blue-500"
+                  className="col-span-4 p-2 border rounded text-sm text-right focus:ring-1 ring-blue-500"
                   value={item.price || ''}
                   onChange={e => updateItem('jasa', idx, 'price', Number(e.target.value))}
                 />
-                <button onClick={() => removeItem('jasa', idx)} className="p-2 text-red-400 hover:text-red-600">
+                <button onClick={() => removeItem('jasa', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center">
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -246,7 +247,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART */}
+        {/* KOLOM SPAREPART (LAYOUT UPDATED FOR BETTER SPACING) */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -259,36 +260,36 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {partItems.map((item, idx) => (
-              <div key={idx} className="flex gap-2 items-start flex-wrap sm:flex-nowrap">
+              <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                 <input 
                   type="text" 
                   placeholder="No. Part" 
-                  className="w-24 p-2 border rounded text-sm focus:ring-1 ring-orange-500"
+                  className="col-span-2 p-2 border rounded text-sm focus:ring-1 ring-orange-500 w-full"
                   value={item.number || ''}
                   onChange={e => updateItem('part', idx, 'number', e.target.value)}
                 />
                 <input 
                   type="text" 
                   placeholder="Nama Sparepart" 
-                  className="flex-grow p-2 border rounded text-sm focus:ring-1 ring-orange-500"
+                  className="col-span-5 p-2 border rounded text-sm focus:ring-1 ring-orange-500 w-full"
                   value={item.name}
                   onChange={e => updateItem('part', idx, 'name', e.target.value)}
                 />
                 <input 
                   type="number" 
                   placeholder="Qty" 
-                  className="w-16 p-2 border rounded text-sm text-center focus:ring-1 ring-orange-500"
+                  className="col-span-1 p-2 border rounded text-sm text-center focus:ring-1 ring-orange-500 w-full"
                   value={item.qty || ''}
                   onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))}
                 />
                 <input 
                   type="number" 
-                  placeholder="Harga Satuan" 
-                  className="w-28 p-2 border rounded text-sm text-right focus:ring-1 ring-orange-500"
+                  placeholder="Harga" 
+                  className="col-span-3 p-2 border rounded text-sm text-right focus:ring-1 ring-orange-500 w-full"
                   value={item.price || ''}
                   onChange={e => updateItem('part', idx, 'price', Number(e.target.value))}
                 />
-                <button onClick={() => removeItem('part', idx)} className="p-2 text-red-400 hover:text-red-600">
+                <button onClick={() => removeItem('part', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center">
                   <Trash2 size={16} />
                 </button>
               </div>

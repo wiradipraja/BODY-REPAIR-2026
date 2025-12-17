@@ -7,6 +7,11 @@ export const posisiKendaraanOptions = ["Di Pemilik", "Di Bengkel"];
 export const jobdeskOptions = ["Service Advisor", "Admin Bengkel", "CRC", "Foreman", "Manager", "Partman", "Ass. Partman"].sort();
 
 export const initialSettingsState: Settings = {
+    workshopName: "MAZDA RANGER BODY & PAINT",
+    workshopAddress: "Jl. Pangeran Antasari No. 12, Jakarta Selatan",
+    workshopPhone: "(021) 750-9999",
+    workshopEmail: "service@mazdaranger.com",
+    
     ppnPercentage: 11,
     monthlyTarget: 600000000,
     weeklyTarget: 150000000,

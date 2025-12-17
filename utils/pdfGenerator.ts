@@ -3,19 +3,24 @@ import autoTable from 'jspdf-autotable';
 import { Job, EstimateData, Settings } from '../types';
 import { formatCurrency, formatDateIndo } from './helpers';
 
-export const generateEstimationPDF = (job: Job, estimateData: EstimateData, settings: Settings) => {
+export const generateEstimationPDF = (job: Job, estimateData: EstimateData, settings: Settings, creatorName?: string) => {
   const doc: any = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
   
-  // --- HEADER ---
+  // --- HEADER (DYNAMIC WORKSHOP INFO) ---
+  const wsName = settings.workshopName || "MAZDA RANGER BODY & PAINT";
+  const wsAddress = settings.workshopAddress || "Jl. Pangeran Antasari No. 12, Jakarta Selatan";
+  const wsPhone = settings.workshopPhone || "(021) 750-9999";
+  const wsEmail = settings.workshopEmail || "service@mazdaranger.com";
+
   doc.setFontSize(18);
   doc.setTextColor(40, 40, 100);
-  doc.text("MAZDA RANGER BODY & PAINT", 15, 20);
+  doc.text(wsName, 15, 20);
   
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text("Jl. Pangeran Antasari No. 12, Jakarta Selatan", 15, 26);
-  doc.text("Telp: (021) 750-9999 | Email: service@mazdaranger.com", 15, 31);
+  doc.text(wsAddress, 15, 26);
+  doc.text(`Telp: ${wsPhone} | Email: ${wsEmail}`, 15, 31);
   
   // Line separator
   doc.setDrawColor(200);
@@ -169,22 +174,21 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text("GRAND TOTAL:", summaryX, currentY + 1);
   doc.text(formatCurrency(estimateData.grandTotal), valX, currentY + 1, { align: 'right' });
 
-  // --- FOOTER / SIGNATURE ---
+  // --- FOOTER / SIGNATURE (MODIFIED) ---
   const signY = currentY + 30;
   if (signY < 270) {
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       
+      // Left Signature (SA/Admin - Now uses Creator Name)
       const col1 = 30;
-      const col2 = pageWidth / 2;
-      const col3 = pageWidth - 50;
-
       doc.text("Hormat Kami,", col1, signY, {align: 'center'});
-      doc.text("( SA / Admin )", col1, signY + 25, {align: 'center'});
+      doc.text(`( ${creatorName || 'Admin'} )`, col1, signY + 25, {align: 'center'});
 
-      doc.text("Mengetahui,", col2, signY, {align: 'center'});
-      doc.text("( Manager )", col2, signY + 25, {align: 'center'});
+      // Middle Signature (Removed Manager)
 
+      // Right Signature (Customer)
+      const col3 = pageWidth - 50;
       doc.text("Disetujui Oleh,", col3, signY, {align: 'center'});
       doc.text(`( ${job.customerName} )`, col3, signY + 25, {align: 'center'});
   }
