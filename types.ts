@@ -165,6 +165,7 @@ export interface PurchaseOrderItem {
   inventoryId?: string | null; // Nullable for new items
   code: string;
   name: string;
+  category: 'sparepart' | 'material'; // New field for categorization
   qty: number;
   qtyReceived?: number; // Supports partial shipment
   unit: string;

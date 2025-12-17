@@ -391,7 +391,8 @@ export const generateReceivingReportPDF = (
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("BUKTI SERAH TERIMA BARANG (GR)", pageWidth / 2, 45, { align: 'center' });
+    // FIXED: Removed (GR) from the title
+    doc.text("BUKTI SERAH TERIMA BARANG", pageWidth / 2, 45, { align: 'center' });
 
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");

@@ -247,6 +247,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || 'NON-PART-NO',
                   name: estItem.name || 'Nama Part Belum Diisi',
+                  category: 'sparepart', // Default to sparepart for WO parts
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
@@ -286,7 +287,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       setPoForm(prev => ({
           ...prev,
           items: [...(prev.items || []), { 
-              code: '', name: '', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0
+              code: '', name: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0
           }]
       }));
   };
@@ -297,7 +298,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const codeUpper = String(value).toUpperCase().trim();
           const match = inventoryItems.find(i => i.code?.toUpperCase() === codeUpper);
           if (match) {
-              newItems[index] = { ...newItems[index], inventoryId: match.id, name: match.name, unit: match.unit, price: match.buyPrice, code: match.code };
+              newItems[index] = { ...newItems[index], inventoryId: match.id, name: match.name, category: match.category, unit: match.unit, price: match.buyPrice, code: match.code };
           } else {
              newItems[index] = { ...newItems[index], inventoryId: null, code: codeUpper };
           }
@@ -415,10 +416,18 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp() 
                   });
               } else {
+                  // FIXED: Use the category from the Purchase Order item
                   const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
-                      code: itemCodeUpper, name: item.name, category: 'sparepart',
-                      stock: qtyNow, unit: item.unit, minStock: 2, buyPrice: item.price,
-                      sellPrice: Math.round(item.price * 1.3), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+                      code: itemCodeUpper, 
+                      name: item.name, 
+                      category: item.category || 'sparepart', // Use item category instead of hardcoded sparepart
+                      stock: qtyNow, 
+                      unit: item.unit, 
+                      minStock: 2, 
+                      buyPrice: item.price,
+                      sellPrice: Math.round(item.price * 1.3), 
+                      createdAt: serverTimestamp(), 
+                      updatedAt: serverTimestamp()
                   });
                   targetInventoryId = newItem.id;
               }
@@ -516,13 +525,35 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               <div className="mb-6">
                   <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><ShoppingCart size={18}/> Item Pesanan (Draft)</h3>
                   <table className="w-full text-sm text-left border border-gray-200 rounded overflow-hidden">
-                      <thead className="bg-gray-100 font-bold"><tr><th className="p-3 border">Kode</th><th className="p-3 border">Nama Barang</th><th className="p-3 border w-24 text-center">Qty</th><th className="p-3 border text-right">Harga</th><th className="p-3 border text-right">Total</th><th className="p-3 border w-10"></th></tr></thead>
+                      <thead className="bg-gray-100 font-bold">
+                        <tr>
+                            <th className="p-3 border">Kategori</th>
+                            <th className="p-3 border">Kode</th>
+                            <th className="p-3 border">Nama Barang</th>
+                            <th className="p-3 border w-24 text-center">Qty</th>
+                            <th className="p-3 border w-24">Satuan</th>
+                            <th className="p-3 border text-right">Harga</th>
+                            <th className="p-3 border text-right">Total</th>
+                            <th className="p-3 border w-10"></th>
+                        </tr>
+                      </thead>
                       <tbody>
                           {(poForm.items || []).map((item, idx) => (
                               <tr key={idx} className={item.refJobId ? "bg-blue-50/50" : ""}>
+                                  <td className="p-2 border">
+                                      <select className="w-full p-2 border rounded text-xs" value={item.category} onChange={e => handleUpdateItem(idx, 'category', e.target.value)}>
+                                          <option value="sparepart">Part</option>
+                                          <option value="material">Bahan</option>
+                                      </select>
+                                  </td>
                                   <td className="p-2 border"><input type="text" className="w-full p-2 border rounded font-mono uppercase text-xs" value={item.code} onChange={e => handleUpdateItem(idx, 'code', e.target.value)} placeholder="Kode..." disabled={!!item.refJobId}/></td>
                                   <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.name} onChange={e => handleUpdateItem(idx, 'name', e.target.value)} placeholder="Nama..." disabled={!!item.refJobId}/>{item.refWoNumber && <div className="text-[9px] text-blue-600 font-bold">Ref: {item.refWoNumber} {item.isIndent && <span className="text-red-600">[INDENT]</span>}</div>}</td>
                                   <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-center font-bold" value={item.qty} onChange={e => handleUpdateItem(idx, 'qty', Number(e.target.value))} /></td>
+                                  <td className="p-2 border">
+                                      <select className="w-full p-2 border rounded text-xs" value={item.unit} onChange={e => handleUpdateItem(idx, 'unit', e.target.value)}>
+                                          {UNIT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                      </select>
+                                  </td>
                                   <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-right font-mono" value={item.price} onChange={e => handleUpdateItem(idx, 'price', Number(e.target.value))} /></td>
                                   <td className="p-2 border text-right font-bold">{formatCurrency(item.total)}</td>
                                   <td className="p-2 border text-center"><button onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button></td>
@@ -629,7 +660,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               return (
                                   <tr key={idx} className={rem <= 0 ? 'opacity-50 bg-gray-50' : ''}>
                                       {isReceivable && <td className="p-3 border text-center">{rem > 0 && <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/>}</td>}
-                                      <td className="p-3 border"><div><strong>{item.name}</strong></div><div className="text-[10px] font-mono text-gray-500">{item.code} {item.refWoNumber && `[WO: ${item.refWoNumber}]`}</div></td>
+                                      <td className="p-3 border">
+                                          <div><strong>{item.name}</strong></div>
+                                          <div className="text-[10px] font-mono text-gray-500">
+                                              {item.code} {item.refWoNumber && `[WO: ${item.refWoNumber}]`} 
+                                              <span className="ml-2 px-1 bg-gray-200 rounded text-[9px] uppercase">{item.category}</span>
+                                          </div>
+                                      </td>
                                       <td className="p-3 border text-center">{item.qty} {item.unit}</td>
                                       <td className="p-3 border text-center bg-green-50 font-bold">{item.qtyReceived || 0}</td>
                                       {isReceivable && <td className="p-3 border text-center bg-blue-50">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="number" max={rem} className="w-full p-1 border rounded text-center font-bold" value={receiveQtyMap[idx]} onChange={e => setReceiveQtyMap({...receiveQtyMap, [idx]: Number(e.target.value)})}/> : '-'}</td>}
