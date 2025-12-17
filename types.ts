@@ -4,7 +4,8 @@ export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
-  jobdesk?: string;
+  jobdesk?: string; // This acts as the Role
+  role?: string; // Explicit role field
   createdAt?: any;
 }
 
@@ -124,4 +125,5 @@ export interface Settings {
   statusKendaraanOptions: string[];
   statusPekerjaanOptions: string[];
   userRoles: Record<string, { role: string; financeAccess: boolean }>;
+  roleOptions: string[]; // List of available roles in the system
 }

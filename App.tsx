@@ -279,6 +279,7 @@ const AppContent: React.FC = () => {
                     currentSettings={appSettings}
                     refreshSettings={refreshSettings}
                     showNotification={showNotification}
+                    userPermissions={userPermissions}
                 />
             </div>
         )}

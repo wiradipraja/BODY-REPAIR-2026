@@ -70,16 +70,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
               
-              {/* SETTINGS BUTTON */}
-              {userPermissions.role === 'Manager' && (
-                  <button 
-                    onClick={() => { setCurrentView('settings'); setIsOpen(false); }}
-                    className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-200 text-indigo-800' : 'hover:bg-gray-200 text-gray-600'}`}
-                    title="Pengaturan Sistem"
-                  >
-                    <Settings size={18} />
-                  </button>
-              )}
+              {/* SETTINGS BUTTON - Visible for everyone now */}
+              <button 
+                onClick={() => { setCurrentView('settings'); setIsOpen(false); }}
+                className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-200 text-indigo-800' : 'hover:bg-gray-200 text-gray-600'}`}
+                title="Pengaturan Sistem"
+              >
+                <Settings size={18} />
+              </button>
           </div>
           
           <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 transition w-full px-2 pt-2 border-t border-gray-200">

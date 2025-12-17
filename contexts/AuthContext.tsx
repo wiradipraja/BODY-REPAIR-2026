@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
-import { auth, ADMIN_UID } from '../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db, ADMIN_UID, USERS_COLLECTION } from '../services/firebase';
 import { UserProfile, UserPermissions, Settings } from '../types';
 import { initialSettingsState } from '../utils/constants';
 
@@ -26,27 +27,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize Firebase Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        // Check privileges
-        const isTargetAdmin = currentUser.uid === ADMIN_UID;
+        // 1. Check if user is Super Admin or Anonymous
+        const isSuperAdmin = currentUser.uid === ADMIN_UID;
         const isAnonymous = currentUser.isAnonymous;
         
-        // Grant Manager access to the specific Admin UID OR Anonymous users (for Demo purposes)
-        const isManager = isTargetAdmin || isAnonymous;
+        let role = 'Staff'; // Default role
+        
+        if (isAnonymous) {
+             role = 'Manager'; // Demo user gets full access
+        } else if (isSuperAdmin) {
+             role = 'Manager';
+        } else {
+             // 2. Fetch Role from Firestore 'users' collection
+             try {
+                 const userDocRef = doc(db, USERS_COLLECTION, currentUser.uid);
+                 const userDocSnap = await getDoc(userDocRef);
+                 
+                 if (userDocSnap.exists()) {
+                     const data = userDocSnap.data();
+                     role = data.role || 'Staff';
+                 }
+             } catch (error) {
+                 console.error("Error fetching user role:", error);
+             }
+        }
+
+        const isManager = role === 'Manager';
 
         // Set User Data
         setUserData({
             uid: currentUser.uid,
             email: currentUser.email,
             displayName: currentUser.displayName || (isAnonymous ? 'Tamu (Demo)' : 'User'),
-            jobdesk: isManager ? 'Manager' : 'Staff'
+            jobdesk: role,
+            role: role
         });
         
         setUserPermissions({
-            role: isManager ? 'Manager' : 'Guest',
-            hasFinanceAccess: isManager
+            role: role,
+            hasFinanceAccess: isManager // Only Manager has finance access
         });
       } else {
         setUserData({ uid: '', email: '', displayName: '' });

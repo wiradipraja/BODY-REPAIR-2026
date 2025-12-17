@@ -10,10 +10,10 @@ import {
   EmailAuthProvider
 } from 'firebase/auth';
 import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION } from '../../services/firebase';
-import { Settings, Supplier } from '../../types';
+import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
+import { Settings, Supplier, UserPermissions } from '../../types';
 import * as XLSX from 'xlsx';
-import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock } from 'lucide-react';
+import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban } from 'lucide-react';
 
 // --- CONFIG FOR SECONDARY AUTH APP (To create user without logging out) ---
 // Using the same config as main app
@@ -30,11 +30,13 @@ interface SettingsViewProps {
   currentSettings: Settings;
   refreshSettings: () => void;
   showNotification: (msg: string, type: string) => void;
+  userPermissions: UserPermissions;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSettings, showNotification }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSettings, showNotification, userPermissions }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'system' | 'suppliers'>('users');
   const [isLoading, setIsLoading] = useState(false);
+  const isManager = userPermissions.role === 'Manager';
 
   // --- STATE FOR USERS ---
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'Staff' });
@@ -45,6 +47,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
   // --- STATE FOR SYSTEM ---
   const [localSettings, setLocalSettings] = useState<Settings>(currentSettings);
+  const [newRoleName, setNewRoleName] = useState('');
   
   // --- STATE FOR SUPPLIERS ---
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -65,20 +68,32 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   // --- HANDLERS: USER MANAGEMENT ---
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isManager) return;
     setIsLoading(true);
     try {
-        // Init secondary app
+        // 1. Init secondary app to create user without logging out admin
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
         
+        // 2. Create User in Auth
         const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newUser.email, newUser.password);
+        
+        // 3. Update Profile Name
         await updateProfile(userCredential.user, { displayName: newUser.name });
 
-        // Cleanup
-        await secondaryAuth.signOut(); // Just to be safe
-        // Note: Firebase JS SDK keeps secondary app in memory, which is fine for this use case.
+        // 4. Create User Document in Firestore with Role (Using Main DB instance)
+        await setDoc(doc(db, USERS_COLLECTION, userCredential.user.uid), {
+            uid: userCredential.user.uid,
+            displayName: newUser.name,
+            email: newUser.email,
+            role: newUser.role,
+            createdAt: serverTimestamp()
+        });
 
-        showNotification(`Pengguna ${newUser.name} berhasil dibuat!`, 'success');
+        // 5. Cleanup
+        await secondaryAuth.signOut(); 
+
+        showNotification(`Pengguna ${newUser.name} berhasil dibuat sebagai ${newUser.role}!`, 'success');
         setNewUser({ email: '', password: '', name: '', role: 'Staff' });
     } catch (error: any) {
         console.error(error);
@@ -90,6 +105,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isManager) return;
     setIsLoading(true);
     try {
         const auth = getAuth(); // Main auth instance
@@ -144,8 +160,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
-  // --- HANDLERS: SYSTEM SETTINGS (Insurance & PPN) ---
+  // --- HANDLERS: SYSTEM SETTINGS (Insurance, Roles, PPN) ---
   const handleSaveSettings = async () => {
+    if (!isManager) return;
     setIsLoading(true);
     try {
         const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -157,7 +174,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
             docRef = doc(db, SETTINGS_COLLECTION, q.docs[0].id);
             await updateDoc(docRef, { 
                 ppnPercentage: localSettings.ppnPercentage,
-                insuranceOptions: localSettings.insuranceOptions
+                insuranceOptions: localSettings.insuranceOptions,
+                roleOptions: localSettings.roleOptions || []
             });
         }
         showNotification("Pengaturan Sistem Berhasil Disimpan", 'success');
@@ -170,7 +188,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
+  const handleAddRole = () => {
+      if(newRoleName && !localSettings.roleOptions.includes(newRoleName)) {
+          setLocalSettings(prev => ({
+              ...prev,
+              roleOptions: [...(prev.roleOptions || []), newRoleName]
+          }));
+          setNewRoleName('');
+      }
+  };
+
+  const handleRemoveRole = (role: string) => {
+      if(role === 'Manager') {
+          showNotification("Role Manager tidak bisa dihapus!", 'error');
+          return;
+      }
+      setLocalSettings(prev => ({
+          ...prev,
+          roleOptions: prev.roleOptions.filter(r => r !== role)
+      }));
+  };
+
   const handleImportInsurance = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isManager) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -200,6 +240,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   // --- HANDLERS: SUPPLIERS ---
   const handleSaveSupplier = async (e: React.FormEvent) => {
       e.preventDefault();
+      if (!isManager) return;
       setIsLoading(true);
       try {
           if (supplierForm.id) {
@@ -223,6 +264,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleDeleteSupplier = async (id: string) => {
+      if (!isManager) return;
       if(!window.confirm("Hapus supplier ini?")) return;
       try {
           await deleteDoc(doc(db, SUPPLIERS_COLLECTION, id));
@@ -232,6 +274,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleImportSuppliers = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isManager) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -265,6 +308,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     reader.readAsBinaryString(file);
   };
 
+  // UI Helper for disabled sections
+  const RestrictedOverlay = () => (
+      !isManager ? (
+          <div className="absolute inset-0 z-10 bg-gray-50/50 cursor-not-allowed flex items-center justify-center">
+              <div className="bg-white p-2 rounded shadow-sm border flex items-center gap-2 text-red-500 font-bold text-xs opacity-100">
+                  <Ban size={14} /> Akses Manager Saja
+              </div>
+          </div>
+      ) : null
+  );
+
+  const restrictedClass = !isManager ? "opacity-60 pointer-events-none relative" : "relative";
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -300,32 +355,49 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       {/* CONTENT: USERS */}
       {activeTab === 'users' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {/* CARD 1: TAMBAH USER */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              {/* CARD 1: TAMBAH USER (RESTRICTED) */}
+              <div className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 ${restrictedClass}`}>
+                  <RestrictedOverlay />
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                       <UserPlus className="text-indigo-600" size={20}/> Tambah Pengguna Baru
                   </h3>
                   <form onSubmit={handleCreateUser} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Nama Lengkap</label>
-                          <input type="text" required value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
+                          <input disabled={!isManager} type="text" required value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700">Role User / Hak Akses</label>
+                          <div className="relative">
+                            <select 
+                                disabled={!isManager}
+                                value={newUser.role} 
+                                onChange={e => setNewUser({...newUser, role: e.target.value})} 
+                                className="w-full p-2 pl-9 border rounded mt-1 focus:ring-1 ring-indigo-500 appearance-none bg-white"
+                            >
+                                {(localSettings.roleOptions || []).map(role => (
+                                    <option key={role} value={role}>{role}</option>
+                                ))}
+                            </select>
+                            <Shield className="absolute left-2.5 top-3.5 text-gray-400" size={16}/>
+                          </div>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Email</label>
-                          <input type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
+                          <input disabled={!isManager} type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Password Default</label>
-                          <input type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
+                          <input disabled={!isManager} type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-indigo-500"/>
                       </div>
-                      <button disabled={isLoading} type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium shadow-sm">
+                      <button disabled={isLoading || !isManager} type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium shadow-sm">
                           {isLoading ? 'Memproses...' : 'Buat Akun'}
                       </button>
                   </form>
               </div>
 
-              {/* CARD 2: CHANGE MY PASSWORD */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              {/* CARD 2: CHANGE MY PASSWORD (OPEN FOR EVERYONE) */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                       <Lock className="text-emerald-600" size={20}/> Ganti Password Saya
                   </h3>
@@ -366,8 +438,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   </form>
               </div>
 
-              {/* CARD 3: RESET OTHER USER */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+              {/* CARD 3: RESET OTHER USER (RESTRICTED) */}
+              <div className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit ${restrictedClass}`}>
+                  <RestrictedOverlay />
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                       <KeyRound className="text-orange-500" size={20}/> Reset Password User Lain
                   </h3>
@@ -375,9 +448,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   <form onSubmit={handleResetPassword} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Email Pengguna</label>
-                          <input type="email" required value={resetEmail} onChange={e => setResetEmail(e.target.value)} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-orange-500"/>
+                          <input disabled={!isManager} type="email" required value={resetEmail} onChange={e => setResetEmail(e.target.value)} className="w-full p-2 border rounded mt-1 focus:ring-1 ring-orange-500"/>
                       </div>
-                      <button disabled={isLoading} type="submit" className="w-full bg-orange-500 text-white py-2 rounded hover:bg-orange-600 font-medium shadow-sm">
+                      <button disabled={isLoading || !isManager} type="submit" className="w-full bg-orange-500 text-white py-2 rounded hover:bg-orange-600 font-medium shadow-sm">
                           Kirim Link Reset
                       </button>
                   </form>
@@ -387,7 +460,37 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
       {/* CONTENT: SYSTEM */}
       {activeTab === 'system' && (
-          <div className="space-y-8">
+          <div className={`space-y-8 ${restrictedClass}`}>
+               <RestrictedOverlay />
+               {/* ROLE MANAGEMENT */}
+               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">Manajemen Role User</h3>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                      {(localSettings.roleOptions || []).map((role, idx) => (
+                          <div key={idx} className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full flex items-center gap-2 text-sm font-medium border border-indigo-100">
+                              {role}
+                              {isManager && role !== 'Manager' && (
+                                  <button onClick={() => handleRemoveRole(role)} className="hover:text-red-600"><Trash2 size={12}/></button>
+                              )}
+                          </div>
+                      ))}
+                  </div>
+                  <div className="flex gap-2 max-w-md">
+                      <input 
+                        disabled={!isManager}
+                        type="text" 
+                        placeholder="Nama Role Baru (ex: Mekanik)" 
+                        value={newRoleName}
+                        onChange={e => setNewRoleName(e.target.value)}
+                        className="flex-grow p-2 border rounded"
+                      />
+                      <button disabled={!isManager} onClick={handleAddRole} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"><Plus size={18}/></button>
+                  </div>
+                  <button disabled={!isManager} onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                       <Save size={18}/> Simpan Perubahan Role
+                  </button>
+               </div>
+
                {/* TAX SETTINGS */}
                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Pengaturan Pajak</h3>
@@ -395,13 +498,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       <div>
                           <label className="block text-sm font-medium text-gray-700">PPN Percentage (%)</label>
                           <input 
+                            disabled={!isManager}
                             type="number" 
                             value={localSettings.ppnPercentage} 
                             onChange={e => setLocalSettings({...localSettings, ppnPercentage: Number(e.target.value)})} 
                             className="p-2 border rounded w-32"
                           />
                       </div>
-                      <button onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                      <button disabled={!isManager} onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
                           <Save size={18}/> Simpan
                       </button>
                   </div>
@@ -414,9 +518,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         <div className="flex gap-2">
                              <label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-sm font-medium">
                                 <Upload size={16}/> Import Excel
-                                <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportInsurance} />
+                                <input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportInsurance} />
                              </label>
-                             <button onClick={handleSaveSettings} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 text-sm font-medium">
+                             <button disabled={!isManager} onClick={handleSaveSettings} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 text-sm font-medium">
                                 <Save size={16}/> Simpan Perubahan
                              </button>
                         </div>
@@ -433,10 +537,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                </tr>
                            </thead>
                            <tbody className="divide-y divide-gray-100">
-                               {localSettings.insuranceOptions.map((ins, idx) => (
+                               {(localSettings.insuranceOptions || []).map((ins, idx) => (
                                    <tr key={idx} className="hover:bg-gray-50">
                                        <td className="px-4 py-2">
                                            <input 
+                                            disabled={!isManager}
                                             type="text" 
                                             value={ins.name} 
                                             onChange={(e) => {
@@ -449,6 +554,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                        </td>
                                        <td className="px-4 py-2">
                                            <input 
+                                            disabled={!isManager}
                                             type="number" 
                                             value={ins.jasa} 
                                             onChange={(e) => {
@@ -461,6 +567,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                        </td>
                                        <td className="px-4 py-2">
                                            <input 
+                                            disabled={!isManager}
                                             type="number" 
                                             value={ins.part} 
                                             onChange={(e) => {
@@ -473,11 +580,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                        </td>
                                        <td className="px-4 py-2 text-center">
                                            <button 
+                                            disabled={!isManager}
                                             onClick={() => {
                                                 const newOpts = localSettings.insuranceOptions.filter((_, i) => i !== idx);
                                                 setLocalSettings({...localSettings, insuranceOptions: newOpts});
                                             }}
-                                            className="text-red-500 hover:text-red-700"
+                                            className="text-red-500 hover:text-red-700 disabled:text-gray-300"
                                            >
                                                <Trash2 size={16}/>
                                            </button>
@@ -488,6 +596,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                        </table>
                    </div>
                    <button 
+                    disabled={!isManager}
                     onClick={() => setLocalSettings(prev => ({...prev, insuranceOptions: [...prev.insuranceOptions, {name: 'Asuransi Baru', jasa: 0, part: 0}]}))}
                     className="mt-4 w-full py-2 border border-dashed border-gray-300 text-gray-500 rounded hover:bg-gray-50 flex items-center justify-center gap-2"
                    >
@@ -499,14 +608,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
       {/* CONTENT: SUPPLIERS */}
       {activeTab === 'suppliers' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className={`grid grid-cols-1 lg:grid-cols-3 gap-8 ${restrictedClass}`}>
+              <RestrictedOverlay />
               {/* LIST */}
               <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold text-gray-800">Daftar Supplier</h3>
                         <label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-sm font-medium">
                             <Upload size={16}/> Import Excel
-                            <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportSuppliers} />
+                            <input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportSuppliers} />
                         </label>
                   </div>
                   <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
@@ -526,8 +636,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                       <td className="px-4 py-2"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{s.category}</span></td>
                                       <td className="px-4 py-2">{s.phone}</td>
                                       <td className="px-4 py-2 flex justify-end gap-2">
-                                          <button onClick={() => { setSupplierForm(s); setIsEditingSupplier(true); }} className="text-blue-500 hover:text-blue-700"><Edit2 size={16}/></button>
-                                          <button onClick={() => handleDeleteSupplier(s.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+                                          <button disabled={!isManager} onClick={() => { setSupplierForm(s); setIsEditingSupplier(true); }} className="text-blue-500 hover:text-blue-700"><Edit2 size={16}/></button>
+                                          <button disabled={!isManager} onClick={() => handleDeleteSupplier(s.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
                                       </td>
                                   </tr>
                               ))}
@@ -545,11 +655,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   <form onSubmit={handleSaveSupplier} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Nama Supplier *</label>
-                          <input required type="text" value={supplierForm.name || ''} onChange={e => setSupplierForm({...supplierForm, name: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                          <input disabled={!isManager} required type="text" value={supplierForm.name || ''} onChange={e => setSupplierForm({...supplierForm, name: e.target.value})} className="w-full p-2 border rounded mt-1"/>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Kategori</label>
-                          <select value={supplierForm.category || 'Umum'} onChange={e => setSupplierForm({...supplierForm, category: e.target.value})} className="w-full p-2 border rounded mt-1">
+                          <select disabled={!isManager} value={supplierForm.category || 'Umum'} onChange={e => setSupplierForm({...supplierForm, category: e.target.value})} className="w-full p-2 border rounded mt-1">
                               <option value="Umum">Umum</option>
                               <option value="Sparepart">Sparepart</option>
                               <option value="Cat/Bahan">Cat/Bahan</option>
@@ -559,23 +669,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-sm font-medium text-gray-700">Telepon</label>
-                            <input type="text" value={supplierForm.phone || ''} onChange={e => setSupplierForm({...supplierForm, phone: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                            <input disabled={!isManager} type="text" value={supplierForm.phone || ''} onChange={e => setSupplierForm({...supplierForm, phone: e.target.value})} className="w-full p-2 border rounded mt-1"/>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">Nama PIC</label>
-                            <input type="text" value={supplierForm.picName || ''} onChange={e => setSupplierForm({...supplierForm, picName: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                            <input disabled={!isManager} type="text" value={supplierForm.picName || ''} onChange={e => setSupplierForm({...supplierForm, picName: e.target.value})} className="w-full p-2 border rounded mt-1"/>
                         </div>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Alamat</label>
-                          <textarea rows={2} value={supplierForm.address || ''} onChange={e => setSupplierForm({...supplierForm, address: e.target.value})} className="w-full p-2 border rounded mt-1"/>
+                          <textarea disabled={!isManager} rows={2} value={supplierForm.address || ''} onChange={e => setSupplierForm({...supplierForm, address: e.target.value})} className="w-full p-2 border rounded mt-1"/>
                       </div>
                       
                       <div className="flex gap-2">
                           {isEditingSupplier && (
-                              <button type="button" onClick={() => { setSupplierForm({}); setIsEditingSupplier(false); }} className="w-1/3 bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 font-medium">Batal</button>
+                              <button disabled={!isManager} type="button" onClick={() => { setSupplierForm({}); setIsEditingSupplier(false); }} className="w-1/3 bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 font-medium">Batal</button>
                           )}
-                          <button disabled={isLoading} type="submit" className="flex-grow bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium">
+                          <button disabled={isLoading || !isManager} type="submit" className="flex-grow bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 font-medium">
                               {isLoading ? 'Menyimpan...' : (isEditingSupplier ? 'Update Data' : 'Simpan Data')}
                           </button>
                       </div>
