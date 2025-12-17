@@ -172,7 +172,13 @@ export interface PurchaseOrder {
   supplierName: string;
   status: 'Draft' | 'Ordered' | 'Received' | 'Cancelled';
   items: PurchaseOrderItem[];
-  totalAmount: number;
+  
+  // Financials
+  subtotal: number;
+  hasPpn: boolean;
+  ppnAmount: number;
+  totalAmount: number; // Grand Total
+  
   notes?: string;
   createdBy: string;
   createdAt: any;
