@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Cek apakah user sudah login
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Rules untuk Data Unit & WO (Pekerjaan Utama)
+    match /shared-bengkel-jobs/{jobId} {
+      allow read, write: if isAuthenticated();
+      match /{allPaths=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Rules untuk Master Stok Inventory (Spareparts & Material)
+    match /bengkel-spareparts-master/{itemId} {
+      allow read, write: if isAuthenticated();
+      match /{allPaths=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Rules untuk Konfigurasi Sistem (Workshop Info, Role, dsb)
+    match /bengkel-settings/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules untuk Supplier & Vendor
+    match /bengkel-suppliers/{supplierId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules untuk Purchase Orders (PO)
+    match /bengkel-purchase-orders/{poId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules untuk Profil Pengguna
+    match /users/{uid} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
