@@ -13,7 +13,7 @@ import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, setDoc, serverT
 import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
 import { Settings, Supplier, UserPermissions } from '../../types';
 import * as XLSX from 'xlsx';
-import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban, Building } from 'lucide-react';
+import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban, Building, CreditCard } from 'lucide-react';
 
 // --- CONFIG FOR SECONDARY AUTH APP (To create user without logging out) ---
 // Using the same config as main app
@@ -706,16 +706,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                               <tr>
                                   <th className="px-4 py-3">Nama Supplier</th>
                                   <th className="px-4 py-3">Kategori</th>
-                                  <th className="px-4 py-3">Telepon</th>
+                                  <th className="px-4 py-3">Kontak & Bank</th>
                                   <th className="px-4 py-3 text-right">Aksi</th>
                               </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                               {suppliers.map(s => (
                                   <tr key={s.id} className="hover:bg-gray-50">
-                                      <td className="px-4 py-2 font-medium">{s.name}<div className="text-xs text-gray-500">{s.picName}</div></td>
+                                      <td className="px-4 py-2 font-medium">
+                                          {s.name}
+                                          <div className="text-xs text-gray-500">{s.picName || 'No PIC'}</div>
+                                      </td>
                                       <td className="px-4 py-2"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{s.category}</span></td>
-                                      <td className="px-4 py-2">{s.phone}</td>
+                                      <td className="px-4 py-2 text-xs">
+                                          <div>{s.phone}</div>
+                                          {s.bankName && (
+                                              <div className="text-indigo-600 font-medium mt-1">
+                                                  {s.bankName} - {s.bankAccountNumber}
+                                              </div>
+                                          )}
+                                      </td>
                                       <td className="px-4 py-2 flex justify-end gap-2">
                                           <button disabled={!isManager} onClick={() => { setSupplierForm(s); setIsEditingSupplier(true); }} className="text-blue-500 hover:text-blue-700"><Edit2 size={16}/></button>
                                           <button disabled={!isManager} onClick={() => handleDeleteSupplier(s.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
@@ -757,6 +767,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                             <input disabled={!isManager} type="text" value={supplierForm.picName || ''} onChange={e => setSupplierForm({...supplierForm, picName: e.target.value})} className="w-full p-2 border rounded mt-1"/>
                         </div>
                       </div>
+                      
+                      {/* BANK INFO SECTION */}
+                      <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100 space-y-3">
+                          <div className="flex items-center gap-2 text-indigo-800 font-bold text-sm mb-1">
+                              <CreditCard size={14}/> Informasi Pembayaran
+                          </div>
+                          <div>
+                              <label className="block text-xs font-medium text-gray-600">Nama Bank</label>
+                              <input 
+                                disabled={!isManager} type="text" 
+                                placeholder="BCA / Mandiri..."
+                                value={supplierForm.bankName || ''} 
+                                onChange={e => setSupplierForm({...supplierForm, bankName: e.target.value})} 
+                                className="w-full p-2 border rounded mt-1 text-sm"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-medium text-gray-600">No. Rekening</label>
+                              <input 
+                                disabled={!isManager} type="text" 
+                                placeholder="1234xxxx"
+                                value={supplierForm.bankAccountNumber || ''} 
+                                onChange={e => setSupplierForm({...supplierForm, bankAccountNumber: e.target.value})} 
+                                className="w-full p-2 border rounded mt-1 text-sm font-mono"
+                              />
+                          </div>
+                           <div>
+                              <label className="block text-xs font-medium text-gray-600">Atas Nama (A/N)</label>
+                              <input 
+                                disabled={!isManager} type="text" 
+                                placeholder="Nama Pemilik Rekening"
+                                value={supplierForm.bankAccountHolder || ''} 
+                                onChange={e => setSupplierForm({...supplierForm, bankAccountHolder: e.target.value})} 
+                                className="w-full p-2 border rounded mt-1 text-sm"
+                              />
+                          </div>
+                      </div>
+
                       <div>
                           <label className="block text-sm font-medium text-gray-700">Alamat</label>
                           <textarea disabled={!isManager} rows={2} value={supplierForm.address || ''} onChange={e => setSupplierForm({...supplierForm, address: e.target.value})} className="w-full p-2 border rounded mt-1"/>

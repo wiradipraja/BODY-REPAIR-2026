@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useJobs } from './hooks/useJobs';
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, increment, getDoc } from 'firebase/firestore';
-import { db, JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings, InventoryItem } from './types';
+import { db, JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem, Supplier } from './types';
 import { initialSettingsState } from './utils/constants';
 
 // Components
@@ -31,6 +31,7 @@ const AppContent: React.FC = () => {
   // Data State
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]); // New State
 
   // Function to refresh settings from DB manually
   const refreshSettings = async () => {
@@ -51,10 +52,20 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error("Failed to load inventory", e); }
   };
 
+  // Function to fetch suppliers
+  const refreshSuppliers = async () => {
+      try {
+          const q = await getDocs(collection(db, SUPPLIERS_COLLECTION));
+          const items = q.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier));
+          setSuppliers(items);
+      } catch (e) { console.error("Failed to load suppliers", e); }
+  };
+
   useEffect(() => {
     if (user) {
         refreshSettings();
-        refreshInventory(); // Load inventory on start
+        refreshInventory();
+        refreshSuppliers();
     }
   }, [user]);
   
@@ -394,6 +405,7 @@ const AppContent: React.FC = () => {
             <MaterialIssuanceView 
                 activeJobs={allData.filter(j => j.woNumber)} // Allow Closed Jobs to be seen for history, but actions blocked
                 inventoryItems={inventoryItems}
+                suppliers={suppliers} // PASS SUPPLIERS
                 userPermissions={userPermissions}
                 showNotification={showNotification}
                 onRefreshData={refreshInventory}
@@ -406,6 +418,7 @@ const AppContent: React.FC = () => {
             <MaterialIssuanceView 
                 activeJobs={allData.filter(j => j.woNumber)} 
                 inventoryItems={inventoryItems}
+                suppliers={suppliers} // PASS SUPPLIERS
                 userPermissions={userPermissions}
                 showNotification={showNotification}
                 onRefreshData={refreshInventory}

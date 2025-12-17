@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem } from '../../types';
+import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Supplier } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign, Scale, History, XCircle } from 'lucide-react';
+import { Search, Package, Truck, PaintBucket, CheckCircle, AlertCircle, ArrowRight, History, XCircle, Scale, Building } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
   inventoryItems: InventoryItem[];
+  suppliers: Supplier[]; // New Prop
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
   onRefreshData: () => void;
@@ -15,7 +16,7 @@ interface MaterialIssuanceViewProps {
 }
 
 const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({ 
-  activeJobs, inventoryItems, userPermissions, showNotification, onRefreshData, issuanceType
+  activeJobs, inventoryItems, suppliers, userPermissions, showNotification, onRefreshData, issuanceType
 }) => {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [filterWo, setFilterWo] = useState('');
@@ -26,7 +27,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [selectedMaterialId, setSelectedMaterialId] = useState(''); 
   const [inputQty, setInputQty] = useState(0); // Raw input
   const [notes, setNotes] = useState('');
-  const [useSmallUnit, setUseSmallUnit] = useState(false); // Toggle for Gram/ML vs Liter/Kg
+  
+  // New State for Flexible Unit Selection
+  const [selectedUnit, setSelectedUnit] = useState<string>(''); 
+  
+  // New State for Supplier
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
 
   // Derived Data
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
@@ -64,7 +70,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       setSelectedMaterialId('');
       setInputQty(0);
       setNotes('');
-      setUseSmallUnit(false);
+      setSelectedUnit('');
+      setSelectedSupplierId('');
   }, [selectedJobId, issuanceType]);
 
   // --- HANDLER: PEMBEBANAN BAHAN (MATERIAL) ---
@@ -94,16 +101,26 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         return;
     }
 
-    // 2. Calculate Final Quantity based on Unit Selection
-    let finalQty = inputQty;
-    let unitLabel = item.unit;
-
-    if (useSmallUnit) {
-        finalQty = inputQty / 1000;
-        unitLabel = item.unit; // We store in Base Unit
+    // 2. Resolve Supplier (Optional but recommended)
+    let finalSupplierId = selectedSupplierId;
+    let finalSupplierName = '';
+    
+    // If user didn't select supplier but item has a default supplier, use that? 
+    // Logic: Form forces user to see dropdown, if empty, it's fine (internal stock), but if selected, we track.
+    if (finalSupplierId) {
+        const supp = suppliers.find(s => s.id === finalSupplierId);
+        if (supp) finalSupplierName = supp.name;
     }
 
-    // 3. Stock Validation (Skip if Vendor Managed / isStockManaged == false)
+    // 3. Calculate Final Quantity based on Unit Selection
+    let finalQty = inputQty;
+    
+    // Konversi hanya untuk ML dan Gram
+    if (selectedUnit === 'ML' || selectedUnit === 'Gram') {
+        finalQty = inputQty / 1000;
+    }
+
+    // 4. Stock Validation (Skip if Vendor Managed / isStockManaged == false)
     const isVendorManaged = item.isStockManaged === false; 
     
     if (!isVendorManaged && item.stock < finalQty) {
@@ -111,7 +128,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         return;
     }
 
-    if (!window.confirm(`Konfirmasi pemakaian bahan: \n${inputQty} ${useSmallUnit ? (item.unit === 'Liter' ? 'MiliLiter' : 'Gram') : item.unit} ${item.name}? \n\n(Tercatat sistem: ${finalQty} ${item.unit})`)) return;
+    if (!window.confirm(`Konfirmasi pemakaian bahan: \n${inputQty} ${selectedUnit} ${item.name}?`)) return;
 
     setIsSubmitting(true);
     try {
@@ -129,10 +146,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             itemCode: item.code,
             qty: finalQty, // Stored in Base Unit (Liter/Kg) for cost calc consistency
             inputQty: inputQty, // Optional: store what user typed for reference
-            inputUnit: useSmallUnit ? (item.unit === 'Liter' ? 'ML' : 'Gram') : item.unit,
+            inputUnit: selectedUnit,
             costPerUnit: item.buyPrice,
             totalCost: itemCostTotal,
             category: 'material',
+            supplierId: finalSupplierId || undefined,
+            supplierName: finalSupplierName || undefined,
             notes: notes,
             issuedAt: new Date().toISOString(),
             issuedBy: userPermissions.role 
@@ -148,6 +167,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         setNotes('');
         setMaterialSearchTerm('');
         setSelectedMaterialId('');
+        setSelectedUnit(''); // Reset Unit
+        setSelectedSupplierId(''); // Reset Supplier
         onRefreshData();
     } catch (error: any) {
         console.error("Material Issuance Error:", error);
@@ -179,6 +200,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           return;
       }
 
+      // Auto-detect supplier from Inventory Item master for Parts
+      const supplierName = invItem.supplierId ? suppliers.find(s => s.id === invItem.supplierId)?.name : undefined;
+
       if (!window.confirm(`Keluarkan ${qtyToIssue} ${invItem.unit} ${invItem.name}?`)) return;
 
       setIsSubmitting(true);
@@ -198,6 +222,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             costPerUnit: invItem.buyPrice,
             totalCost: itemCostTotal,
             category: 'sparepart',
+            supplierId: invItem.supplierId,
+            supplierName: supplierName,
             notes: 'Sesuai Estimasi',
             issuedAt: new Date().toISOString(),
             issuedBy: userPermissions.role
@@ -252,11 +278,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           });
 
           // B. Filter usageLog (Remove the specific item)
-          // Since Firestore arrayRemove needs exact object, and we have many objects, 
-          // best way is to filter the array in memory and write back the new array.
           const currentLog = selectedJob.usageLog || [];
-          
-          // We try to match by timestamp and itemId to be unique enough
           const newUsageLog = currentLog.filter(item => 
               !(item.itemId === logItem.itemId && item.issuedAt === logItem.issuedAt)
           );
@@ -267,7 +289,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           // D. If Sparepart, revert the 'hasArrived' flag in estimate if possible
           let newEstimateParts = selectedJob.estimateData?.partItems;
           if (logItem.category === 'sparepart' && newEstimateParts) {
-              // Find first item with matching ID that is marked as arrived
               const partIndex = newEstimateParts.findIndex(p => p.inventoryId === logItem.itemId && p.hasArrived);
               if (partIndex >= 0) {
                    newEstimateParts = [...newEstimateParts];
@@ -301,17 +322,30 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       const val = e.target.value;
       setMaterialSearchTerm(val);
       const match = materialInventory.find(i => i.name === val || i.code === val);
-      if (match) setSelectedMaterialId(match.id);
-      else setSelectedMaterialId('');
+      if (match) {
+          setSelectedMaterialId(match.id);
+          setSelectedUnit(match.unit); // Set default unit from DB
+          setSelectedSupplierId(match.supplierId || ''); // Auto-select supplier if exists
+      } else {
+          setSelectedMaterialId('');
+          setSelectedUnit('');
+          setSelectedSupplierId('');
+      }
   };
 
   const currentMaterial = inventoryItems.find(i => i.id === selectedMaterialId);
   const isVendorItem = currentMaterial?.isStockManaged === false;
   
-  // Logic to determine units label
+  // Logic to determine available units
   const baseUnit = currentMaterial?.unit || 'Liter';
-  const smallUnit = baseUnit === 'Liter' ? 'MiliLiter (ML)' : (baseUnit === 'Kg' ? 'Gram' : 'Unit Kecil');
-  const conversionLabel = useSmallUnit ? smallUnit : baseUnit;
+  
+  const unitOptions = useMemo(() => {
+      const opts = [baseUnit];
+      if (baseUnit === 'Liter') opts.push('ML');
+      if (baseUnit === 'Kg') opts.push('Gram');
+      if (!opts.includes('Pcs')) opts.push('Pcs'); // Always add Pcs option
+      return opts;
+  }, [baseUnit]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -491,86 +525,104 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                      </div>
                 ) : (
                     <form onSubmit={handleMaterialIssuance} className="space-y-5">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan (Inventory)</label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
-                                <input 
-                                    list="material-datalist"
-                                    type="text"
-                                    placeholder="Ketik nama bahan..."
-                                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                    value={materialSearchTerm}
-                                    onChange={handleMaterialSearch}
-                                    autoComplete="off"
-                                />
-                                <datalist id="material-datalist">
-                                    {materialInventory.map(item => (
-                                        <option key={item.id} value={item.name}>
-                                            Kode: {item.code} | Stok: {item.stock} {item.unit}
-                                        </option>
-                                    ))}
-                                </datalist>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* KOLOM KIRI: Cari Barang */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Cari Bahan (Inventory)</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
+                                    <input 
+                                        list="material-datalist"
+                                        type="text"
+                                        placeholder="Ketik nama bahan..."
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                        value={materialSearchTerm}
+                                        onChange={handleMaterialSearch}
+                                        autoComplete="off"
+                                    />
+                                    <datalist id="material-datalist">
+                                        {materialInventory.map(item => (
+                                            <option key={item.id} value={item.name}>
+                                                Kode: {item.code} | Stok: {item.stock} {item.unit}
+                                            </option>
+                                        ))}
+                                    </datalist>
+                                </div>
+                                
+                                {/* ITEM DETAIL */}
+                                {currentMaterial ? (
+                                    <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
+                                        <div>
+                                            <p className="font-bold text-orange-900">{currentMaterial.name}</p>
+                                            <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
+                                            {isVendorItem && (
+                                                <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
+                                                    STOK VENDOR (Ready Use)
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-orange-900 font-bold">
+                                                Sisa: {currentMaterial.stock} {currentMaterial.unit}
+                                            </p>
+                                            <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
+                                        </div>
+                                    </div>
+                                ) : materialSearchTerm.length > 2 && (
+                                    <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
+                                )}
                             </div>
                             
-                            {/* ITEM DETAIL */}
-                            {currentMaterial ? (
-                                <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
-                                    <div>
-                                        <p className="font-bold text-orange-900">{currentMaterial.name}</p>
-                                        <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
-                                        {isVendorItem && (
-                                            <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
-                                                STOK VENDOR (Ready Use)
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-orange-900 font-bold">
-                                            Sisa: {currentMaterial.stock} {currentMaterial.unit}
-                                        </p>
-                                        <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
-                                    </div>
+                            {/* KOLOM KANAN: Supplier Selection */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Supplier</label>
+                                <div className="relative">
+                                    <select 
+                                        value={selectedSupplierId} 
+                                        onChange={e => setSelectedSupplierId(e.target.value)}
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 appearance-none bg-white"
+                                    >
+                                        <option value="">- Pilih Supplier (Opsional) -</option>
+                                        {suppliers.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
+                                        ))}
+                                    </select>
+                                    <Building className="absolute left-3 top-3.5 text-gray-400" size={18}/>
                                 </div>
-                            ) : materialSearchTerm.length > 2 && (
-                                <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
-                            )}
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                    Supplier otomatis terisi jika item terhubung. Ubah jika pembelian dari supplier lain.
+                                </p>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* INPUT QTY WITH UNIT TOGGLE */}
+                            {/* INPUT QTY WITH UNIT DROPDOWN */}
                             <div>
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="block text-sm font-medium text-gray-700">Jumlah Pakai</label>
-                                    {['Liter', 'Kg'].includes(baseUnit) && (
-                                        <label className="flex items-center gap-2 cursor-pointer text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={useSmallUnit}
-                                                onChange={e => setUseSmallUnit(e.target.checked)}
-                                                className="rounded text-indigo-600 focus:ring-indigo-500"
-                                            />
-                                            <Scale size={12}/>
-                                            Input dlm {baseUnit === 'Liter' ? 'ML' : 'Gram'}?
-                                        </label>
-                                    )}
-                                </div>
-                                
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah Pakai</label>
                                 <div className="relative">
                                     <input 
                                         type="number" 
                                         min="0.01" step="0.01"
                                         value={inputQty} 
                                         onChange={e => setInputQty(Number(e.target.value))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-center font-bold text-lg"
+                                        className="w-full p-3 pr-24 border border-gray-300 rounded-lg text-lg font-bold focus:ring-2 focus:ring-orange-500"
+                                        placeholder="0.00"
                                     />
-                                    <span className="absolute right-4 top-3.5 text-gray-500 font-bold text-sm">
-                                        {conversionLabel}
-                                    </span>
+                                    <div className="absolute right-1 top-1 bottom-1 flex items-center">
+                                        <select 
+                                            value={selectedUnit} 
+                                            onChange={e => setSelectedUnit(e.target.value)}
+                                            className="h-full bg-gray-100 border-l border-gray-300 rounded-r-md text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer hover:bg-gray-200 px-3 py-2 outline-none appearance-none text-center min-w-[80px]"
+                                            disabled={!selectedMaterialId}
+                                        >
+                                            {(!selectedMaterialId) && <option value="">-</option>}
+                                            {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
-                                {useSmallUnit && inputQty > 0 && (
-                                    <p className="text-xs text-gray-500 mt-1 text-center">
-                                        Akan tercatat sebagai: <strong>{inputQty / 1000} {baseUnit}</strong>
+                                {(selectedUnit === 'ML' || selectedUnit === 'Gram') && inputQty > 0 && (
+                                    <p className="text-xs text-gray-500 mt-1 text-center bg-yellow-50 p-1 rounded border border-yellow-100">
+                                        Konversi: <strong>{inputQty / 1000} {baseUnit}</strong>
                                     </p>
                                 )}
                             </div>
@@ -582,7 +634,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     value={notes}
                                     onChange={e => setNotes(e.target.value)}
                                     placeholder="Keterangan..."
-                                    className="w-full p-3 border border-gray-300 rounded-lg"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                                 />
                             </div>
                         </div>
@@ -623,7 +675,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     <th className="px-4 py-3 text-center">Qty</th>
                                     <th className="px-4 py-3 text-right">Modal @</th>
                                     <th className="px-4 py-3 text-right">Total</th>
-                                    <th className="px-4 py-3 text-center">Oleh</th>
+                                    <th className="px-4 py-3 text-center">Supplier</th>
                                     <th className="px-4 py-3 text-center">Aksi</th>
                                 </tr>
                             </thead>
@@ -639,13 +691,19 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                         </td>
                                         <td className="px-4 py-2 text-center">
                                             <span className="font-bold">{log.qty}</span>
-                                            {log.inputUnit && log.inputUnit !== 'Liter' && log.inputUnit !== 'Pcs' && (
+                                            {log.inputUnit && log.inputUnit !== baseUnit && (
                                                 <div className="text-[10px] text-gray-400">({log.inputQty} {log.inputUnit})</div>
                                             )}
                                         </td>
                                         <td className="px-4 py-2 text-right text-gray-500">{formatCurrency(log.costPerUnit)}</td>
                                         <td className="px-4 py-2 text-right font-bold text-gray-800">{formatCurrency(log.totalCost)}</td>
-                                        <td className="px-4 py-2 text-center text-xs text-gray-500 capitalize">{log.issuedBy}</td>
+                                        <td className="px-4 py-2 text-center text-xs">
+                                            {log.supplierName ? (
+                                                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{log.supplierName}</span>
+                                            ) : (
+                                                <span className="text-gray-400 italic">-</span>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-2 text-center">
                                             {/* Cancel Button - Manager Only */}
                                             {userPermissions.role.includes('Manager') && !selectedJob.isClosed && (

@@ -57,6 +57,8 @@ export interface UsageLogItem {
   costPerUnit: number;
   totalCost: number;
   category: 'sparepart' | 'material';
+  supplierId?: string; // New: Track which supplier this usage belongs to (for billing)
+  supplierName?: string; // New
   notes?: string;
   issuedAt: string;
   issuedBy: string;
@@ -128,6 +130,10 @@ export interface Supplier {
   phone: string;
   address: string;
   picName: string;
+  // Bank Details for Finance
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountHolder?: string;
   createdAt: any;
 }
 
