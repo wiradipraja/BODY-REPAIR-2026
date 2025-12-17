@@ -18,7 +18,7 @@ import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
 import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
-import PurchaseOrderView from './components/inventory/PurchaseOrderView'; // NEW IMPORT
+import PurchaseOrderView from './components/inventory/PurchaseOrderView'; 
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -152,9 +152,24 @@ const AppContent: React.FC = () => {
   };
 
   const handleDeleteJob = async (job: Job) => {
+      // SOFT DELETE WITH REASON
+      const reason = window.prompt("⚠️ PENTING: Anda akan menghapus data ini.\n\nMohon masukkan alasan penghapusan untuk keperluan audit:", "Salah input");
+      
+      if (reason === null) return; // Cancelled
+      if (!reason.trim()) {
+          showNotification("Alasan wajib diisi!", "error");
+          return;
+      }
+
       try {
-          await deleteDoc(doc(db, JOBS_COLLECTION, job.id));
-          showNotification("Berhasil dihapus", "success");
+          // Perform Soft Delete
+          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
+              isDeleted: true,
+              deletedReason: reason,
+              deletedAt: serverTimestamp(),
+              deletedBy: userData.displayName || 'User'
+          });
+          showNotification("Data berhasil dihapus (Soft Delete)", "success");
       } catch (e) {
           console.error(e);
           showNotification("Gagal menghapus data", "error");
@@ -191,19 +206,26 @@ const AppContent: React.FC = () => {
       }
   };
 
-  // Re-Open WO Logic
+  // Re-Open WO Logic with Reason
   const handleReopenJob = async (job: Job) => {
       if (!userPermissions.role.includes('Manager')) {
           showNotification("Akses ditolak. Hanya Manager yang bisa membuka kembali WO.", "error");
           return;
       }
-      if (!window.confirm(`Buka Kembali (Re-open) WO ${job.woNumber}? Status akan kembali aktif.`)) return;
+
+      const reason = window.prompt("⚠️ RE-OPEN WO\n\nMasukkan alasan membuka kembali WO ini (akan tercatat di audit):", "Revisi Tagihan");
+      if (reason === null) return;
+      if (!reason.trim()) {
+          showNotification("Alasan wajib diisi!", "error");
+          return;
+      }
 
       try {
           const jobRef = doc(db, JOBS_COLLECTION, job.id);
           await updateDoc(jobRef, {
               isClosed: false,
               closedAt: null,
+              reopenReason: reason,
               statusPekerjaan: 'Finishing', // Set to a safe active status
               statusKendaraan: 'Work In Progress'
           });

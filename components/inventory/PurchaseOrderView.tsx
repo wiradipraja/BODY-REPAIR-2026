@@ -4,7 +4,7 @@ import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTI
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -39,6 +39,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       hasPpn: false // Default no PPN
   });
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Manager Access
+  const isManager = userPermissions.role === 'Manager';
 
   // Load Settings for PDF Header
   useEffect(() => {
@@ -148,7 +151,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       return { subtotal, ppnAmount, totalAmount };
   };
 
-  const handleSubmitPO = async (status: 'Draft' | 'Ordered') => {
+  const handleSubmitPO = async (status: 'Draft' | 'Pending Approval') => {
       if (!poForm.supplierId || !poForm.items || poForm.items.length === 0) {
           showNotification("Mohon pilih supplier dan tambahkan item.", "error");
           return;
@@ -192,7 +195,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       try {
           await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), payload);
-          showNotification(`PO ${poNumber} berhasil dibuat (${status})`, "success");
+          showNotification(`PO ${poNumber} berhasil dibuat (${status === 'Pending Approval' ? 'Menunggu Approval' : 'Draft'})`, "success");
           setViewMode('list');
           setPoForm({ supplierId: '', items: [], notes: '', hasPpn: false });
       } catch (e: any) {
@@ -201,6 +204,56 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
           else if (e.message.includes("invalid data")) msg = "Gagal: Data tidak valid (Field undefined).";
           showNotification(msg, "error");
+      }
+  };
+
+  // --- APPROVAL WORKFLOW HANDLERS ---
+  const handleApprovePO = async () => {
+      if (!selectedPO) return;
+      if (!isManager) {
+          showNotification("Hanya Manager yang dapat menyetujui PO.", "error");
+          return;
+      }
+      
+      if (!window.confirm("Setujui PO ini? Status akan berubah menjadi Ordered.")) return;
+
+      try {
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
+              status: 'Ordered',
+              approvedBy: userPermissions.role,
+              approvedAt: serverTimestamp()
+          });
+          showNotification("PO Disetujui (Approved).", "success");
+          setSelectedPO(null);
+          setViewMode('list');
+      } catch (e: any) {
+          showNotification("Gagal menyetujui PO.", "error");
+      }
+  };
+
+  const handleRejectPO = async () => {
+      if (!selectedPO) return;
+      if (!isManager) return;
+
+      const reason = window.prompt("⚠️ TOLAK PO\n\nMasukkan alasan penolakan (wajib):", "Budget tidak mencukupi");
+      if (reason === null) return; // Cancel
+      if (!reason.trim()) {
+          showNotification("Alasan penolakan harus diisi!", "error");
+          return;
+      }
+
+      try {
+          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
+              status: 'Rejected',
+              rejectionReason: reason,
+              approvedBy: userPermissions.role, // Log who rejected
+              approvedAt: serverTimestamp()
+          });
+          showNotification("PO Ditolak (Rejected).", "success");
+          setSelectedPO(null);
+          setViewMode('list');
+      } catch (e: any) {
+          showNotification("Gagal menolak PO.", "error");
       }
   };
 
@@ -348,11 +401,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   
   const getStatusBadge = (status: string) => {
       switch (status) {
-          case 'Draft': return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">Draft</span>;
-          case 'Ordered': return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">Ordered</span>;
-          case 'Partial': return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold">Partial (Sebagian)</span>;
-          case 'Received': return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Received (Lengkap)</span>;
-          case 'Cancelled': return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">Cancelled</span>;
+          case 'Draft': return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">Draft</span>;
+          case 'Pending Approval': return <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-bold border border-yellow-200">Pending Approval</span>;
+          case 'Ordered': return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold border border-blue-200">Ordered (Approved)</span>;
+          case 'Partial': return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold border border-orange-200">Partial</span>;
+          case 'Received': return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold border border-green-200">Received (Lengkap)</span>;
+          case 'Rejected': return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold border border-red-200">Rejected</span>;
+          case 'Cancelled': return <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-bold border border-gray-300">Cancelled</span>;
           default: return null;
       }
   };
@@ -500,8 +555,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   
                   <div className="flex gap-3 mt-4 w-full justify-end">
                     <button onClick={() => handleSubmitPO('Draft')} className="px-6 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-100 font-medium">Simpan Draft</button>
-                    <button onClick={() => handleSubmitPO('Ordered')} className="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold flex items-center gap-2 shadow-lg">
-                        <ShoppingCart size={18}/> Buat Order
+                    <button onClick={() => handleSubmitPO('Pending Approval')} className="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold flex items-center gap-2 shadow-lg">
+                        <Send size={18}/> Ajukan Approval
                     </button>
                   </div>
               </div>
@@ -511,6 +566,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   if (viewMode === 'detail' && selectedPO) {
       const isReceivable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial';
+      const isPrintable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial' || selectedPO.status === 'Received';
 
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -528,6 +584,24 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                   </div>
                   <div className="flex gap-2">
+                      {/* MANAGER APPROVAL ACTIONS */}
+                      {selectedPO.status === 'Pending Approval' && isManager && (
+                          <>
+                             <button 
+                                onClick={handleRejectPO}
+                                className="px-4 py-2 bg-red-100 text-red-700 border border-red-200 rounded hover:bg-red-200 flex items-center gap-2 font-bold"
+                             >
+                                <Ban size={18}/> Tolak
+                             </button>
+                             <button 
+                                onClick={handleApprovePO}
+                                className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 flex items-center gap-2 font-bold"
+                             >
+                                <Check size={18}/> Setujui (Approve)
+                             </button>
+                          </>
+                      )}
+
                       {isReceivable && selectedItemsToReceive.length > 0 && (
                           <button 
                               onClick={handleProcessReceiving}
@@ -539,7 +613,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       
                       <button 
                           onClick={handlePrintPO}
-                          className="px-4 py-2 border border-indigo-200 text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 flex items-center gap-2 font-medium"
+                          disabled={!isPrintable}
+                          title={!isPrintable ? "PO harus disetujui (Approved) sebelum dicetak" : "Cetak PO"}
+                          className={`px-4 py-2 border rounded flex items-center gap-2 font-medium ${!isPrintable ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : 'border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100'}`}
                       >
                           <Printer size={18}/> Print PO
                       </button>
@@ -553,6 +629,28 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       <div>
                           <p className="font-bold">Penerimaan Barang (Receiving)</p>
                           <p>Centang item yang sudah datang, masukkan jumlah yang diterima, lalu klik tombol <strong>Simpan Terima Barang</strong> di atas.</p>
+                      </div>
+                  </div>
+              )}
+
+              {/* Rejected Reason Banner */}
+              {selectedPO.status === 'Rejected' && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-sm text-red-800">
+                      <Ban size={20} className="mt-0.5 shrink-0"/>
+                      <div>
+                          <p className="font-bold">PO Ditolak (Rejected)</p>
+                          <p>Alasan: <span className="font-medium italic">"{selectedPO.rejectionReason || '-'}"</span></p>
+                      </div>
+                  </div>
+              )}
+              
+              {/* Pending Approval Banner (Staff View) */}
+              {selectedPO.status === 'Pending Approval' && !isManager && (
+                  <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3 text-sm text-yellow-800">
+                      <AlertCircle size={20} className="mt-0.5 shrink-0"/>
+                      <div>
+                          <p className="font-bold">Menunggu Persetujuan Manager</p>
+                          <p>PO ini sedang ditinjau. Anda tidak dapat melakukan aksi lebih lanjut sampai PO disetujui.</p>
                       </div>
                   </div>
               )}
@@ -736,7 +834,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                         >
                                             <Eye size={18}/>
                                         </button>
-                                        {order.status !== 'Received' && order.status !== 'Cancelled' && order.status !== 'Partial' && (
+                                        {/* Cancel only allowed for Draft/Pending/Rejected */}
+                                        {(order.status === 'Draft' || order.status === 'Pending Approval' || order.status === 'Rejected') && (
                                             <button 
                                                 onClick={() => handleDeletePO(order)}
                                                 className="text-red-400 hover:text-red-600"

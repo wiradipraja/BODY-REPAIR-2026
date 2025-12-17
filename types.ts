@@ -62,6 +62,7 @@ export interface UsageLogItem {
   notes?: string;
   issuedAt: string;
   issuedBy: string;
+  cancellationReason?: string; // Audit: Why this issuance was cancelled
 }
 
 export interface Job {
@@ -107,6 +108,13 @@ export interface Job {
   closedAt?: Timestamp;
   createdAt?: Timestamp;
   
+  // Audit Trails
+  isRework?: boolean;
+  reworkReason?: string;
+  reopenReason?: string; // Audit: Why WO was reopened
+  isDeleted?: boolean; // Soft Delete
+  deletedReason?: string; // Audit: Why data was deleted
+  
   costData?: JobCostData;
   estimateData?: EstimateData;
   usageLog?: UsageLogItem[]; // History of issued items
@@ -114,9 +122,6 @@ export interface Job {
   hargaJasa?: number;
   hargaPart?: number;
   grossProfit?: number;
-  
-  isRework?: boolean;
-  reworkReason?: string;
   
   jumlahPanel?: number;
   photosTaskIgnored?: boolean;
@@ -171,7 +176,7 @@ export interface PurchaseOrder {
   poNumber: string;
   supplierId: string;
   supplierName: string;
-  status: 'Draft' | 'Ordered' | 'Partial' | 'Received' | 'Cancelled';
+  status: 'Draft' | 'Pending Approval' | 'Ordered' | 'Rejected' | 'Partial' | 'Received' | 'Cancelled';
   items: PurchaseOrderItem[];
   
   // Financials
@@ -181,8 +186,15 @@ export interface PurchaseOrder {
   totalAmount: number; // Grand Total
   
   notes?: string;
+  
+  // Audit
   createdBy: string;
   createdAt: any;
+  
+  approvedBy?: string;
+  approvedAt?: any;
+  rejectionReason?: string;
+
   receivedAt?: any;
   receivedBy?: string;
 }
