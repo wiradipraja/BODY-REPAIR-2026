@@ -84,27 +84,30 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   const updateItem = (type: 'jasa' | 'part', index: number, field: keyof EstimateItem, value: any) => {
     const items = type === 'jasa' ? [...jasaItems] : [...partItems];
-    items[index] = { ...items[index], [field]: value };
+    let newItem = { ...items[index], [field]: value };
+
+    // --- AUTO-FETCH LOGIC FOR SPAREPARTS ---
+    // Ketika user mengetik No. Part, kita cari di inventoryItems
+    if (type === 'part' && field === 'number') {
+        // Cari item yang cocok kodenya (case insensitive)
+        const foundPart = inventoryItems.find(inv => inv.code.toUpperCase() === String(value).toUpperCase());
+        
+        if (foundPart) {
+            // Jika ketemu, auto-fill nama, harga, dan link ID
+            newItem.name = foundPart.name;
+            newItem.price = foundPart.sellPrice;
+            newItem.inventoryId = foundPart.id;
+        } else {
+            // Jika kode berubah dan tidak ketemu, kita lepas link inventoryId-nya
+            // Agar tidak memotong stok item yang salah, tapi biarkan nama/harga lama kalau user cuma edit typo
+            // Atau kosongkan jika Anda ingin strict. Di sini saya pilih lepas ID saja.
+            newItem.inventoryId = undefined; 
+        }
+    }
+    // ----------------------------------------
+
+    items[index] = newItem;
     type === 'jasa' ? setJasaItems(items) : setPartItems(items);
-  };
-
-  // Helper to pick from inventory
-  const handleInventorySelect = (index: number, e: React.ChangeEvent<HTMLSelectElement>) => {
-      const selectedId = e.target.value;
-      if (!selectedId) return;
-
-      const item = inventoryItems.find(i => i.id === selectedId);
-      if (item) {
-          const newParts = [...partItems];
-          newParts[index] = {
-              ...newParts[index],
-              name: item.name,
-              number: item.code,
-              price: item.sellPrice || 0,
-              inventoryId: item.id // Store the link!
-          };
-          setPartItems(newParts);
-      }
   };
 
   const removeItem = (type: 'jasa' | 'part', index: number) => {
@@ -165,6 +168,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   return (
     <div className="space-y-6">
+      {/* DATALIST UNTUK AUTOCOMPLETE SPAREPART */}
+      <datalist id="inventory-list">
+        {inventoryItems.map(item => (
+            <option key={item.id} value={item.code}>
+                {item.name} | Stok: {item.stock} | {formatCurrency(item.sellPrice)}
+            </option>
+        ))}
+      </datalist>
+
       {/* Header Info Unit */}
       <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         <div>
@@ -240,7 +252,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART */}
+        {/* KOLOM SPAREPART - UPDATED: REMOVED DROPDOWN, ADDED AUTOFILL */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -253,28 +265,21 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {partItems.map((item, idx) => (
-              <div key={idx} className="bg-gray-50 p-2 rounded border space-y-2">
+              <div key={idx} className="bg-gray-50 p-2 rounded border space-y-2 relative">
                   <div className="grid grid-cols-12 gap-2 items-center">
-                    {/* INVENTORY SELECTOR */}
-                    <div className="col-span-12 flex gap-2 items-center">
-                        <Package size={14} className="text-gray-400"/>
-                        <select 
-                            className="w-full p-1 text-xs border rounded bg-white text-gray-700"
-                            onChange={(e) => handleInventorySelect(idx, e)}
-                            value={item.inventoryId || ''}
-                        >
-                            <option value="">-- Pilih dari Inventory (Opsional) --</option>
-                            {inventoryItems.map(inv => (
-                                <option key={inv.id} value={inv.id}>
-                                    {inv.name} (Stok: {inv.stock}) - {formatCurrency(inv.sellPrice)}
-                                </option>
-                            ))}
-                        </select>
+                    
+                    {/* INPUT KODE PART DENGAN AUTOCOMPLETE */}
+                    <div className="col-span-4">
+                        <input 
+                            type="text" 
+                            placeholder="No. Part (Ketik...)" 
+                            className={`w-full p-2 border rounded text-sm font-mono ${item.inventoryId ? 'border-green-400 bg-green-50 text-green-800' : ''}`}
+                            value={item.number || ''} 
+                            list="inventory-list" // Connects to datalist
+                            onChange={e => updateItem('part', idx, 'number', e.target.value)} 
+                        />
                     </div>
 
-                    <div className="col-span-4">
-                        <input type="text" placeholder="No. Part" className="w-full p-2 border rounded text-sm" value={item.number || ''} onChange={e => updateItem('part', idx, 'number', e.target.value)} />
-                    </div>
                     <div className="col-span-8 flex gap-1">
                         <input type="text" placeholder="Nama Sparepart" className="w-full p-2 border rounded text-sm" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
                         <button onClick={() => removeItem('part', idx)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
@@ -289,6 +294,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                          <input type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
                     </div>
                   </div>
+                  {/* Indikator Inventory Linked */}
+                  {item.inventoryId && (
+                      <div className="absolute -top-2 -right-1">
+                          <span className="bg-green-100 text-green-700 text-[10px] px-1.5 rounded-full border border-green-200 flex items-center gap-0.5 shadow-sm">
+                              <Package size={8}/> Stock Linked
+                          </span>
+                      </div>
+                  )}
               </div>
             ))}
             {partItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item sparepart</p>}
