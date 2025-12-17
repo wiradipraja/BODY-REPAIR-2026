@@ -71,9 +71,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           setOrders(data);
       } catch (e: any) {
           console.error(e);
-          let msg = "Gagal memuat data PO.";
-          setError(msg);
-          showNotification(msg, "error");
+          setError("Gagal memuat data PO.");
+          showNotification("Gagal memuat data PO.", "error");
       } finally {
           setLoading(false);
       }
@@ -111,57 +110,40 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           let q = query(collection(db, JOBS_COLLECTION), where('woNumber', '==', termUpper));
           let snapshot = await getDocs(q);
           
+          // 2. Jika tidak ada, cari berdasarkan No Polisi (Ambil terbaru)
           if (snapshot.empty) {
-              // 2. Cari berdasarkan No Polisi 
-              // UNTUK MENGHINDARI ERROR INDEX: Kita tidak menggunakan orderBy di Firestore
-              // tapi kita fetch data dan urutkan secara lokal di JavaScript.
-              q = query(
-                  collection(db, JOBS_COLLECTION), 
-                  where('policeNumber', '==', termUpper)
-              );
+              q = query(collection(db, JOBS_COLLECTION), where('policeNumber', '==', termUpper));
               snapshot = await getDocs(q);
+          }
+
+          if (!snapshot.empty) {
+              const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
+              // Sort locally to avoid Index requirements in Firestore
+              docs.sort((a, b) => {
+                  const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
+                  const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
+                  return timeB - timeA;
+              });
               
-              if (!snapshot.empty) {
-                  // Sort locally by createdAt desc
-                  const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
-                  docs.sort((a, b) => {
-                      const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
-                      const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
-                      return timeB - timeA;
-                  });
-                  
-                  // Gunakan yang paling baru
-                  const job = docs[0];
-                  if (!job.estimateData || !job.estimateData.partItems || job.estimateData.partItems.length === 0) {
-                      showNotification("Unit ditemukan, tapi estimasi part masih kosong.", "error");
-                  } else {
-                      setFoundJob(job);
-                      const initialSelection: any = {};
-                      (job.estimateData.partItems || []).forEach((p, idx) => {
-                          if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
-                      });
-                      setSelectedPartsFromWo(initialSelection);
-                  }
-              } else {
-                  showNotification("Data tidak ditemukan.", "error");
-              }
-          } else {
-              // Case: WO Number found directly
-              const job = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Job;
-              if (!job.estimateData || !job.estimateData.partItems || job.estimateData.partItems.length === 0) {
-                  showNotification("WO ditemukan, tapi estimasi part masih kosong.", "error");
+              const job = docs[0];
+              const parts = job.estimateData?.partItems || [];
+              
+              if (parts.length === 0) {
+                  showNotification("Unit ditemukan, tapi estimasi part masih kosong di data WO.", "error");
               } else {
                   setFoundJob(job);
                   const initialSelection: any = {};
-                  (job.estimateData.partItems || []).forEach((p, idx) => {
+                  parts.forEach((p, idx) => {
                       if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
                   });
                   setSelectedPartsFromWo(initialSelection);
               }
+          } else {
+              showNotification("Data WO/Nopol tidak ditemukan.", "error");
           }
       } catch (e: any) {
           console.error(e);
-          showNotification("Gagal mencari data: " + e.message, "error");
+          showNotification("Error: " + e.message, "error");
       } finally {
           setLoading(false);
       }
@@ -186,6 +168,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       parts.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
+              // LOGIKA MAP: Cari di inventory master dulu (case-insensitive)
               const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
               const invItem = inventoryItems.find(i => 
                   (estItem.inventoryId && i.id === estItem.inventoryId) || 
@@ -194,12 +177,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || '',
-                  name: estItem.name,
+                  name: estItem.name || '',
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
-                  price: invItem?.buyPrice || estItem.price || 0,
-                  total: (estItem.qty || 1) * (invItem?.buyPrice || estItem.price || 0),
+                  price: invItem?.buyPrice || 0, // Jika part baru, HPP 0 (nanti diisi manual di PO)
+                  total: (estItem.qty || 1) * (invItem?.buyPrice || 0),
                   inventoryId: estItem.inventoryId || invItem?.id || null,
                   refJobId: foundJob.id,
                   refWoNumber: foundJob.woNumber,
@@ -223,7 +206,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           setPoForm(prev => ({ ...prev, notes: `Order khusus WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
       }
 
-      showNotification(`${itemsToAdd.length} part berhasil ditambahkan ke List PO.`, "success");
+      showNotification(`${itemsToAdd.length} part ditambahkan ke draft PO.`, "success");
       setFoundJob(null);
       setWoSearchTerm('');
   };
