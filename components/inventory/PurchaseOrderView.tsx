@@ -3,7 +3,7 @@ import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, FileText, CheckSquare, Square } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square } from 'lucide-react';
 
 interface PurchaseOrderViewProps {
   suppliers: Supplier[];
@@ -64,7 +64,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const handleAddItem = () => {
       setPoForm(prev => ({
           ...prev,
-          items: [...(prev.items || []), { code: '', name: '', qty: 1, price: 0, total: 0, unit: 'Pcs' }]
+          items: [...(prev.items || []), { 
+              code: '', 
+              name: '', 
+              qty: 1, 
+              price: 0, 
+              total: 0, 
+              unit: 'Pcs',
+              inventoryId: null // Initialize as null to prevent undefined error
+          }]
       }));
   };
 
@@ -85,7 +93,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               newItems[index].price = match.buyPrice; // Default to current buy price
           } else {
              // If code changed and no match, unlink inventoryId to treat as new item
-             newItems[index].inventoryId = undefined;
+             // Use null, NOT undefined, to satisfy Firestore
+             newItems[index].inventoryId = null;
           }
       }
 
@@ -126,8 +135,22 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
+      // Clean items to ensure no undefined values (Fixes "addDoc called with invalid data")
+      const sanitizedItems = poForm.items.map(item => ({
+          code: item.code || '',
+          name: item.name || '',
+          qty: item.qty || 0,
+          unit: item.unit || 'Pcs',
+          price: item.price || 0,
+          total: item.total || 0,
+          inventoryId: item.inventoryId || null // Explicitly use null if undefined
+      }));
+
       const payload: any = {
-          ...poForm,
+          supplierId: poForm.supplierId,
+          items: sanitizedItems,
+          notes: poForm.notes || '',
+          hasPpn: poForm.hasPpn || false,
           poNumber,
           supplierName: supplier.name,
           status,
@@ -147,6 +170,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           console.error(e);
           let msg = "Gagal membuat PO";
           if (e.code === 'permission-denied') msg = "Gagal: Izin akses ditolak database.";
+          else if (e.message.includes("invalid data")) msg = "Gagal: Data tidak valid (Field undefined).";
           showNotification(msg, "error");
       }
   };
@@ -169,15 +193,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       updatedAt: serverTimestamp()
                   });
               } else {
-                  // CASE B: New Item or Unlinked -> Check if Code exists manually (Double check)
-                  // Note: This query is inside a loop, ideally we batch or check beforehand, but for low volume it's ok.
-                  // For simplicity, we assume if inventoryId is null, we CREATE NEW.
-                  
-                  // Determine Category based on Unit (Heuristic)
+                  // CASE B: New Item (Auto Create)
+                  // Use heuristic to guess category based on unit
                   const isMaterial = ['Liter', 'Kaleng', 'Kg', 'Gram', 'Galon'].includes(item.unit);
                   
                   const newItemPayload: any = {
-                      code: item.code || `NEW-${Date.now()}`,
+                      code: item.code || `NEW-${Date.now()}-${Math.floor(Math.random()*100)}`,
                       name: item.name,
                       category: isMaterial ? 'material' : 'sparepart',
                       brand: 'Generic', // Default
@@ -185,7 +206,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       unit: item.unit,
                       minStock: 5,
                       buyPrice: item.price,
-                      sellPrice: item.price * 1.3, // Default margin 30%
+                      sellPrice: item.price * 1.25, // Default margin 25%
                       location: 'Gudang',
                       supplierId: selectedPO.supplierId,
                       isStockManaged: true,

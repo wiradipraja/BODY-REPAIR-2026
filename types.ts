@@ -156,7 +156,7 @@ export interface InventoryItem {
 }
 
 export interface PurchaseOrderItem {
-  inventoryId?: string; // Link to master (optional if new item)
+  inventoryId?: string | null; // Nullable for new items
   code: string;
   name: string;
   qty: number;
