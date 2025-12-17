@@ -30,7 +30,6 @@ const AppContent: React.FC = () => {
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
 
   // Function to refresh settings from DB manually
-  // Defined before useEffect to avoid hoisting issues and allow usage in useEffect
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -40,8 +39,6 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error("Failed to refresh settings", e); }
   };
 
-  // Sync settings from DB on load (Fix: Ensure all roles see updated settings)
-  // This replaces the previous useEffect that only used defaultSettings
   useEffect(() => {
     if (user) {
         refreshSettings();
@@ -76,14 +73,12 @@ const AppContent: React.FC = () => {
   // Handlers
   const handleSaveJob = async (formData: Partial<Job>) => {
       try {
-          // If ID exists, it's an UPDATE
           if (formData.id) {
               const jobRef = doc(db, JOBS_COLLECTION, formData.id);
               const cleanData = Object.fromEntries(Object.entries(formData).filter(([_, v]) => v !== undefined));
               await updateDoc(jobRef, cleanData);
               showNotification("Data berhasil diperbarui", "success");
           } else {
-              // CREATE NEW
               const newJob: any = {
                   ...formData,
                   createdAt: serverTimestamp(),
@@ -95,15 +90,7 @@ const AppContent: React.FC = () => {
               await addDoc(collection(db, JOBS_COLLECTION), newJob);
               showNotification("Data berhasil ditambahkan", "success");
           }
-          
           closeModal();
-          
-          // Optional: If on input_data view, we can reset or stay.
-          // Since we use the same handler for modal and view, we might need to handle navigation manually in JobForm or here.
-          // For now, if currentView is input_data, we redirect to entry_data to show result? 
-          // Or stay to input more? The prompt implied Input Unit is the new manager.
-          // Let's stay on input_data if we are there, otherwise close modal.
-          
       } catch (e) { 
           console.error(e);
           showNotification("Gagal menyimpan data. Periksa izin database.", "error"); 
@@ -120,19 +107,22 @@ const AppContent: React.FC = () => {
       }
   };
 
-  const handleSaveEstimate = async (jobId: string, estimateData: EstimateData): Promise<string> => {
+  // UPDATED: Handle Save Estimate OR Generate WO
+  const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
+          const jobRef = doc(db, JOBS_COLLECTION, jobId);
+          const currentJob = allData.find(j => j.id === jobId);
+          
           let estimationNumber = estimateData.estimationNumber;
+          let woNumber = currentJob?.woNumber;
 
-          // JIKA BELUM ADA NOMOR ESTIMASI, GENERATE BARU
+          const now = new Date();
+          const year = now.getFullYear().toString().slice(-2); // 24
+          const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 12
+
+          // 1. GENERATE ESTIMATION NUMBER IF MISSING (Always needed first)
           if (!estimationNumber) {
-              const now = new Date();
-              const year = now.getFullYear().toString().slice(-2); // 24
-              const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 12
               const prefix = `BE${year}${month}`; // BE2412
-
-              // Cari nomor urut terakhir di database (Client side filtering for simplicity)
-              // Note: Untuk skala besar, gunakan Distributed Counter di Firestore
               const existingNumbers = allData
                   .map(j => j.estimateData?.estimationNumber)
                   .filter(n => n && n.startsWith(prefix));
@@ -140,13 +130,28 @@ const AppContent: React.FC = () => {
               let maxSeq = 0;
               existingNumbers.forEach(n => {
                   if (n) {
-                      const seq = parseInt(n.substring(prefix.length)); // Ambil angka belakang (0001)
+                      const seq = parseInt(n.substring(prefix.length)); 
                       if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
                   }
               });
+              estimationNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
+          }
 
-              const newSeq = (maxSeq + 1).toString().padStart(4, '0');
-              estimationNumber = `${prefix}${newSeq}`; // BE24120001
+          // 2. GENERATE WO NUMBER IF REQUESTED AND MISSING
+          if (saveType === 'wo' && !woNumber) {
+              const prefix = `WO${year}${month}`; // WO2412
+              const existingNumbers = allData
+                  .map(j => j.woNumber)
+                  .filter(n => n && n.startsWith(prefix));
+
+              let maxSeq = 0;
+              existingNumbers.forEach(n => {
+                  if (n) {
+                      const seq = parseInt(n.substring(prefix.length)); 
+                      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                  }
+              });
+              woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
           const updatedEstimateData = {
@@ -154,32 +159,40 @@ const AppContent: React.FC = () => {
               estimationNumber: estimationNumber
           };
 
-          const jobRef = doc(db, JOBS_COLLECTION, jobId);
-          
-          // Prepare update data
+          // Prepare update payload
           const updatePayload: any = {
               estimateData: updatedEstimateData,
               hargaJasa: updatedEstimateData.subtotalJasa,
               hargaPart: updatedEstimateData.subtotalPart,
           };
           
-          // ALSO UPDATE THE MAIN SA NAME IF IT WAS GENERIC, TO ENSURE TABLE CONSISTENCY
-          const currentJob = allData.find(j => j.id === jobId);
+          // Add WO number to payload if generated
+          if (woNumber) {
+              updatePayload.woNumber = woNumber;
+              // AUTO UPDATE STATUS WHEN WO IS GENERATED
+              updatePayload.statusKendaraan = 'Work In Progress';
+              updatePayload.statusPekerjaan = 'Belum Mulai Perbaikan';
+          }
+
+          // Sync SA Name if generic
           if (currentJob && (currentJob.namaSA === 'Pending Allocation' || !currentJob.namaSA)) {
              updatePayload.namaSA = updatedEstimateData.estimatorName || userData.displayName;
           }
 
           await updateDoc(jobRef, updatePayload);
           
-          showNotification(`Estimasi ${estimationNumber} berhasil disimpan`, "success");
+          const successMsg = saveType === 'wo' 
+             ? `Work Order ${woNumber} berhasil diterbitkan!` 
+             : `Estimasi ${estimationNumber} berhasil disimpan`;
+          
+          showNotification(successMsg, "success");
           closeModal();
           
-          // Don't force view change if we are in estimation view
           if(currentView !== 'estimation') setCurrentView('entry_data');
 
-          return estimationNumber;
+          return saveType === 'wo' ? woNumber! : estimationNumber!;
       } catch (e) {
-          showNotification("Gagal menyimpan estimasi", "error");
+          showNotification("Gagal menyimpan data", "error");
           console.error(e);
           throw e;
       }
@@ -210,21 +223,18 @@ const AppContent: React.FC = () => {
       />
 
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
-        {/* Toast Notification */}
         {notification.show && (
             <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>
                 {notification.message}
             </div>
         )}
 
-        {/* Mobile Header */}
         <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm">
             <button onClick={() => setSidebarOpen(true)} className="text-gray-700"><Menu size={24}/></button>
             <span className="font-bold text-lg text-indigo-800">Mazda Ranger</span>
             <div className="w-6"></div>
         </div>
 
-        {/* Error Boundary Display for Firestore Permissions */}
         {jobsError && (
             <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded shadow-md flex items-start gap-3 mx-4 md:mx-0 animate-fade-in">
                 <div className="mt-0.5"><AlertCircle size={20}/></div>
@@ -239,7 +249,6 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* Views */}
         {currentView === 'overview' && (
             <OverviewDashboard allJobs={allData} settings={appSettings} onNavigate={setCurrentView} />
         )}
@@ -256,7 +265,7 @@ const AppContent: React.FC = () => {
                         settings={appSettings}
                         onSave={handleSaveJob}
                         onCancel={() => setCurrentView('overview')}
-                        allJobs={allData} // Passed for duplicate checking
+                        allJobs={allData} 
                     />
                  </div>
              </div>
@@ -301,7 +310,6 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* Placeholder for unimplemented views */}
         {['job_control', 'finance', 'inventory'].includes(currentView) && (
             <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
                  <SettingsIcon className="text-gray-400 mb-2" size={32} />
@@ -320,7 +328,7 @@ const AppContent: React.FC = () => {
             }
             maxWidth={
                 modalState.type === 'edit_job' || modalState.type === 'create_estimation' 
-                ? 'max-w-7xl' // Widened to fix layout issues
+                ? 'max-w-7xl' 
                 : 'max-w-3xl'
             }
         >
@@ -330,14 +338,14 @@ const AppContent: React.FC = () => {
                     initialData={modalState.data}
                     onSave={handleSaveJob}
                     onCancel={closeModal}
-                    allJobs={allData} // Passed to modal version too
+                    allJobs={allData} 
                 />
             )}
             
             {modalState.type === 'add_job' && (
                  <JobForm 
                     settings={appSettings}
-                    initialData={modalState.data} // Might contain prefilled data from EstimationForm
+                    initialData={modalState.data} 
                     onSave={handleSaveJob}
                     onCancel={closeModal}
                     allJobs={allData}
@@ -348,11 +356,11 @@ const AppContent: React.FC = () => {
                 <EstimateEditor
                     job={modalState.data}
                     ppnPercentage={appSettings.ppnPercentage}
-                    insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
+                    insuranceOptions={appSettings.insuranceOptions} 
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
-                    settings={appSettings} // Pass settings for PDF
-                    creatorName={userData.displayName || 'Admin'} // Pass User Name
+                    settings={appSettings} 
+                    creatorName={userData.displayName || 'Admin'}
                 />
             )}
 
@@ -360,11 +368,11 @@ const AppContent: React.FC = () => {
                 <EstimateEditor
                     job={modalState.data}
                     ppnPercentage={appSettings.ppnPercentage}
-                    insuranceOptions={appSettings.insuranceOptions} // Pass Insurance Options
+                    insuranceOptions={appSettings.insuranceOptions} 
                     onSave={handleSaveEstimate}
                     onCancel={closeModal}
-                    settings={appSettings} // Pass settings for PDF
-                    creatorName={userData.displayName || 'Admin'} // Pass User Name
+                    settings={appSettings} 
+                    creatorName={userData.displayName || 'Admin'}
                 />
             )}
         </Modal>

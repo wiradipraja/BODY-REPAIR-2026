@@ -27,12 +27,19 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.line(15, 35, pageWidth - 15, 35);
 
   // --- TITLE & NUMBER ---
+  const isWO = !!job.woNumber;
+  
   doc.setFontSize(14);
   doc.setTextColor(0);
-  doc.text("ESTIMASI BIAYA PERBAIKAN", pageWidth / 2, 45, { align: 'center' });
+  doc.text(isWO ? "WORK ORDER (PERINTAH KERJA)" : "ESTIMASI BIAYA PERBAIKAN", pageWidth / 2, 45, { align: 'center' });
   
   doc.setFontSize(11);
-  doc.text(`No. Estimasi: ${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 45, { align: 'right' });
+  if (isWO) {
+      doc.text(`No. WO: ${job.woNumber}`, pageWidth - 15, 45, { align: 'right' });
+  } else {
+      doc.text(`No. Estimasi: ${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 45, { align: 'right' });
+  }
+  
   doc.setFontSize(10);
   doc.text(`Tanggal: ${formatDateIndo(new Date())}`, pageWidth - 15, 50, { align: 'right' });
 
@@ -185,15 +192,13 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
       doc.text("Hormat Kami,", col1, signY, {align: 'center'});
       doc.text(`( ${creatorName || 'Admin'} )`, col1, signY + 25, {align: 'center'});
 
-      // Middle Signature (Removed Manager)
-
       // Right Signature (Customer)
       const col3 = pageWidth - 50;
       doc.text("Disetujui Oleh,", col3, signY, {align: 'center'});
       doc.text(`( ${job.customerName} )`, col3, signY + 25, {align: 'center'});
   }
 
-  // Filename: BE24120001_Nopol.pdf
-  const fileName = `${estimateData.estimationNumber || 'ESTIMASI'}_${job.policeNumber}.pdf`;
+  // Filename: WO... or BE...
+  const fileName = `${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`;
   doc.save(fileName);
 };

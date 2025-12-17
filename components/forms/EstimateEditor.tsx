@@ -2,16 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Job, EstimateItem, EstimateData, Settings } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { Plus, Trash2, Save, Calculator, AlertCircle, Download } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User } from 'lucide-react';
 
 interface EstimateEditorProps {
   job: Job;
   ppnPercentage: number;
   insuranceOptions: { name: string; jasa: number; part: number }[];
-  onSave: (jobId: string, estimateData: EstimateData) => Promise<string>; // Returns the generated ID
+  onSave: (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo') => Promise<string>;
   onCancel: () => void;
-  settings?: Settings; // Added settings for PDF header info
-  creatorName?: string; // Current logged-in user name
+  settings?: Settings; 
+  creatorName?: string;
 }
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName }) => {
@@ -20,6 +20,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
   const [discountJasa, setDiscountJasa] = useState(0);
   const [discountPart, setDiscountPart] = useState(0);
   const [existingEstimationNumber, setExistingEstimationNumber] = useState<string | undefined>(undefined);
+  const [existingWONumber, setExistingWONumber] = useState<string | undefined>(undefined);
   const [persistedEstimatorName, setPersistedEstimatorName] = useState<string | undefined>(undefined);
   
   const [totals, setTotals] = useState({
@@ -31,7 +32,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   // Initialize data
   useEffect(() => {
-    // Cek apakah sudah ada data estimasi tersimpan sebelumnya
     const hasExistingData = job.estimateData && (
         (job.estimateData.jasaItems && job.estimateData.jasaItems.length > 0) || 
         (job.estimateData.partItems && job.estimateData.partItems.length > 0) ||
@@ -39,7 +39,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     );
 
     if (hasExistingData && job.estimateData) {
-      // LOAD EXISTING DATA
       setJasaItems(job.estimateData.jasaItems || []);
       setPartItems(job.estimateData.partItems || []);
       setDiscountJasa(job.estimateData.discountJasa || 0);
@@ -47,23 +46,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
       setExistingEstimationNumber(job.estimateData.estimationNumber);
       setPersistedEstimatorName(job.estimateData.estimatorName);
     } else {
-      // NEW ESTIMATE: Auto-fill discounts from Insurance Master Data
       const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
-      
       if (matchedInsurance) {
           setDiscountJasa(matchedInsurance.jasa || 0);
           setDiscountPart(matchedInsurance.part || 0);
-      } else {
-          setDiscountJasa(0);
-          setDiscountPart(0);
       }
-      
-      setJasaItems([]);
-      setPartItems([]);
     }
+    
+    // Set WO Number from JOB root data
+    setExistingWONumber(job.woNumber);
   }, [job, insuranceOptions]);
 
-  // Recalculate totals whenever items or discounts change
+  // Recalculate totals
   useEffect(() => {
     const subJasa = jasaItems.reduce((acc, item) => acc + (item.price || 0), 0);
     const subPart = partItems.reduce((acc, item) => acc + ((item.price || 0) * (item.qty || 1)), 0);
@@ -78,79 +72,68 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     const ppn = (dpp * ppnPercentage) / 100;
     const grandTotal = dpp + ppn;
 
-    setTotals({
-      subtotalJasa: subJasa,
-      subtotalPart: subPart,
-      discJasaRp,
-      discPartRp,
-      dpp,
-      ppn,
-      grandTotal
-    });
+    setTotals({ subtotalJasa: subJasa, subtotalPart: subPart, discJasaRp, discPartRp, dpp, ppn, grandTotal });
   }, [jasaItems, partItems, discountJasa, discountPart, ppnPercentage]);
 
   // Handlers for Items
   const addItem = (type: 'jasa' | 'part') => {
-    const newItem: EstimateItem = type === 'jasa' 
-      ? { name: '', price: 0 }
-      : { name: '', price: 0, qty: 1, number: '' };
-    
+    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '' };
     if (type === 'jasa') setJasaItems([...jasaItems, newItem]);
     else setPartItems([...partItems, newItem]);
   };
 
   const updateItem = (type: 'jasa' | 'part', index: number, field: keyof EstimateItem, value: any) => {
-    if (type === 'jasa') {
-      const newItems = [...jasaItems];
-      newItems[index] = { ...newItems[index], [field]: value };
-      setJasaItems(newItems);
-    } else {
-      const newItems = [...partItems];
-      newItems[index] = { ...newItems[index], [field]: value };
-      setPartItems(newItems);
-    }
+    const items = type === 'jasa' ? [...jasaItems] : [...partItems];
+    items[index] = { ...items[index], [field]: value };
+    type === 'jasa' ? setJasaItems(items) : setPartItems(items);
   };
 
   const removeItem = (type: 'jasa' | 'part', index: number) => {
-    if (type === 'jasa') setJasaItems(jasaItems.filter((_, i) => i !== index));
-    else setPartItems(partItems.filter((_, i) => i !== index));
+    type === 'jasa' ? setJasaItems(jasaItems.filter((_, i) => i !== index)) : setPartItems(partItems.filter((_, i) => i !== index));
   };
 
   const prepareEstimateData = (estimationNumber?: string): EstimateData => {
-      // LOGIC: Use existing persisted name, if null use current creator name (first save), fallback to 'Admin'
       const finalEstimatorName = persistedEstimatorName || creatorName || 'Admin';
-
       return {
-        jasaItems,
-        partItems,
-        discountJasa,
-        discountPart,
-        subtotalJasa: totals.subtotalJasa,
-        subtotalPart: totals.subtotalPart,
-        discountJasaAmount: totals.discJasaRp,
-        discountPartAmount: totals.discPartRp,
-        ppnAmount: totals.ppn,
-        grandTotal: totals.grandTotal,
+        jasaItems, partItems, discountJasa, discountPart,
+        subtotalJasa: totals.subtotalJasa, subtotalPart: totals.subtotalPart,
+        discountJasaAmount: totals.discJasaRp, discountPartAmount: totals.discPartRp,
+        ppnAmount: totals.ppn, grandTotal: totals.grandTotal,
         estimationNumber: estimationNumber || existingEstimationNumber,
         estimatorName: finalEstimatorName
       };
   };
 
-  const handleSave = async () => {
+  const handleSave = async (type: 'estimate' | 'wo') => {
+    // Confirmation for WO generation
+    if (type === 'wo' && !existingWONumber) {
+        if (!window.confirm("Terbitkan Work Order (WO)?\n\nTindakan ini akan:\n1. Membuat Nomor WO baru.\n2. Mengubah status kendaraan menjadi 'Work In Progress'.\n3. Membuka akses untuk mekanik mengerjakan unit.")) {
+            return;
+        }
+    }
+    
     setIsSubmitting(true);
     const data = prepareEstimateData();
 
     try {
-      // Save and get the Generated ID back
-      const generatedId = await onSave(job.id, data);
+      // Call parent to save to Firestore and get the generated ID
+      const generatedId = await onSave(job.id, data, type);
       
-      // Update local state with the new ID so PDF uses it
-      const finalData = prepareEstimateData(generatedId);
+      // Update local state immediately so PDF reflects new numbers
+      if (type === 'wo') setExistingWONumber(generatedId);
+      if (type === 'estimate') setExistingEstimationNumber(generatedId);
       
-      // Download PDF Automatically
+      // Prepare temporary job object for PDF generation
+      const finalEstimateData = prepareEstimateData(type === 'estimate' ? generatedId : existingEstimationNumber); 
+      
+      const jobForPDF = { 
+          ...job, 
+          woNumber: type === 'wo' ? generatedId : existingWONumber,
+          // If just generated WO, update local job object status too for PDF context if needed
+      };
+      
       if (settings) {
-         // Pass the persisted/final name to PDF generator explicitly
-         generateEstimationPDF(job, finalData, settings, finalData.estimatorName);
+         generateEstimationPDF(jobForPDF, finalEstimateData, settings, finalEstimateData.estimatorName);
       }
     } catch (error) {
        console.error("Save failed", error);
@@ -175,28 +158,35 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           <p className="font-bold text-gray-900">{job.policeNumber}</p>
         </div>
         <div>
-          <p className="text-gray-500">Model Kendaraan</p>
-          <p className="font-bold text-gray-900">{job.carModel}</p>
-        </div>
-        <div>
           <p className="text-gray-500">Pelanggan</p>
           <p className="font-bold text-gray-900">{job.customerName}</p>
         </div>
         <div>
-          <p className="text-gray-500">Asuransi</p>
-          <p className="font-bold text-indigo-700">{job.namaAsuransi}</p>
+           <p className="text-gray-500">Asuransi</p>
+           <p className="font-bold text-indigo-700">{job.namaAsuransi}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+            {existingWONumber ? (
+                <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold border border-emerald-200 shadow-sm flex items-center gap-1">
+                    <FileCheck size={12}/> WO: {existingWONumber}
+                </span>
+            ) : existingEstimationNumber ? (
+                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold border border-blue-200 shadow-sm">
+                    Est: {existingEstimationNumber}
+                </span>
+            ) : (
+                <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
+                    New Draft
+                </span>
+            )}
         </div>
       </div>
       
-      {/* Show Estimation Number if exists */}
       {existingEstimationNumber && (
-          <div className="bg-green-50 px-4 py-2 rounded border border-green-200 text-green-800 text-sm font-bold flex items-center justify-between">
-              <div className="flex gap-4">
-                <span>Nomor Estimasi: {existingEstimationNumber}</span>
-                <span className="text-green-600 font-normal">Estimator: {persistedEstimatorName}</span>
-              </div>
-              <button onClick={handleDownloadOnly} className="flex items-center gap-1 text-green-700 hover:text-green-900 underline text-xs">
-                  <Download size={14}/> Download Ulang PDF
+          <div className="bg-gray-50 px-4 py-2 rounded border border-gray-200 text-gray-600 text-sm flex items-center justify-between">
+              <span className="flex items-center gap-2"><User size={14}/> Estimator: <strong>{persistedEstimatorName}</strong></span>
+              <button onClick={handleDownloadOnly} className="flex items-center gap-1 text-gray-600 hover:text-gray-900 underline text-xs">
+                  <Download size={14}/> Download PDF Terakhir
               </button>
           </div>
       )}
@@ -216,42 +206,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           <div className="space-y-3">
             {jasaItems.map((item, idx) => (
               <div key={idx} className="grid grid-cols-12 gap-2 items-start">
-                <input 
-                  type="text" 
-                  placeholder="Nama Pekerjaan (Panel)" 
-                  className="col-span-7 p-2 border rounded text-sm focus:ring-1 ring-blue-500"
-                  value={item.name}
-                  onChange={e => updateItem('jasa', idx, 'name', e.target.value)}
-                />
-                <input 
-                  type="number" 
-                  placeholder="Harga" 
-                  className="col-span-4 p-2 border rounded text-sm text-right focus:ring-1 ring-blue-500"
-                  value={item.price || ''}
-                  onChange={e => updateItem('jasa', idx, 'price', Number(e.target.value))}
-                />
-                <button onClick={() => removeItem('jasa', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center">
-                  <Trash2 size={16} />
-                </button>
+                <input type="text" placeholder="Nama Pekerjaan" className="col-span-7 p-2 border rounded text-sm focus:ring-1 ring-blue-500" value={item.name} onChange={e => updateItem('jasa', idx, 'name', e.target.value)} />
+                <input type="number" placeholder="Harga" className="col-span-4 p-2 border rounded text-sm text-right focus:ring-1 ring-blue-500" value={item.price || ''} onChange={e => updateItem('jasa', idx, 'price', Number(e.target.value))} />
+                <button onClick={() => removeItem('jasa', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center"><Trash2 size={16} /></button>
               </div>
             ))}
             {jasaItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item jasa</p>}
           </div>
 
           <div className="mt-4 pt-4 border-t space-y-2">
-             <div className="flex justify-between text-sm">
-                <span>Subtotal Jasa</span>
-                <span className="font-medium">{formatCurrency(totals.subtotalJasa)}</span>
-             </div>
              <div className="flex justify-between items-center text-sm bg-blue-50 p-2 rounded">
                 <span className="text-blue-800 font-semibold">Diskon Jasa (%)</span>
-                <input 
-                  type="number" 
-                  min="0" max="100" 
-                  className="w-16 p-1 border border-blue-200 rounded text-right text-xs font-bold text-blue-800"
-                  value={discountJasa}
-                  onChange={e => setDiscountJasa(Number(e.target.value))}
-                />
+                <input type="number" min="0" max="100" className="w-16 p-1 border border-blue-200 rounded text-right text-xs font-bold text-blue-800" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} />
              </div>
              <div className="flex justify-between text-sm font-bold text-blue-700 pt-2 border-t border-dashed">
                 <span>Total Jasa Netto</span>
@@ -260,7 +226,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART (LAYOUT UPDATED FOR BETTER SPACING) */}
+        {/* KOLOM SPAREPART */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -274,56 +240,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           <div className="space-y-3">
             {partItems.map((item, idx) => (
               <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                <input 
-                  type="text" 
-                  placeholder="No. Part" 
-                  className="col-span-2 p-2 border rounded text-sm focus:ring-1 ring-orange-500 w-full"
-                  value={item.number || ''}
-                  onChange={e => updateItem('part', idx, 'number', e.target.value)}
-                />
-                <input 
-                  type="text" 
-                  placeholder="Nama Sparepart" 
-                  className="col-span-5 p-2 border rounded text-sm focus:ring-1 ring-orange-500 w-full"
-                  value={item.name}
-                  onChange={e => updateItem('part', idx, 'name', e.target.value)}
-                />
-                <input 
-                  type="number" 
-                  placeholder="Qty" 
-                  className="col-span-1 p-2 border rounded text-sm text-center focus:ring-1 ring-orange-500 w-full"
-                  value={item.qty || ''}
-                  onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))}
-                />
-                <input 
-                  type="number" 
-                  placeholder="Harga" 
-                  className="col-span-3 p-2 border rounded text-sm text-right focus:ring-1 ring-orange-500 w-full"
-                  value={item.price || ''}
-                  onChange={e => updateItem('part', idx, 'price', Number(e.target.value))}
-                />
-                <button onClick={() => removeItem('part', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center">
-                  <Trash2 size={16} />
-                </button>
+                <input type="text" placeholder="No. Part" className="col-span-2 p-2 border rounded text-sm w-full" value={item.number || ''} onChange={e => updateItem('part', idx, 'number', e.target.value)} />
+                <input type="text" placeholder="Nama Sparepart" className="col-span-5 p-2 border rounded text-sm w-full" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
+                <input type="number" placeholder="Qty" className="col-span-1 p-2 border rounded text-sm text-center w-full" value={item.qty || ''} onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))} />
+                <input type="number" placeholder="Harga" className="col-span-3 p-2 border rounded text-sm text-right w-full" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
+                <button onClick={() => removeItem('part', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center"><Trash2 size={16} /></button>
               </div>
             ))}
             {partItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item sparepart</p>}
           </div>
 
           <div className="mt-4 pt-4 border-t space-y-2">
-             <div className="flex justify-between text-sm">
-                <span>Subtotal Part</span>
-                <span className="font-medium">{formatCurrency(totals.subtotalPart)}</span>
-             </div>
              <div className="flex justify-between items-center text-sm bg-orange-50 p-2 rounded">
                 <span className="text-orange-800 font-semibold">Diskon Part (%)</span>
-                <input 
-                  type="number" 
-                  min="0" max="100" 
-                  className="w-16 p-1 border border-orange-200 rounded text-right text-xs font-bold text-orange-800"
-                  value={discountPart}
-                  onChange={e => setDiscountPart(Number(e.target.value))}
-                />
+                <input type="number" min="0" max="100" className="w-16 p-1 border border-orange-200 rounded text-right text-xs font-bold text-orange-800" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} />
              </div>
              <div className="flex justify-between text-sm font-bold text-orange-700 pt-2 border-t border-dashed">
                 <span>Total Part Netto</span>
@@ -338,14 +268,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-start gap-3 opacity-80 text-sm">
                 <AlertCircle size={20} className="mt-0.5" />
-                <p className="max-w-xs">Pastikan semua item telah sesuai dengan fisik kendaraan dan persetujuan pelanggan sebelum menyimpan Estimasi ini.</p>
+                <p className="max-w-xs">Grand Total sudah termasuk PPN. Pastikan item dan harga sudah benar sebelum menerbitkan dokumen.</p>
             </div>
             
             <div className="w-full md:w-auto space-y-1">
-                <div className="flex justify-between gap-12 text-gray-400 text-sm">
-                    <span>DPP (Dasar Pengenaan Pajak)</span>
-                    <span>{formatCurrency(totals.dpp)}</span>
-                </div>
                 <div className="flex justify-between gap-12 text-gray-400 text-sm">
                     <span>PPN ({ppnPercentage}%)</span>
                     <span>{formatCurrency(totals.ppn)}</span>
@@ -358,22 +284,57 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         </div>
       </div>
 
-      <div className="flex justify-end gap-3 pt-2">
+      {/* ACTION BUTTONS */}
+      <div className="flex flex-col-reverse md:flex-row justify-end gap-3 pt-2">
         <button 
           onClick={onCancel}
           className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
           disabled={isSubmitting}
         >
-          Batal
+          Tutup
         </button>
-        <button 
-          onClick={handleSave}
-          disabled={isSubmitting}
-          className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 shadow-lg font-bold"
-        >
-          {isSubmitting ? <span className="animate-spin">⏳</span> : <Save size={18} />}
-          Simpan & Download PDF
-        </button>
+
+        {/* LOGIC TOMBOL AKSI */}
+        {!existingEstimationNumber ? (
+             // CASE 1: Belum ada Estimasi (New Draft)
+             <button 
+                onClick={() => handleSave('estimate')}
+                disabled={isSubmitting}
+                className="flex items-center justify-center gap-2 px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70 shadow-lg font-bold"
+             >
+                {isSubmitting ? <span className="animate-spin">⏳</span> : <Save size={18} />}
+                Simpan Draft Estimasi
+             </button>
+        ) : !existingWONumber ? (
+             // CASE 2: Ada Estimasi, Belum ada WO (Bisa Update atau Terbitkan WO)
+             <>
+                <button 
+                    onClick={() => handleSave('estimate')}
+                    disabled={isSubmitting}
+                    className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-bold"
+                >
+                    <Save size={18} /> Update Estimasi
+                </button>
+                <button 
+                    onClick={() => handleSave('wo')}
+                    disabled={isSubmitting}
+                    className="flex items-center justify-center gap-2 px-8 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-70 shadow-lg font-bold"
+                >
+                    {isSubmitting ? <span className="animate-spin">⏳</span> : <FileCheck size={18} />}
+                    Terbitkan Work Order (WO)
+                </button>
+             </>
+        ) : (
+             // CASE 3: Sudah WO (Update Data & Download ulang WO)
+             <button 
+                onClick={() => handleSave('wo')}
+                disabled={isSubmitting}
+                className="flex items-center justify-center gap-2 px-8 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-70 shadow-lg font-bold"
+             >
+                {isSubmitting ? <span className="animate-spin">⏳</span> : <FileCheck size={18} />}
+                Update & Download WO
+             </button>
+        )}
       </div>
     </div>
   );
