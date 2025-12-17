@@ -25,7 +25,7 @@ export interface EstimateItem {
   price: number;
   number?: string;
   qty?: number;
-  isOrdered?: boolean;
+  isOrdered?: boolean; // New: Flag to indicate PO has been created
   isIndent?: boolean;
   indentETA?: string; // New: Tanggal Estimasi Barang Datang
   hasArrived?: boolean;
@@ -170,6 +170,12 @@ export interface PurchaseOrderItem {
   unit: string;
   price: number; // Harga Beli Satuan
   total: number;
+  
+  // Link to Specific WO (Optional)
+  refJobId?: string; 
+  refWoNumber?: string;
+  refPartIndex?: number; // Index in the EstimateData.partItems array
+  isIndent?: boolean; // Flag to sync back to Job
 }
 
 export interface PurchaseOrder {
