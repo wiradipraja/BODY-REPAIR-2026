@@ -247,6 +247,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || 'NON-PART-NO',
                   name: estItem.name || 'Nama Part Belum Diisi',
+                  brand: invItem?.brand || foundJob.carBrand || '',
                   category: 'sparepart', // Default to sparepart for WO parts
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
@@ -287,7 +288,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       setPoForm(prev => ({
           ...prev,
           items: [...(prev.items || []), { 
-              code: '', name: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0
+              code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0
           }]
       }));
   };
@@ -298,7 +299,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const codeUpper = String(value).toUpperCase().trim();
           const match = inventoryItems.find(i => i.code?.toUpperCase() === codeUpper);
           if (match) {
-              newItems[index] = { ...newItems[index], inventoryId: match.id, name: match.name, category: match.category, unit: match.unit, price: match.buyPrice, code: match.code };
+              newItems[index] = { 
+                  ...newItems[index], 
+                  inventoryId: match.id, 
+                  name: match.name, 
+                  brand: match.brand || '',
+                  category: match.category, 
+                  unit: match.unit, 
+                  price: match.buyPrice, 
+                  code: match.code 
+              };
           } else {
              newItems[index] = { ...newItems[index], inventoryId: null, code: codeUpper };
           }
@@ -413,14 +423,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   await updateDoc(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
                       stock: increment(qtyNow), 
                       buyPrice: item.price, 
+                      brand: item.brand || '', // Update brand if present
                       updatedAt: serverTimestamp() 
                   });
               } else {
-                  // FIXED: Use the category from the Purchase Order item
+                  // NEW ITEM: Use data from PO
                   const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
                       code: itemCodeUpper, 
                       name: item.name, 
-                      category: item.category || 'sparepart', // Use item category instead of hardcoded sparepart
+                      category: item.category || 'sparepart', 
+                      brand: item.brand || 'No Brand', // Use brand from PO
                       stock: qtyNow, 
                       unit: item.unit, 
                       minStock: 2, 
@@ -528,9 +540,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       <thead className="bg-gray-100 font-bold">
                         <tr>
                             <th className="p-3 border">Kategori</th>
-                            <th className="p-3 border">Kode</th>
+                            <th className="p-3 border">Kode Part</th>
                             <th className="p-3 border">Nama Barang</th>
-                            <th className="p-3 border w-24 text-center">Qty</th>
+                            <th className="p-3 border">Merk / Model</th>
+                            <th className="p-3 border w-20 text-center">Qty</th>
                             <th className="p-3 border w-24">Satuan</th>
                             <th className="p-3 border text-right">Harga</th>
                             <th className="p-3 border text-right">Total</th>
@@ -548,6 +561,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                   </td>
                                   <td className="p-2 border"><input type="text" className="w-full p-2 border rounded font-mono uppercase text-xs" value={item.code} onChange={e => handleUpdateItem(idx, 'code', e.target.value)} placeholder="Kode..." disabled={!!item.refJobId}/></td>
                                   <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.name} onChange={e => handleUpdateItem(idx, 'name', e.target.value)} placeholder="Nama..." disabled={!!item.refJobId}/>{item.refWoNumber && <div className="text-[9px] text-blue-600 font-bold">Ref: {item.refWoNumber} {item.isIndent && <span className="text-red-600">[INDENT]</span>}</div>}</td>
+                                  <td className="p-2 border"><input type="text" className="w-full p-2 border rounded text-xs" value={item.brand} onChange={e => handleUpdateItem(idx, 'brand', e.target.value)} placeholder="Merk/Tipe..."/></td>
                                   <td className="p-2 border"><input type="number" className="w-full p-2 border rounded text-center font-bold" value={item.qty} onChange={e => handleUpdateItem(idx, 'qty', Number(e.target.value))} /></td>
                                   <td className="p-2 border">
                                       <select className="w-full p-2 border rounded text-xs" value={item.unit} onChange={e => handleUpdateItem(idx, 'unit', e.target.value)}>
@@ -663,7 +677,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                       <td className="p-3 border">
                                           <div><strong>{item.name}</strong></div>
                                           <div className="text-[10px] font-mono text-gray-500">
-                                              {item.code} {item.refWoNumber && `[WO: ${item.refWoNumber}]`} 
+                                              {item.code} {item.brand && `| ${item.brand}`} {item.refWoNumber && `[WO: ${item.refWoNumber}]`} 
                                               <span className="ml-2 px-1 bg-gray-200 rounded text-[9px] uppercase">{item.category}</span>
                                           </div>
                                       </td>

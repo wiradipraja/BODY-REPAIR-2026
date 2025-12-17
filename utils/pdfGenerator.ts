@@ -275,7 +275,8 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     const tableBody = po.items.map((item, idx) => [
         idx + 1,
         item.code,
-        item.name,
+        // Combined Name and Brand for PDF clarity
+        item.brand ? `${item.name} (${item.brand})` : item.name,
         `${item.qty} ${item.unit}`,
         formatCurrency(item.price),
         formatCurrency(item.total)
@@ -404,7 +405,7 @@ export const generateReceivingReportPDF = (
     const tableBody = receivedItems.map((entry, idx) => [
         idx + 1,
         entry.item.code,
-        entry.item.name,
+        entry.item.brand ? `${entry.item.name} (${entry.item.brand})` : entry.item.name,
         `${entry.qtyReceivedNow} ${entry.item.unit}`
     ]);
 
