@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { InventoryItem } from '../../types';
-import { Save, Loader2, Package } from 'lucide-react';
+import { Save, Loader2, Package, Info } from 'lucide-react';
 
 interface InventoryFormProps {
   initialData: Partial<InventoryItem>;
@@ -20,6 +20,7 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
       buyPrice: 0,
       sellPrice: 0,
       location: '',
+      isStockManaged: true, // Default true
       ...initialData
   });
   
@@ -31,7 +32,8 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
           setFormData(prev => ({
               ...prev,
               unit: activeCategory === 'sparepart' ? 'Pcs' : 'Liter',
-              category: activeCategory
+              category: activeCategory,
+              isStockManaged: true
           }));
       }
   }, [activeCategory, initialData.id]);
@@ -42,6 +44,10 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
           ...prev,
           [name]: type === 'number' ? Number(value) : value
       }));
+  };
+
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData(prev => ({ ...prev, isStockManaged: e.target.checked }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,13 +100,36 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
 
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
             <h4 className="text-sm font-bold text-gray-800 mb-3 border-b pb-2">Informasi Stok</h4>
+            
+            {/* VENDOR MANAGED STOCK TOGGLE */}
+            {activeCategory === 'material' && (
+                <div className="mb-4 bg-white p-3 rounded border border-blue-200 flex items-start gap-3">
+                    <input 
+                        type="checkbox" 
+                        id="isStockManaged"
+                        checked={!formData.isStockManaged} // Logic flip: checked means NOT managed
+                        onChange={(e) => setFormData(prev => ({...prev, isStockManaged: !e.target.checked}))}
+                        className="mt-1 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                    />
+                    <div>
+                        <label htmlFor="isStockManaged" className="block text-sm font-bold text-gray-800 cursor-pointer">
+                            Stok Dikelola Vendor (Ready Use / Tagihan Bulanan)
+                        </label>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Jika dicentang, sistem tidak akan membatasi stok (bisa minus). Cocok untuk cat/bahan yang ditagihkan vendor di akhir bulan berdasarkan pemakaian.
+                        </p>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-3 gap-4">
                 <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Sisa Stok</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Stok Saat Ini</label>
                     <input 
                         type="number" name="stock" required
                         value={formData.stock} onChange={handleChange} 
                         className="w-full p-2 border rounded font-bold text-gray-900"
+                        // If vendor managed, allow any number, typically user starts at 0 and it goes negative
                     />
                 </div>
                 <div>
@@ -131,6 +160,7 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
                         type="number" name="minStock" 
                         value={formData.minStock} onChange={handleChange} 
                         className="w-full p-2 border rounded"
+                        disabled={!formData.isStockManaged}
                     />
                 </div>
                 <div className="col-span-3">
@@ -159,6 +189,9 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
                             placeholder="0"
                         />
                     </div>
+                    {activeCategory === 'material' && (
+                         <p className="text-[10px] text-gray-500 mt-1">Masukkan harga per {formData.unit}.</p>
+                    )}
                 </div>
 
                 {activeCategory === 'sparepart' ? (

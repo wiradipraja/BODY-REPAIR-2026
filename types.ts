@@ -128,6 +128,7 @@ export interface InventoryItem {
   sellPrice: number; // Harga Jual ke Customer
   location?: string; // Lokasi Rak/Gudang
   supplierId?: string; // Link to Supplier
+  isStockManaged?: boolean; // New: If false, stock can go negative (Vendor Managed/Consignment)
   createdAt: any;
   updatedAt?: any;
 }

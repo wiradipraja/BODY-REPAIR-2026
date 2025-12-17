@@ -3,7 +3,7 @@ import { Job, InventoryItem, UserPermissions, EstimateItem } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign } from 'lucide-react';
+import { Search, Package, Truck, AlertTriangle, PaintBucket, CheckCircle, AlertCircle, ArrowRight, DollarSign, Scale } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -22,10 +22,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // State for Material Mode
-  const [materialSearchTerm, setMaterialSearchTerm] = useState(''); // Text input
-  const [selectedMaterialId, setSelectedMaterialId] = useState(''); // Actual ID
-  const [qty, setQty] = useState(1);
+  const [materialSearchTerm, setMaterialSearchTerm] = useState(''); 
+  const [selectedMaterialId, setSelectedMaterialId] = useState(''); 
+  const [inputQty, setInputQty] = useState(0); // Raw input
   const [notes, setNotes] = useState('');
+  const [useSmallUnit, setUseSmallUnit] = useState(false); // Toggle for Gram/ML vs Liter/Kg
 
   // Derived Data
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
@@ -49,22 +50,23 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   useEffect(() => {
       setMaterialSearchTerm('');
       setSelectedMaterialId('');
-      setQty(1);
+      setInputQty(0);
       setNotes('');
+      setUseSmallUnit(false);
   }, [selectedJobId, issuanceType]);
 
   // --- HANDLER: PEMBEBANAN BAHAN (MATERIAL) ---
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Find item based on ID state OR try to match name from text input if user didn't click dropdown
+    // 1. Resolve Item
     let targetId = selectedMaterialId;
     if (!targetId && materialSearchTerm) {
         const match = materialInventory.find(i => i.name.toLowerCase() === materialSearchTerm.toLowerCase() || i.code.toLowerCase() === materialSearchTerm.toLowerCase());
         if (match) targetId = match.id;
     }
 
-    if (!selectedJobId || !targetId || qty <= 0) {
+    if (!selectedJobId || !targetId || inputQty <= 0) {
         showNotification("Mohon pilih bahan dan masukkan jumlah yang valid.", "error");
         return;
     }
@@ -75,19 +77,34 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         return;
     }
 
-    if (item.stock < qty) {
-        showNotification(`Stok ${item.name} tidak cukup! Tersedia: ${item.stock}`, "error");
+    // 2. Calculate Final Quantity based on Unit Selection
+    // If user checks "Input in Grams" and item unit is Liter/Kg, we divide by 1000
+    // Logic assumption: 1 Liter = 1000 ML = 1000 Gram (approx for UI simplicity)
+    let finalQty = inputQty;
+    let unitLabel = item.unit;
+
+    if (useSmallUnit) {
+        finalQty = inputQty / 1000;
+        unitLabel = item.unit; // We store in Base Unit
+    }
+
+    // 3. Stock Validation (Skip if Vendor Managed / isStockManaged == false)
+    const isVendorManaged = item.isStockManaged === false; // Explicit false check
+    
+    if (!isVendorManaged && item.stock < finalQty) {
+        showNotification(`Stok ${item.name} tidak cukup! Tersedia: ${item.stock} ${item.unit}`, "error");
         return;
     }
 
-    if (!window.confirm(`Konfirmasi pemakaian bahan: ${qty} ${item.unit} ${item.name}?`)) return;
+    if (!window.confirm(`Konfirmasi pemakaian bahan: \n${inputQty} ${useSmallUnit ? (item.unit === 'Liter' ? 'MiliLiter' : 'Gram') : item.unit} ${item.name}? \n\n(Tercatat sistem: ${finalQty} ${item.unit})`)) return;
 
     setIsSubmitting(true);
     try {
-        const itemCostTotal = (item.buyPrice || 0) * qty;
+        const itemCostTotal = (item.buyPrice || 0) * finalQty;
         
+        // Update Inventory (Allow negative if vendor managed)
         await updateDoc(doc(db, SPAREPART_COLLECTION, targetId), {
-            stock: increment(-qty),
+            stock: increment(-finalQty),
             updatedAt: serverTimestamp()
         });
 
@@ -95,7 +112,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             itemId: targetId,
             itemName: item.name,
             itemCode: item.code,
-            qty: qty,
+            qty: finalQty, // Stored in Base Unit (Liter/Kg) for cost calc consistency
+            inputQty: inputQty, // Optional: store what user typed for reference
+            inputUnit: useSmallUnit ? (item.unit === 'Liter' ? 'ML' : 'Gram') : item.unit,
             costPerUnit: item.buyPrice,
             totalCost: itemCostTotal,
             category: 'material',
@@ -110,7 +129,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         });
 
         showNotification("Bahan berhasil dibebankan ke WO.", "success");
-        setQty(1);
+        setInputQty(0);
         setNotes('');
         setMaterialSearchTerm('');
         setSelectedMaterialId('');
@@ -186,19 +205,21 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       }
   };
 
-  // Helper to handle material search input
   const handleMaterialSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = e.target.value;
       setMaterialSearchTerm(val);
-      
-      // Try to find exact match in name or code to auto-select ID
       const match = materialInventory.find(i => i.name === val || i.code === val);
-      if (match) {
-          setSelectedMaterialId(match.id);
-      } else {
-          setSelectedMaterialId('');
-      }
+      if (match) setSelectedMaterialId(match.id);
+      else setSelectedMaterialId('');
   };
+
+  const currentMaterial = inventoryItems.find(i => i.id === selectedMaterialId);
+  const isVendorItem = currentMaterial?.isStockManaged === false;
+  
+  // Logic to determine units label
+  const baseUnit = currentMaterial?.unit || 'Liter';
+  const smallUnit = baseUnit === 'Liter' ? 'MiliLiter (ML)' : (baseUnit === 'Kg' ? 'Gram' : 'Unit Kecil');
+  const conversionLabel = useSmallUnit ? smallUnit : baseUnit;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -308,14 +329,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {selectedJob.estimateData.partItems.map((item, idx) => {
-                                    // IMPROVED LOOKUP: Try ID first, then Code
                                     const invItem = inventoryItems.find(i => 
                                         (item.inventoryId && i.id === item.inventoryId) || 
                                         (item.number && i.code && i.code.toUpperCase() === item.number.toUpperCase())
                                     );
-
                                     const isIssued = item.hasArrived; 
-                                    
                                     return (
                                         <tr key={idx} className={isIssued ? "bg-green-50 opacity-70" : "hover:bg-gray-50"}>
                                             <td className="p-3">
@@ -323,17 +341,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 <div className="text-xs text-gray-500 font-mono">{item.number || 'No Part #'}</div>
                                             </td>
                                             <td className="p-3 text-center font-bold">{item.qty || 1}</td>
-                                            
-                                            {/* HARGA BELI (Dari Inventory) */}
                                             <td className="p-3 text-right font-mono text-gray-600">
                                                 {invItem ? formatCurrency(invItem.buyPrice) : '-'}
                                             </td>
-
-                                            {/* HARGA JUAL (Dari Estimasi atau Inventory) */}
                                             <td className="p-3 text-right font-mono font-bold text-gray-800">
                                                 {invItem ? formatCurrency(invItem.sellPrice) : formatCurrency(item.price)}
                                             </td>
-
                                             <td className="p-3 text-center">
                                                 {isIssued ? (
                                                     <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-xs font-bold">Sudah Keluar</span>
@@ -354,11 +367,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                     >
                                                         Keluarkan
                                                     </button>
-                                                )}
-                                                {!invItem && !isIssued && (
-                                                     <div className="text-xs text-red-400 max-w-[120px] ml-auto">
-                                                         Stok tidak terhubung. Cek kode part.
-                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
@@ -386,13 +394,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                             <input 
                                 list="material-datalist"
                                 type="text"
-                                placeholder="Ketik nama bahan (Thinner, Clear, Amplas...)"
+                                placeholder="Ketik nama bahan..."
                                 className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                                 value={materialSearchTerm}
                                 onChange={handleMaterialSearch}
                                 autoComplete="off"
                             />
-                            {/* Datalist values must be the visible text string, not ID */}
                             <datalist id="material-datalist">
                                 {materialInventory.map(item => (
                                     <option key={item.id} value={item.name}>
@@ -402,40 +409,68 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                             </datalist>
                         </div>
                         
-                        {/* Selected Item Detail Preview */}
-                        {(selectedMaterialId || materialInventory.find(i => i.name === materialSearchTerm)) ? (
-                            (() => {
-                                const matched = materialInventory.find(i => i.id === selectedMaterialId || i.name === materialSearchTerm);
-                                if (!matched) return null;
-                                return (
-                                    <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
-                                        <div>
-                                            <p className="font-bold text-orange-900">{matched.name}</p>
-                                            <p className="text-xs text-orange-700 font-mono">{matched.code}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-orange-900 font-bold">Sisa Stok: {matched.stock} {matched.unit}</p>
-                                            <p className="text-xs text-gray-500">HPP: {formatCurrency(matched.buyPrice)}</p>
-                                        </div>
-                                    </div>
-                                );
-                            })()
+                        {/* ITEM DETAIL */}
+                        {currentMaterial ? (
+                            <div className="mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg flex justify-between items-center text-sm animate-fade-in">
+                                <div>
+                                    <p className="font-bold text-orange-900">{currentMaterial.name}</p>
+                                    <p className="text-xs text-orange-700 font-mono">{currentMaterial.code}</p>
+                                    {isVendorItem && (
+                                        <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
+                                            STOK VENDOR (Ready Use)
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-orange-900 font-bold">
+                                        Sisa: {currentMaterial.stock} {currentMaterial.unit}
+                                    </p>
+                                    <p className="text-xs text-gray-500">HPP: {formatCurrency(currentMaterial.buyPrice)} / {currentMaterial.unit}</p>
+                                </div>
+                            </div>
                         ) : materialSearchTerm.length > 2 && (
-                            <p className="text-xs text-red-400 mt-1 ml-1">Tekan opsi di menu drop-down untuk memilih.</p>
+                            <p className="text-xs text-red-400 mt-1 ml-1">Bahan tidak ditemukan.</p>
                         )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* INPUT QTY WITH UNIT TOGGLE */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah Pakai</label>
-                            <input 
-                                type="number" 
-                                min="0.1" step="0.1"
-                                value={qty} 
-                                onChange={e => setQty(Number(e.target.value))}
-                                className="w-full p-3 border border-gray-300 rounded-lg text-center font-bold"
-                            />
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-sm font-medium text-gray-700">Jumlah Pakai</label>
+                                {['Liter', 'Kg'].includes(baseUnit) && (
+                                    <label className="flex items-center gap-2 cursor-pointer text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={useSmallUnit}
+                                            onChange={e => setUseSmallUnit(e.target.checked)}
+                                            className="rounded text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <Scale size={12}/>
+                                        Input dlm {baseUnit === 'Liter' ? 'ML' : 'Gram'}?
+                                    </label>
+                                )}
+                            </div>
+                            
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    min="0.01" step="0.01"
+                                    value={inputQty} 
+                                    onChange={e => setInputQty(Number(e.target.value))}
+                                    className="w-full p-3 border border-gray-300 rounded-lg text-center font-bold text-lg"
+                                />
+                                <span className="absolute right-4 top-3.5 text-gray-500 font-bold text-sm">
+                                    {conversionLabel}
+                                </span>
+                            </div>
+                            {useSmallUnit && inputQty > 0 && (
+                                <p className="text-xs text-gray-500 mt-1 text-center">
+                                    Akan tercatat sebagai: <strong>{inputQty / 1000} {baseUnit}</strong>
+                                </p>
+                            )}
                         </div>
+
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
                             <input 
