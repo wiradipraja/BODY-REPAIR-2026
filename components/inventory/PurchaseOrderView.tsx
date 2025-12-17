@@ -106,11 +106,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
           
-          // 1. Cari berdasarkan WO Number
+          // Prioritas 1: Cari berdasarkan WO Number
           let q = query(collection(db, JOBS_COLLECTION), where('woNumber', '==', termUpper));
           let snapshot = await getDocs(q);
           
-          // 2. Jika tidak ada, cari berdasarkan No Polisi (Ambil terbaru)
+          // Prioritas 2: Cari berdasarkan No Polisi (Ambil record paling baru)
           if (snapshot.empty) {
               q = query(collection(db, JOBS_COLLECTION), where('policeNumber', '==', termUpper));
               snapshot = await getDocs(q);
@@ -118,7 +118,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           if (!snapshot.empty) {
               const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
-              // Sort locally to avoid Index requirements in Firestore
+              
+              // URUTKAN LOKAL (Terbaru di atas) - Ini krusial agar Partman melihat data SA yang barusan disimpan
               docs.sort((a, b) => {
                   const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
                   const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
@@ -126,23 +127,26 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               });
               
               const job = docs[0];
+              // Akses array partItems dengan fallback array kosong
               const parts = job.estimateData?.partItems || [];
               
               if (parts.length === 0) {
-                  showNotification("Unit ditemukan, tapi estimasi part masih kosong di data WO.", "error");
+                  showNotification(`Unit ${job.policeNumber} ditemukan, tapi estimasi part masih kosong di database. Pastikan SA sudah klik "Update Estimasi".`, "error");
               } else {
                   setFoundJob(job);
+                  // Auto-centang part yang belum di-order
                   const initialSelection: any = {};
                   parts.forEach((p, idx) => {
                       if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
                   });
                   setSelectedPartsFromWo(initialSelection);
+                  showNotification(`Ditemukan ${parts.length} item part dari estimasi SA.`, "success");
               }
           } else {
-              showNotification("Data WO/Nopol tidak ditemukan.", "error");
+              showNotification("Data WO atau No. Polisi tidak ditemukan.", "error");
           }
       } catch (e: any) {
-          console.error(e);
+          console.error("Search WO Error:", e);
           showNotification("Error: " + e.message, "error");
       } finally {
           setLoading(false);
@@ -168,20 +172,21 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       parts.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
-              // LOGIKA MAP: Cari di inventory master dulu (case-insensitive)
+              // LOGIKA MAPPING: Cek ke Master Stok (Case Insensitive)
               const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
               const invItem = inventoryItems.find(i => 
                   (estItem.inventoryId && i.id === estItem.inventoryId) || 
                   (partCodeUpper && i.code?.toUpperCase() === partCodeUpper)
               );
 
+              // TETAP TAMBAHKAN MESKIPUN INVITEM TIDAK ADA (Ini solusinya)
               itemsToAdd.push({
                   code: partCodeUpper || estItem.number || '',
-                  name: estItem.name || '',
+                  name: estItem.name || 'Unknown Part',
                   qty: estItem.qty || 1,
                   qtyReceived: 0,
                   unit: invItem?.unit || 'Pcs',
-                  price: invItem?.buyPrice || 0, // Jika part baru, HPP 0 (nanti diisi manual di PO)
+                  price: invItem?.buyPrice || 0, // Jika part baru, Partman isi harga manual di form PO nanti
                   total: (estItem.qty || 1) * (invItem?.buyPrice || 0),
                   inventoryId: estItem.inventoryId || invItem?.id || null,
                   refJobId: foundJob.id,
@@ -206,7 +211,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           setPoForm(prev => ({ ...prev, notes: `Order khusus WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
       }
 
-      showNotification(`${itemsToAdd.length} part ditambahkan ke draft PO.`, "success");
+      showNotification(`${itemsToAdd.length} part berhasil di-import.`, "success");
       setFoundJob(null);
       setWoSearchTerm('');
   };
