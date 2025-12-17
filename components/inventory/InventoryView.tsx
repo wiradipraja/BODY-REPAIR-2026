@@ -5,7 +5,7 @@ import { InventoryItem, UserPermissions } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import InventoryForm from './InventoryForm';
 import Modal from '../ui/Modal';
-import { Search, Plus, Wrench, PaintBucket, AlertTriangle, Edit, Trash2, Tag, Box, DollarSign } from 'lucide-react';
+import { Search, Plus, Wrench, PaintBucket, AlertTriangle, Edit, Trash2, Tag, Box, AlertCircle } from 'lucide-react';
 
 interface InventoryViewProps {
   userPermissions: UserPermissions;
@@ -15,6 +15,7 @@ interface InventoryViewProps {
 const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNotification }) => {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'sparepart' | 'material'>('sparepart');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -24,15 +25,21 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
         const querySnapshot = await getDocs(collection(db, SPAREPART_COLLECTION));
         const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem));
         // Sort by Name
         data.sort((a, b) => a.name.localeCompare(b.name));
         setItems(data);
-    } catch (e) {
+    } catch (e: any) {
         console.error("Fetch inventory error", e);
-        showNotification("Gagal memuat data inventory.", "error");
+        let errorMsg = "Gagal memuat data inventory.";
+        if (e.code === 'permission-denied' || e.message?.includes('Missing or insufficient permissions')) {
+            errorMsg = "Akses Ditolak: Database belum mengizinkan akses ke koleksi inventory.";
+        }
+        setError(errorMsg);
+        showNotification(errorMsg, "error");
     } finally {
         setLoading(false);
     }
@@ -62,7 +69,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
           fetchData();
       } catch (e: any) {
           console.error(e);
-          showNotification("Error: " + e.message, "error");
+          let errorMsg = e.message;
+           if (e.code === 'permission-denied' || e.message?.includes('Missing or insufficient permissions')) {
+              errorMsg = "Akses Ditolak: Mohon periksa Rules Firestore.";
+          }
+          showNotification("Error: " + errorMsg, "error");
       }
   };
 
@@ -105,6 +116,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
           </button>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow-sm flex items-start gap-3">
+             <div className="mt-1"><AlertCircle size={20}/></div>
+             <div>
+                <p className="font-bold">Koneksi Database Bermasalah</p>
+                <p className="text-sm mt-1">{error}</p>
+                {error.includes('Akses Ditolak') && (
+                    <p className="text-xs mt-2 p-2 bg-red-100 rounded text-red-800">
+                        <strong>Panduan Admin:</strong> Buka Firebase Console &gt; Firestore Database &gt; Rules.<br/>
+                        Tambahkan rule untuk koleksi <code>bengkel-spareparts-master</code> atau atur global read/write ke true (mode test).
+                    </p>
+                )}
+             </div>
+        </div>
+      )}
+
       {/* SUB-MENU TABS */}
       <div className="bg-white p-1 rounded-xl shadow-sm border border-gray-100 inline-flex">
           <button 
@@ -135,8 +162,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
           </div>
 
           {loading ? (
-              <div className="p-8 text-center text-gray-500">Memuat data inventory...</div>
-          ) : filteredItems.length === 0 ? (
+              <div className="p-12 flex flex-col items-center justify-center text-gray-500 gap-3">
+                  <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                  <p>Memuat data inventory...</p>
+              </div>
+          ) : filteredItems.length === 0 && !error ? (
               <div className="p-12 text-center flex flex-col items-center text-gray-400">
                   <Box size={48} className="mb-2 opacity-20"/>
                   <p>Tidak ada data {activeTab === 'sparepart' ? 'sparepart' : 'bahan baku'}.</p>
