@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Job, EstimateItem, EstimateData, Settings, InventoryItem } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User, Search, Package } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User, Search, Package, Clock } from 'lucide-react';
 
 interface EstimateEditorProps {
   job: Job;
@@ -77,7 +77,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
 
   // Handlers for Items
   const addItem = (type: 'jasa' | 'part') => {
-    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '' };
+    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '', isIndent: false };
     if (type === 'jasa') setJasaItems([...jasaItems, newItem]);
     else setPartItems([...partItems, newItem]);
   };
@@ -99,8 +99,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
             newItem.inventoryId = foundPart.id;
         } else {
             // Jika kode berubah dan tidak ketemu, kita lepas link inventoryId-nya
-            // Agar tidak memotong stok item yang salah, tapi biarkan nama/harga lama kalau user cuma edit typo
-            // Atau kosongkan jika Anda ingin strict. Di sini saya pilih lepas ID saja.
             newItem.inventoryId = undefined; 
         }
     }
@@ -252,7 +250,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           </div>
         </div>
 
-        {/* KOLOM SPAREPART - UPDATED: REMOVED DROPDOWN, ADDED AUTOFILL */}
+        {/* KOLOM SPAREPART - UPDATED: ADD INDENT CHECKBOX */}
         <div className="border rounded-xl p-4 bg-white shadow-sm h-fit">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -265,17 +263,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
           
           <div className="space-y-3">
             {partItems.map((item, idx) => (
-              <div key={idx} className="bg-gray-50 p-2 rounded border space-y-2 relative">
+              <div key={idx} className={`p-2 rounded border space-y-2 relative ${item.isIndent ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="grid grid-cols-12 gap-2 items-center">
                     
-                    {/* INPUT KODE PART DENGAN AUTOCOMPLETE */}
+                    {/* INPUT KODE PART */}
                     <div className="col-span-4">
                         <input 
                             type="text" 
                             placeholder="No. Part (Ketik...)" 
                             className={`w-full p-2 border rounded text-sm font-mono ${item.inventoryId ? 'border-green-400 bg-green-50 text-green-800' : ''}`}
                             value={item.number || ''} 
-                            list="inventory-list" // Connects to datalist
+                            list="inventory-list" 
                             onChange={e => updateItem('part', idx, 'number', e.target.value)} 
                         />
                     </div>
@@ -293,15 +291,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
                          <span className="text-xs text-gray-500">Rp:</span>
                          <input type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
                     </div>
+                    
+                    {/* INDENT CHECKBOX ROW */}
+                    <div className="col-span-12 flex items-center gap-4 mt-1 border-t pt-1">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input 
+                                type="checkbox" 
+                                checked={item.isIndent || false} 
+                                onChange={(e) => updateItem('part', idx, 'isIndent', e.target.checked)}
+                                className="rounded text-red-600 focus:ring-red-500"
+                            />
+                            <span className={`text-xs font-bold ${item.isIndent ? 'text-red-600' : 'text-gray-500'}`}>
+                                <Clock size={12} className="inline mr-1"/>
+                                INDENT (Order Supplier)
+                            </span>
+                        </label>
+                        
+                        {item.inventoryId && (
+                            <span className="bg-green-100 text-green-700 text-[10px] px-1.5 rounded-full border border-green-200 flex items-center gap-0.5 shadow-sm ml-auto">
+                                <Package size={8}/> Linked Stock
+                            </span>
+                        )}
+                    </div>
                   </div>
-                  {/* Indikator Inventory Linked */}
-                  {item.inventoryId && (
-                      <div className="absolute -top-2 -right-1">
-                          <span className="bg-green-100 text-green-700 text-[10px] px-1.5 rounded-full border border-green-200 flex items-center gap-0.5 shadow-sm">
-                              <Package size={8}/> Stock Linked
-                          </span>
-                      </div>
-                  )}
               </div>
             ))}
             {partItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item sparepart</p>}

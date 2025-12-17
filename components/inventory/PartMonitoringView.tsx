@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Job, InventoryItem } from '../../types';
+import { Job, InventoryItem, EstimateItem } from '../../types';
 import { formatDateIndo } from '../../utils/helpers';
-import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X } from 'lucide-react';
+import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X, AlertTriangle } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface PartMonitoringViewProps {
@@ -14,9 +14,9 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'LENGKAP' | 'PARTIAL' | 'INDENT'>('ALL');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
-  // --- LOGIC: Process Jobs to Determine Part Status ---
+  // --- LOGIC: FIFO Stock Allocation Algorithm ---
   const processedJobs = useMemo(() => {
-    // Only Active WOs that have Parts in Estimate
+    // 1. Filter only Active WOs that have Parts
     const activeJobs = jobs.filter(j => 
         !j.isClosed && 
         j.woNumber && 
@@ -24,22 +24,65 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         j.estimateData.partItems.length > 0
     );
 
+    // 2. Sort by Entry Date (First In First Out priority for stock)
+    activeJobs.sort((a, b) => {
+        const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+        const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+        return dateA - dateB;
+    });
+
+    // 3. Create a Virtual Stock Map from Inventory Master
+    const stockMap: Record<string, number> = {};
+    inventoryItems.forEach(item => {
+        stockMap[item.id] = item.stock;
+    });
+
+    // 4. Process Jobs and Allocate Stock
     return activeJobs.map(job => {
         const parts = job.estimateData?.partItems || [];
         const totalParts = parts.length;
-        const arrivedParts = parts.filter(p => p.hasArrived).length;
+        let readyCount = 0;
         
-        let status: 'LENGKAP' | 'PARTIAL' | 'INDENT' = 'INDENT';
+        // Enrich parts with availability status based on Virtual Stock
+        const processedParts = parts.map(part => {
+            let status: 'ISSUED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
+            const reqQty = part.qty || 1;
+
+            // Priority 1: Already Issued/Arrived
+            if (part.hasArrived) {
+                status = 'ISSUED';
+                readyCount++; // Considered "Complete" for this car
+            }
+            // Priority 2: Explicitly marked as Indent
+            else if (part.isIndent) {
+                status = 'INDENT_MANUAL';
+            }
+            // Priority 3: Check Virtual Stock
+            else if (part.inventoryId && stockMap[part.inventoryId] >= reqQty) {
+                status = 'READY'; // Booked/Reserved for this car
+                stockMap[part.inventoryId] -= reqQty; // Deduct from virtual stock
+                readyCount++;
+            }
+            // Priority 4: No Stock Available
+            else {
+                status = 'WAITING'; // Stock 0 or taken by previous cars
+            }
+
+            return { ...part, allocationStatus: status };
+        });
         
-        if (arrivedParts === totalParts) status = 'LENGKAP';
-        else if (arrivedParts > 0) status = 'PARTIAL';
-        else status = 'INDENT';
+        let jobStatus: 'LENGKAP' | 'PARTIAL' | 'INDENT' = 'INDENT';
+        
+        if (readyCount === totalParts) jobStatus = 'LENGKAP';
+        else if (readyCount > 0) jobStatus = 'PARTIAL';
+        else jobStatus = 'INDENT';
 
         return {
             ...job,
-            partStatus: status,
+            partStatus: jobStatus,
             totalParts,
-            arrivedParts
+            readyParts: readyCount, // Includes ISSUED and READY (Allocated)
+            detailedParts: processedParts
         };
     }).filter(job => {
         // Search Filter
@@ -53,47 +96,22 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
 
         return matchesSearch && matchesStatus;
     });
-  }, [jobs, searchTerm, statusFilter]);
+  }, [jobs, inventoryItems, searchTerm, statusFilter]);
 
-  // --- STATS CALCULATION ---
+  // --- STATS CALCULATION (From processed data to ensure consistency) ---
   const stats = useMemo(() => {
-      const allActive = jobs.filter(j => !j.isClosed && j.woNumber && j.estimateData?.partItems?.length > 0);
-      const lengkap = allActive.filter(j => {
-          const parts = j.estimateData?.partItems || [];
-          return parts.length > 0 && parts.every(p => p.hasArrived);
-      }).length;
-      
-      const partial = allActive.filter(j => {
-          const parts = j.estimateData?.partItems || [];
-          const arrived = parts.filter(p => p.hasArrived).length;
-          return arrived > 0 && arrived < parts.length;
-      }).length;
-
-      const indent = allActive.length - lengkap - partial;
-
-      return { total: allActive.length, lengkap, partial, indent };
-  }, [jobs]);
-
-  // --- HELPER: GET STOCK STATUS ---
-  const getStockStatus = (partCode: string | undefined, inventoryId: string | undefined) => {
-      if (!partCode && !inventoryId) return { text: 'Unknown', color: 'text-gray-400' };
-      
-      const item = inventoryItems.find(i => 
-          (inventoryId && i.id === inventoryId) || 
-          (partCode && i.code === partCode)
-      );
-
-      if (!item) return { text: 'Not in Master', color: 'text-gray-400' };
-      if (item.stock > 0) return { text: `Ready Stock (${item.stock})`, color: 'text-green-600 font-bold' };
-      return { text: 'Stok Kosong (Perlu PO)', color: 'text-red-600 font-bold' };
-  };
+      const lengkap = processedJobs.filter(j => j.partStatus === 'LENGKAP').length;
+      const partial = processedJobs.filter(j => j.partStatus === 'PARTIAL').length;
+      const indent = processedJobs.filter(j => j.partStatus === 'INDENT').length;
+      return { total: processedJobs.length, lengkap, partial, indent };
+  }, [processedJobs]);
 
   return (
     <div className="space-y-6 animate-fade-in">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
                 <h1 className="text-3xl font-bold text-gray-900">Monitoring Part WO</h1>
-                <p className="text-gray-500 mt-1">Status ketersediaan sparepart untuk unit yang sedang dikerjakan.</p>
+                <p className="text-gray-500 mt-1">Status ketersediaan part dengan alokasi stok (First-In-First-Out).</p>
             </div>
         </div>
 
@@ -119,7 +137,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                     <CheckCircle size={20} className="text-green-500"/>
                 </div>
                 <div className="text-2xl font-bold text-green-800">{stats.lengkap}</div>
-                <p className="text-xs text-green-600 mt-1">Siap dikerjakan total</p>
+                <p className="text-xs text-green-600 mt-1">Ready Gudang / Terpasang</p>
             </div>
 
             <div 
@@ -131,7 +149,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                     <Clock size={20} className="text-orange-500"/>
                 </div>
                 <div className="text-2xl font-bold text-orange-800">{stats.partial}</div>
-                <p className="text-xs text-orange-600 mt-1">Menunggu sisa part</p>
+                <p className="text-xs text-orange-600 mt-1">Sebagian Ready/Terpasang</p>
             </div>
 
             <div 
@@ -140,10 +158,10 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             >
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-semibold text-red-700">Indent / Kosong</span>
-                    <AlertCircle size={20} className="text-red-500"/>
+                    <AlertTriangle size={20} className="text-red-500"/>
                 </div>
                 <div className="text-2xl font-bold text-red-800">{stats.indent}</div>
-                <p className="text-xs text-red-600 mt-1">Belum ada part masuk</p>
+                <p className="text-xs text-red-600 mt-1">Perlu Order Supplier</p>
             </div>
         </div>
 
@@ -166,8 +184,8 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                         <tr>
                             <th className="px-6 py-3">Info Unit (WO)</th>
                             <th className="px-6 py-3">Tanggal Masuk</th>
-                            <th className="px-6 py-3">Progress Part</th>
-                            <th className="px-6 py-3">Status Ketersediaan</th>
+                            <th className="px-6 py-3">Ketersediaan Part</th>
+                            <th className="px-6 py-3">Status Supply</th>
                             <th className="px-6 py-3 text-center">Detail</th>
                         </tr>
                     </thead>
@@ -191,14 +209,15 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2">
-                                            <div className="flex-grow bg-gray-200 rounded-full h-2.5 w-24">
+                                            <div className="flex-grow bg-gray-200 rounded-full h-2.5 w-24 overflow-hidden">
                                                 <div 
                                                     className={`h-2.5 rounded-full ${job.partStatus === 'LENGKAP' ? 'bg-green-500' : job.partStatus === 'PARTIAL' ? 'bg-orange-500' : 'bg-red-500'}`} 
-                                                    style={{ width: `${(job.arrivedParts / job.totalParts) * 100}%` }}
+                                                    style={{ width: `${(job.readyParts / job.totalParts) * 100}%` }}
                                                 ></div>
                                             </div>
-                                            <span className="text-xs font-bold text-gray-700">{job.arrivedParts}/{job.totalParts}</span>
+                                            <span className="text-xs font-bold text-gray-700">{job.readyParts}/{job.totalParts}</span>
                                         </div>
+                                        <p className="text-[10px] text-gray-400 mt-1">Ready Gudang + Terpasang</p>
                                     </td>
                                     <td className="px-6 py-4">
                                         {job.partStatus === 'LENGKAP' && (
@@ -213,7 +232,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                         )}
                                         {job.partStatus === 'INDENT' && (
                                             <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200">
-                                                Indent / Proses
+                                                Indent / Kosong
                                             </span>
                                         )}
                                     </td>
@@ -260,37 +279,40 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                 <th className="p-3 border-b">No. Part</th>
                                 <th className="p-3 border-b">Nama Part</th>
                                 <th className="p-3 border-b text-center">Qty</th>
-                                <th className="p-3 border-b">Status Supply</th>
-                                <th className="p-3 border-b">Keterangan Gudang</th>
+                                <th className="p-3 border-b">Status Alokasi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {selectedJob.estimateData?.partItems.map((part, idx) => {
-                                const stockInfo = getStockStatus(part.number, part.inventoryId);
+                            {/* Use the detailedParts from the processedJobs logic, we need to find the processed version of selectedJob */}
+                            {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || selectedJob.estimateData?.partItems || []).map((part: any, idx: number) => {
+                                let statusBadge;
+                                switch(part.allocationStatus) {
+                                    case 'ISSUED':
+                                        statusBadge = <span className="text-green-700 font-bold flex items-center gap-1"><CheckCircle size={14}/> Sudah Keluar</span>;
+                                        break;
+                                    case 'READY':
+                                        statusBadge = <span className="text-blue-600 font-bold flex items-center gap-1"><Package size={14}/> Ready Gudang (Booked)</span>;
+                                        break;
+                                    case 'INDENT_MANUAL':
+                                        statusBadge = <span className="text-red-600 font-bold flex items-center gap-1"><Clock size={14}/> INDENT SUPPLIER</span>;
+                                        break;
+                                    case 'WAITING':
+                                        statusBadge = <span className="text-orange-600 font-bold flex items-center gap-1"><AlertTriangle size={14}/> Menunggu Stok</span>;
+                                        break;
+                                    default:
+                                        statusBadge = <span className="text-gray-400">Unknown</span>;
+                                }
+
                                 return (
-                                    <tr key={idx} className={part.hasArrived ? 'bg-green-50' : 'bg-white'}>
+                                    <tr key={idx} className={part.allocationStatus === 'READY' ? 'bg-blue-50' : part.allocationStatus === 'ISSUED' ? 'bg-green-50' : 'bg-white'}>
                                         <td className="p-3 font-mono text-xs">{part.number || '-'}</td>
-                                        <td className="p-3">{part.name}</td>
+                                        <td className="p-3">
+                                            {part.name}
+                                            {part.isIndent && <span className="ml-2 text-[10px] text-white bg-red-500 px-1 rounded">INDENT</span>}
+                                        </td>
                                         <td className="p-3 text-center font-bold">{part.qty}</td>
                                         <td className="p-3">
-                                            {part.hasArrived ? (
-                                                <span className="text-green-700 font-bold flex items-center gap-1">
-                                                    <CheckCircle size={14}/> Sudah Keluar
-                                                </span>
-                                            ) : (
-                                                <span className="text-orange-600 font-medium flex items-center gap-1">
-                                                    <Clock size={14}/> Belum Keluar
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="p-3">
-                                            {part.hasArrived ? (
-                                                <span className="text-gray-400 italic text-xs">Terpasang di Unit</span>
-                                            ) : (
-                                                <span className={`text-xs ${stockInfo.color}`}>
-                                                    {stockInfo.text}
-                                                </span>
-                                            )}
+                                            {statusBadge}
                                         </td>
                                     </tr>
                                 );
@@ -298,6 +320,14 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                         </tbody>
                     </table>
                     
+                    <div className="bg-yellow-50 p-3 rounded-lg text-xs text-yellow-800 flex items-start gap-2">
+                        <AlertCircle size={16} className="shrink-0 mt-0.5"/>
+                        <p>
+                            <strong>Catatan Sistem:</strong> Status "Ready Gudang" menggunakan sistem antrian (First-In-First-Out) berdasarkan tanggal masuk mobil. 
+                            Jika stok terbatas, mobil yang masuk lebih dulu diprioritaskan.
+                        </p>
+                    </div>
+
                     <div className="flex justify-end pt-4">
                         <button 
                             onClick={() => setSelectedJob(null)}
