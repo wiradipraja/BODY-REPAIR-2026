@@ -24,3 +24,4 @@ export const SETTINGS_COLLECTION = "bengkel-settings";
 export const USERS_COLLECTION = "users";
 export const SPAREPART_COLLECTION = "bengkel-spareparts-master";
 export const SUPPLIERS_COLLECTION = "bengkel-suppliers";
+export const PURCHASE_ORDERS_COLLECTION = "bengkel-purchase-orders";

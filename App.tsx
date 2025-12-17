@@ -18,6 +18,7 @@ import EstimateEditor from './components/forms/EstimateEditor';
 import SettingsView from './components/settings/SettingsView';
 import InventoryView from './components/inventory/InventoryView'; 
 import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
+import PurchaseOrderView from './components/inventory/PurchaseOrderView'; // NEW IMPORT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -31,7 +32,7 @@ const AppContent: React.FC = () => {
   // Data State
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]); // New State
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
 
   // Function to refresh settings from DB manually
   const refreshSettings = async () => {
@@ -400,12 +401,23 @@ const AppContent: React.FC = () => {
              />
         )}
 
+        {/* PURCHASE ORDER (NEW) */}
+        {currentView === 'purchase_order' && (
+            <PurchaseOrderView
+                suppliers={suppliers}
+                inventoryItems={inventoryItems}
+                userPermissions={userPermissions}
+                showNotification={showNotification}
+                onRefreshInventory={refreshInventory}
+            />
+        )}
+
         {/* PEMBEBANAN PART (SYNC WITH ESTIMATE) */}
         {currentView === 'part_issuance' && (
             <MaterialIssuanceView 
                 activeJobs={allData.filter(j => j.woNumber)} // Allow Closed Jobs to be seen for history, but actions blocked
                 inventoryItems={inventoryItems}
-                suppliers={suppliers} // PASS SUPPLIERS
+                suppliers={suppliers} 
                 userPermissions={userPermissions}
                 showNotification={showNotification}
                 onRefreshData={refreshInventory}
@@ -418,7 +430,7 @@ const AppContent: React.FC = () => {
             <MaterialIssuanceView 
                 activeJobs={allData.filter(j => j.woNumber)} 
                 inventoryItems={inventoryItems}
-                suppliers={suppliers} // PASS SUPPLIERS
+                suppliers={suppliers}
                 userPermissions={userPermissions}
                 showNotification={showNotification}
                 onRefreshData={refreshInventory}

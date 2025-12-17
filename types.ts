@@ -155,6 +155,31 @@ export interface InventoryItem {
   updatedAt?: any;
 }
 
+export interface PurchaseOrderItem {
+  inventoryId?: string; // Link to master (optional if new item)
+  code: string;
+  name: string;
+  qty: number;
+  unit: string;
+  price: number; // Harga Beli Satuan
+  total: number;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  supplierId: string;
+  supplierName: string;
+  status: 'Draft' | 'Ordered' | 'Received' | 'Cancelled';
+  items: PurchaseOrderItem[];
+  totalAmount: number;
+  notes?: string;
+  createdBy: string;
+  createdAt: any;
+  receivedAt?: any;
+  receivedBy?: string;
+}
+
 export interface Settings {
   // Workshop Identity
   workshopName?: string;
