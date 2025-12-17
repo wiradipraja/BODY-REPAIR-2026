@@ -100,6 +100,18 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     );
   };
 
+  // --- HANDLER FOR PDF PRINTING ---
+  const handlePrintPO = (po: PurchaseOrder) => {
+    if (!po) return;
+    try {
+        generatePurchaseOrderPDF(po, settings);
+        showNotification(`Mendownload ${po.poNumber}...`, "success");
+    } catch (err: any) {
+        console.error("PDF Print Error:", err);
+        showNotification("Gagal mencetak PDF. Cek console.", "error");
+    }
+  };
+
   // --- HANDLERS FOR APPROVAL ---
 
   const handleApprovePO = async () => {
@@ -585,9 +597,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                         </button>
                       )}
 
-                      {/* PRINT BUTTON */}
+                      {/* PRINT BUTTON - FIXED: Use internal handler */}
                       <button 
-                        onClick={() => generatePurchaseOrderPDF(selectedPO, settings)} 
+                        onClick={() => handlePrintPO(selectedPO)} 
                         className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
                       >
                         <Printer size={18}/> Print PO
@@ -670,15 +682,38 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4 text-xs uppercase text-gray-500">No. PO</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Supplier</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Status</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-right">Total</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-center">Aksi</th></tr></thead>
                         <tbody className="divide-y">
-                            {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
-                                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
-                                    <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
-                                    <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
-                                    <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
-                                    <td className="px-6 py-4 text-center"><button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"><Eye size={18}/></button></td>
-                                </tr>
-                            ))}
+                            {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => {
+                                const isDownloadable = ['Ordered', 'Partial', 'Received'].includes(order.status);
+                                
+                                return (
+                                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
+                                        <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
+                                        <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
+                                        <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="flex justify-center gap-2">
+                                                <button 
+                                                    onClick={() => { setSelectedPO(order); setViewMode('detail'); }} 
+                                                    className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"
+                                                    title="Lihat Detail"
+                                                >
+                                                    <Eye size={18}/>
+                                                </button>
+                                                {isDownloadable && (
+                                                    <button 
+                                                        onClick={() => handlePrintPO(order)} 
+                                                        className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors"
+                                                        title="Cetak PDF"
+                                                    >
+                                                        <Printer size={18}/>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
