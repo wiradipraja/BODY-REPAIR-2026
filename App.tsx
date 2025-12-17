@@ -127,7 +127,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleCreateTransaction = (vehicle: Vehicle) => {
-      // Fix: Corrected draft initialization by mirroring vehicle fields and fixing property placements
+      // Mirroring ALL vehicle data to the transaction draft for full visibility
       const newJobDraft: Partial<Job> = {
           id: `TEMP_${Date.now()}`,
           unitId: vehicle.id,
@@ -140,6 +140,12 @@ const AppContent: React.FC = () => {
           carModel: vehicle.carModel,
           warnaMobil: vehicle.warnaMobil,
           namaAsuransi: vehicle.namaAsuransi,
+          
+          // Technical Info
+          nomorRangka: vehicle.nomorRangka,
+          nomorMesin: vehicle.nomorMesin,
+          tahunPembuatan: vehicle.tahunPembuatan,
+
           statusKendaraan: 'Booking Masuk',
           statusPekerjaan: 'Belum Mulai Perbaikan',
           posisiKendaraan: 'Di Bengkel',

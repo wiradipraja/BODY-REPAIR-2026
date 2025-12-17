@@ -1,4 +1,5 @@
 
+
 import { Timestamp } from 'firebase/firestore';
 
 export interface Vehicle {
@@ -32,6 +33,11 @@ export interface Job {
   carModel: string;
   warnaMobil: string;
   namaAsuransi: string;
+  
+  // Mirrored technical info from Vehicle for full transaction visibility
+  nomorRangka?: string;
+  nomorMesin?: string;
+  tahunPembuatan?: string;
   
   woNumber?: string;
   namaSA: string;

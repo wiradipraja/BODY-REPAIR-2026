@@ -7,8 +7,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Rules untuk Data Unit & WO (Pekerjaan Utama)
-    match /shared-bengkel-jobs/{jobId} {
+    // Rules untuk Database Unit Master (Data Kendaraan Permanen)
+    match /bengkel-units-master/{unitId} {
+      allow read, write: if isAuthenticated();
+      match /{allPaths=**} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Rules untuk Transaksi Service (Estimasi & Work Order)
+    match /bengkel-service-jobs/{jobId} {
       allow read, write: if isAuthenticated();
       match /{allPaths=**} {
         allow read, write: if isAuthenticated();
@@ -41,6 +49,14 @@ service cloud.firestore {
     // Rules untuk Profil Pengguna
     match /users/{uid} {
       allow read, write: if isAuthenticated();
+    }
+
+    // Backward Compatibility (Deprecated Collection)
+    match /shared-bengkel-jobs/{jobId} {
+      allow read, write: if isAuthenticated();
+      match /{allPaths=**} {
+        allow read, write: if isAuthenticated();
+      }
     }
   }
 }
