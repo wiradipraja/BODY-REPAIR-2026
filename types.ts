@@ -1,11 +1,64 @@
+
 import { Timestamp } from 'firebase/firestore';
+
+export interface Vehicle {
+  id: string;
+  policeNumber: string;
+  customerName: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerKota?: string;
+  carBrand?: string;
+  carModel: string;
+  warnaMobil: string;
+  nomorRangka?: string;
+  nomorMesin?: string;
+  tahunPembuatan?: string;
+  namaAsuransi: string;
+  createdAt?: Timestamp;
+  isDeleted?: boolean;
+}
+
+export interface Job {
+  id: string;
+  unitId: string; // Linked to Vehicle.id
+  policeNumber: string; // Redundant for easy search/display
+  customerName: string;
+  // Fix: Added missing mirrored fields from Vehicle
+  customerPhone?: string;
+  customerAddress?: string;
+  customerKota?: string;
+  carBrand?: string;
+  carModel: string;
+  warnaMobil: string;
+  namaAsuransi: string;
+  
+  woNumber?: string;
+  namaSA: string;
+  statusKendaraan: string;
+  statusPekerjaan: string;
+  posisiKendaraan: string;
+  
+  tanggalMasuk?: string;
+  isClosed: boolean;
+  closedAt?: Timestamp;
+  createdAt?: Timestamp;
+  isDeleted?: boolean;
+  
+  estimateData?: EstimateData;
+  costData?: JobCostData;
+  usageLog?: UsageLogItem[];
+  
+  hargaJasa?: number;
+  hargaPart?: number;
+}
 
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
-  jobdesk?: string; // This acts as the Role
-  role?: string; // Explicit role field
+  jobdesk?: string;
+  role?: string;
   createdAt?: any;
 }
 
@@ -25,17 +78,16 @@ export interface EstimateItem {
   price: number;
   number?: string;
   qty?: number;
-  isOrdered?: boolean; // New: Flag to indicate PO has been created
+  isOrdered?: boolean;
   isIndent?: boolean;
-  indentETA?: string; // New: Tanggal Estimasi Barang Datang
+  indentETA?: string;
   hasArrived?: boolean;
-  hargaBeliAktual?: number;
-  inventoryId?: string; // Linked to Inventory Master
+  inventoryId?: string;
 }
 
 export interface EstimateData {
-  estimationNumber?: string; // New: Nomor Unik Estimasi (e.g. BE24110001)
-  estimatorName?: string; // New: Persisted name of the person who created/signed the estimate
+  estimationNumber?: string;
+  estimatorName?: string;
   jasaItems: EstimateItem[];
   partItems: EstimateItem[];
   discountJasa: number;
@@ -58,75 +110,8 @@ export interface UsageLogItem {
   costPerUnit: number;
   totalCost: number;
   category: 'sparepart' | 'material';
-  supplierId?: string; // New: Track which supplier this usage belongs to (for billing)
-  supplierName?: string; // New
-  notes?: string;
   issuedAt: string;
   issuedBy: string;
-  cancellationReason?: string; // Audit: Why this issuance was cancelled
-}
-
-export interface Job {
-  id: string;
-  policeNumber: string;
-  
-  // Customer Info
-  customerName: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  customerKelurahan?: string;
-  customerKecamatan?: string;
-  customerKota?: string;
-  customerProvinsi?: string;
-
-  // Vehicle Info
-  carBrand?: string;
-  carModel: string;
-  warnaMobil: string;
-  nomorRangka?: string;
-  nomorMesin?: string;
-  tahunPembuatan?: string;
-  
-  // Insurance Info
-  namaAsuransi: string;
-  nomorPolis?: string;
-  asuransiExpiryDate?: string;
-
-  namaSA: string;
-  
-  statusKendaraan: string;
-  statusPekerjaan: string;
-  posisiKendaraan: string;
-  
-  tanggalMasuk?: string;
-  tanggalMulaiPerbaikan?: string;
-  tanggalEstimasiSelesai?: string;
-  tanggalSelesai?: string;
-  tanggalDiambil?: string;
-  
-  woNumber?: string;
-  isClosed: boolean;
-  closedAt?: Timestamp;
-  createdAt?: Timestamp;
-  
-  // Audit Trails
-  isRework?: boolean;
-  reworkReason?: string;
-  reopenReason?: string; // Audit: Why WO was reopened
-  isDeleted?: boolean; // Soft Delete
-  deletedReason?: string; // Audit: Why data was deleted
-  
-  costData?: JobCostData;
-  estimateData?: EstimateData;
-  usageLog?: UsageLogItem[]; // History of issued items
-  
-  hargaJasa?: number;
-  hargaPart?: number;
-  grossProfit?: number;
-  
-  jumlahPanel?: number;
-  photosTaskIgnored?: boolean;
-  photos?: Record<string, any[]>;
 }
 
 export interface Supplier {
@@ -136,7 +121,6 @@ export interface Supplier {
   phone: string;
   address: string;
   picName: string;
-  // Bank Details for Finance
   bankName?: string;
   bankAccountNumber?: string;
   bankAccountHolder?: string;
@@ -145,39 +129,36 @@ export interface Supplier {
 
 export interface InventoryItem {
   id: string;
-  code: string; // Part Number or SKU
+  code: string;
   name: string;
   category: 'sparepart' | 'material';
-  brand?: string; // Merk (e.g. Mazda Genuine, Nippon Paint)
+  brand?: string;
   stock: number;
-  unit: string; // Pcs, Liter, Kg, Set
+  unit: string;
   minStock: number;
-  buyPrice: number; // Harga Modal / HPP
-  sellPrice: number; // Harga Jual ke Customer
-  location?: string; // Lokasi Rak/Gudang
-  supplierId?: string; // Link to Supplier
-  isStockManaged?: boolean; // New: If false, stock can go negative (Vendor Managed/Consignment)
+  buyPrice: number;
+  sellPrice: number;
+  location?: string;
+  isStockManaged?: boolean;
   createdAt: any;
   updatedAt?: any;
 }
 
 export interface PurchaseOrderItem {
-  inventoryId?: string | null; // Nullable for new items
+  inventoryId?: string | null;
   code: string;
   name: string;
-  brand?: string; // Brand/Merk information
-  category: 'sparepart' | 'material'; // New field for categorization
+  brand?: string;
+  category: 'sparepart' | 'material';
   qty: number;
-  qtyReceived?: number; // Supports partial shipment
+  qtyReceived?: number;
   unit: string;
-  price: number; // Harga Beli Satuan
+  price: number;
   total: number;
-  
-  // Link to Specific WO (Optional)
   refJobId?: string; 
   refWoNumber?: string;
-  refPartIndex?: number; // Index in the EstimateData.partItems array
-  isIndent?: boolean; // Flag to sync back to Job
+  refPartIndex?: number;
+  isIndent?: boolean;
 }
 
 export interface PurchaseOrder {
@@ -187,34 +168,20 @@ export interface PurchaseOrder {
   supplierName: string;
   status: 'Draft' | 'Pending Approval' | 'Ordered' | 'Rejected' | 'Partial' | 'Received' | 'Cancelled';
   items: PurchaseOrderItem[];
-  
-  // Financials
   subtotal: number;
   hasPpn: boolean;
   ppnAmount: number;
-  totalAmount: number; // Grand Total
-  
+  totalAmount: number;
   notes?: string;
-  
-  // Audit
   createdBy: string;
   createdAt: any;
-  
-  approvedBy?: string;
-  approvedAt?: any;
-  rejectionReason?: string;
-
-  receivedAt?: any;
-  receivedBy?: string;
 }
 
 export interface Settings {
-  // Workshop Identity
   workshopName?: string;
   workshopAddress?: string;
   workshopPhone?: string;
   workshopEmail?: string;
-
   ppnPercentage: number;
   monthlyTarget: number;
   weeklyTarget: number;
@@ -226,5 +193,5 @@ export interface Settings {
   statusKendaraanOptions: string[];
   statusPekerjaanOptions: string[];
   userRoles: Record<string, { role: string; financeAccess: boolean }>;
-  roleOptions: string[]; // List of available roles in the system
+  roleOptions: string[];
 }

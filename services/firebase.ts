@@ -1,3 +1,4 @@
+
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, increment as firestoreIncrement } from 'firebase/firestore';
@@ -19,9 +20,14 @@ export const storage = getStorage(app);
 export const increment = firestoreIncrement;
 
 export const ADMIN_UID = "1O2CzQEvsVOnBuDWqfbtQWHJ4RP2";
-export const JOBS_COLLECTION = "shared-bengkel-jobs";
+// NEW COLLECTIONS
+export const UNITS_MASTER_COLLECTION = "bengkel-units-master";
+export const SERVICE_JOBS_COLLECTION = "bengkel-service-jobs";
+// SYSTEM
 export const SETTINGS_COLLECTION = "bengkel-settings";
 export const USERS_COLLECTION = "users";
 export const SPAREPART_COLLECTION = "bengkel-spareparts-master";
 export const SUPPLIERS_COLLECTION = "bengkel-suppliers";
 export const PURCHASE_ORDERS_COLLECTION = "bengkel-purchase-orders";
+// DEPRECATED (Keeping reference for migration if needed)
+export const JOBS_COLLECTION = "shared-bengkel-jobs";

@@ -1,10 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { useJobs } from './hooks/useJobs';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, increment, getDoc } from 'firebase/firestore';
-import { db, JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings, InventoryItem, Supplier } from './types';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
+import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle } from './types';
 import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
 
@@ -26,37 +25,57 @@ import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
-  const { jobs: allData, loading: jobsLoading, error: jobsError } = useJobs(user);
   
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
+  
+  // DATA STATES
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+
+  // REALTIME LISTENERS
+  useEffect(() => {
+    if (!user) return;
+    
+    setLoadingData(true);
+    
+    // Listen to Vehicles
+    const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION)), (snap) => {
+      setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
+    });
+
+    // Listen to Service Jobs
+    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION)), (snap) => {
+      setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
+    });
+
+    setLoadingData(false);
+    return () => { unsubVehicles(); unsubJobs(); };
+  }, [user]);
 
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
-          if (!q.empty) {
-              setAppSettings(q.docs[0].data() as Settings);
-          }
-      } catch (e) { console.error("Failed to refresh settings", e); }
+          if (!q.empty) setAppSettings(q.docs[0].data() as Settings);
+      } catch (e) { console.error(e); }
   };
 
   const refreshInventory = async () => {
       try {
           const q = await getDocs(collection(db, SPAREPART_COLLECTION));
-          const items = q.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem));
-          setInventoryItems(items);
-      } catch (e) { console.error("Failed to load inventory", e); }
+          setInventoryItems(q.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+      } catch (e) { console.error(e); }
   };
 
   const refreshSuppliers = async () => {
       try {
           const q = await getDocs(collection(db, SUPPLIERS_COLLECTION));
-          const items = q.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier));
-          setSuppliers(items);
-      } catch (e) { console.error("Failed to load suppliers", e); }
+          setSuppliers(q.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
+      } catch (e) { console.error(e); }
   };
 
   useEffect(() => {
@@ -87,119 +106,57 @@ const AppContent: React.FC = () => {
   const openModal = (type: any, data: any = null) => setModalState({ isOpen: true, type, data });
   const closeModal = () => setModalState({ isOpen: false, type: null, data: null });
 
-  const handleSaveJob = async (formData: Partial<Job>) => {
+  const handleSaveVehicle = async (formData: Partial<Vehicle>) => {
       try {
           if (formData.id) {
-              const jobRef = doc(db, JOBS_COLLECTION, formData.id);
-              const cleaned = cleanObject(formData);
-              await updateDoc(jobRef, cleaned);
-              showNotification("Data berhasil diperbarui", "success");
+              await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(formData));
+              showNotification("Database Unit diperbarui.", "success");
           } else {
-              const newJob: any = {
+              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject({
                   ...formData,
                   createdAt: serverTimestamp(),
-                  isClosed: false,
-                  costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
-                  estimateData: { grandTotal: 0 }
-              };
-              if (!newJob.tanggalMasuk) newJob.tanggalMasuk = new Date().toISOString().split('T')[0];
-              await addDoc(collection(db, JOBS_COLLECTION), cleanObject(newJob));
-              showNotification("Data Unit tersimpan.", "success");
+                  isDeleted: false
+              }));
+              showNotification("Unit baru berhasil didaftarkan.", "success");
           }
           closeModal();
       } catch (e) { 
           console.error(e);
-          showNotification("Gagal menyimpan data.", "error"); 
+          showNotification("Gagal menyimpan unit.", "error"); 
       }
   };
 
-  // MODIFIKASI: Tidak lagi melakukan addDoc di sini
-  const handleCreateTransaction = (vehicleData: Partial<Job>) => {
-      // Kita buat objek "Draft" yang belum punya ID Firestore
-      // Kita tandai dengan flag isNewTransaction agar handleSaveEstimate tahu harus pakai addDoc
-      const newJobDraft = {
-          ...vehicleData,
-          id: `TEMP_${Date.now()}`, // Temporary ID untuk UI
-          isNewTransaction: true,
+  const handleCreateTransaction = (vehicle: Vehicle) => {
+      // Fix: Corrected draft initialization by mirroring vehicle fields and fixing property placements
+      const newJobDraft: Partial<Job> = {
+          id: `TEMP_${Date.now()}`,
+          unitId: vehicle.id,
+          policeNumber: vehicle.policeNumber,
+          customerName: vehicle.customerName,
+          customerPhone: vehicle.customerPhone,
+          customerAddress: vehicle.customerAddress,
+          customerKota: vehicle.customerKota,
+          carBrand: vehicle.carBrand,
+          carModel: vehicle.carModel,
+          warnaMobil: vehicle.warnaMobil,
+          namaAsuransi: vehicle.namaAsuransi,
           statusKendaraan: 'Booking Masuk',
           statusPekerjaan: 'Belum Mulai Perbaikan',
           posisiKendaraan: 'Di Bengkel',
           tanggalMasuk: new Date().toISOString().split('T')[0],
           isClosed: false,
-          costData: { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
-          estimateData: { grandTotal: 0, jasaItems: [], partItems: [] }
+          hargaJasa: 0,
+          hargaPart: 0,
+          costData: { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
+          estimateData: { grandTotal: 0, jasaItems: [], partItems: [], discountJasa: 0, discountPart: 0, discountJasaAmount: 0, discountPartAmount: 0, ppnAmount: 0, subtotalJasa: 0, subtotalPart: 0 }
       };
-      
       openModal('create_estimation', newJobDraft);
-  };
-
-  const handleDeleteJob = async (job: Job) => {
-      const reason = window.prompt("⚠️ PENTING: Anda akan menghapus data ini.\n\nMohon masukkan alasan penghapusan:", "Salah input");
-      if (reason === null) return;
-      if (!reason.trim()) {
-          showNotification("Alasan wajib diisi!", "error");
-          return;
-      }
-      try {
-          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
-              isDeleted: true,
-              deletedReason: reason,
-              deletedAt: serverTimestamp(),
-              deletedBy: userData.displayName || 'User'
-          });
-          showNotification("Data berhasil dihapus", "success");
-      } catch (e) {
-          console.error(e);
-          showNotification("Gagal menghapus data", "error");
-      }
-  };
-
-  const handleCloseJob = async (job: Job) => {
-      const costs = job.costData || { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };
-      const hasExpenses = (costs.hargaModalBahan || 0) > 0 || (costs.hargaBeliPart || 0) > 0 || (costs.jasaExternal || 0) > 0;
-      if (!hasExpenses) {
-          if (!window.confirm("WO belum memiliki pembebanan biaya. Tetap tutup?")) return;
-      } else {
-          if (!window.confirm(`Konfirmasi Close WO ${job.woNumber || job.policeNumber}?`)) return;
-      }
-      try {
-          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
-              isClosed: true,
-              statusPekerjaan: 'Selesai',
-              statusKendaraan: 'Selesai',
-              closedAt: serverTimestamp()
-          });
-          showNotification("Work Order Ditutup", "success");
-      } catch (e) {
-          showNotification("Gagal menutup WO", "error");
-      }
-  };
-
-  const handleReopenJob = async (job: Job) => {
-      if (!userPermissions.role.includes('Manager')) {
-          showNotification("Akses ditolak.", "error");
-          return;
-      }
-      const reason = window.prompt("⚠️ RE-OPEN WO\n\nMasukkan alasan:", "Revisi Tagihan");
-      if (reason === null || !reason.trim()) return;
-      try {
-          await updateDoc(doc(db, JOBS_COLLECTION, job.id), {
-              isClosed: false,
-              closedAt: null,
-              reopenReason: reason,
-              statusPekerjaan: 'Finishing',
-              statusKendaraan: 'Work In Progress'
-          });
-          showNotification("WO Dibuka Kembali", "success");
-      } catch (e) {
-          showNotification("Gagal membuka WO", "error");
-      }
   };
 
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
-          const currentJob = allData.find(j => j.id === jobId) || modalState.data;
-          const isNew = jobId.startsWith('TEMP_') || !allData.some(j => j.id === jobId);
+          const currentJob = jobs.find(j => j.id === jobId) || modalState.data;
+          const isNew = jobId.startsWith('TEMP_');
           
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
@@ -207,10 +164,9 @@ const AppContent: React.FC = () => {
           const year = now.getFullYear().toString().slice(-2); 
           const month = (now.getMonth() + 1).toString().padStart(2, '0'); 
 
-          // 1. Generate Numbers
           if (!estimationNumber) {
               const prefix = `BE${year}${month}`; 
-              const existing = allData.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
+              const existing = jobs.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
               existing.forEach(n => {
                   const seq = parseInt(n!.substring(prefix.length)); 
@@ -221,7 +177,7 @@ const AppContent: React.FC = () => {
 
           if (saveType === 'wo' && !woNumber) {
               const prefix = `WO${year}${month}`; 
-              const existing = allData.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
+              const existing = jobs.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
               let maxSeq = 0;
               existing.forEach(n => {
                   const seq = parseInt(n!.substring(prefix.length)); 
@@ -230,65 +186,49 @@ const AppContent: React.FC = () => {
               woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
           }
 
-          const updatedEstimateData = { ...estimateData, estimationNumber };
-
-          // 2. Prepare Payload
           const basePayload = {
               ...currentJob,
-              estimateData: updatedEstimateData,
-              hargaJasa: updatedEstimateData.subtotalJasa,
-              hargaPart: updatedEstimateData.subtotalPart,
-              namaSA: updatedEstimateData.estimatorName || userData.displayName
+              estimateData: { ...estimateData, estimationNumber },
+              hargaJasa: estimateData.subtotalJasa,
+              hargaPart: estimateData.subtotalPart,
+              namaSA: estimateData.estimatorName || userData.displayName
           };
-          delete basePayload.id; // Jangan simpan ID di field
-          delete basePayload.isNewTransaction;
+          delete basePayload.id;
 
           if (woNumber) {
               basePayload.woNumber = woNumber;
               basePayload.statusKendaraan = 'Work In Progress';
-              basePayload.statusPekerjaan = 'Belum Mulai Perbaikan';
           }
 
-          // 3. Save to Firestore
-          let finalId = jobId;
           if (isNew) {
-              // CREATE NEW DOCUMENT
-              const docRef = await addDoc(collection(db, JOBS_COLLECTION), cleanObject({
+              await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({
                   ...basePayload,
                   createdAt: serverTimestamp(),
                   isClosed: false
               }));
-              finalId = docRef.id;
           } else {
-              // UPDATE EXISTING DOCUMENT
-              await updateDoc(doc(db, JOBS_COLLECTION, jobId), cleanObject(basePayload));
+              await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
           }
           
           showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi Tersimpan`, "success");
           closeModal();
-          if(currentView !== 'estimation') setCurrentView('entry_data');
+          setCurrentView('entry_data');
           return saveType === 'wo' ? woNumber! : estimationNumber!;
       } catch (e) {
-          showNotification("Gagal menyimpan data", "error");
           console.error(e);
+          showNotification("Gagal menyimpan transaksi.", "error");
           throw e;
       }
   };
 
   const filteredJobs = useMemo(() => {
-      let jobs = allData.filter(job => {
-          const hasEstNumber = job.estimateData?.estimationNumber;
-          const hasJasa = job.estimateData?.jasaItems && job.estimateData.jasaItems.length > 0;
-          const hasParts = job.estimateData?.partItems && job.estimateData.partItems.length > 0;
-          const hasWONumber = !!job.woNumber;
-          return hasEstNumber || hasJasa || hasParts || hasWONumber;
-      });
-      if (!showClosedJobs) jobs = jobs.filter(job => !job.isClosed);
-      if (searchQuery) jobs = jobs.filter(job => job.policeNumber && job.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()));
-      if (filterStatus) jobs = jobs.filter(job => job.statusKendaraan === filterStatus);
-      if (filterWorkStatus) jobs = jobs.filter(job => job.statusPekerjaan === filterWorkStatus);
-      return jobs;
-  }, [allData, searchQuery, filterStatus, filterWorkStatus, showClosedJobs]);
+      let fJobs = jobs;
+      if (!showClosedJobs) fJobs = fJobs.filter(j => !j.isClosed);
+      if (searchQuery) fJobs = fJobs.filter(j => j.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()));
+      if (filterStatus) fJobs = fJobs.filter(j => j.statusKendaraan === filterStatus);
+      if (filterWorkStatus) fJobs = fJobs.filter(j => j.statusPekerjaan === filterWorkStatus);
+      return fJobs;
+  }, [jobs, searchQuery, filterStatus, filterWorkStatus, showClosedJobs]);
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-indigo-600 font-medium">Memuat Sistem...</div>;
   if (!user) return <LoginView />;
@@ -312,34 +252,15 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm">
-            <button onClick={() => setSidebarOpen(true)} className="text-gray-700"><Menu size={24}/></button>
-            <span className="font-bold text-lg text-indigo-800">Mazda Ranger</span>
-            <div className="w-6"></div>
-        </div>
-
-        {jobsError && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded shadow-md flex items-start gap-3 mx-4 md:mx-0 animate-fade-in">
-                <div className="mt-0.5"><AlertCircle size={20}/></div>
-                <div>
-                    <p className="font-bold">Koneksi Database Gagal</p>
-                    <p className="text-sm">{jobsError}</p>
-                </div>
-            </div>
-        )}
-
         {currentView === 'overview' && (
-            <OverviewDashboard allJobs={allData} settings={appSettings} onNavigate={setCurrentView} />
+            <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} />
         )}
         
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Input Data Unit</h1>
-                    <p className="text-gray-500 mt-1">Daftarkan kendaraan masuk.</p>
-                 </div>
+                 <h1 className="text-3xl font-bold text-gray-900">Input Data Unit Baru</h1>
                  <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
-                    <JobForm settings={appSettings} onSave={handleSaveJob} onCancel={() => setCurrentView('overview')} allJobs={allData} />
+                    <JobForm settings={appSettings} onSave={handleSaveVehicle} onCancel={() => setCurrentView('overview')} />
                  </div>
              </div>
         )}
@@ -347,7 +268,8 @@ const AppContent: React.FC = () => {
         {currentView === 'estimation' && (
             <div className="max-w-4xl mx-auto">
                 <EstimationForm 
-                    allJobs={allData} 
+                    allVehicles={vehicles} 
+                    allJobs={jobs}
                     onNavigate={setCurrentView} 
                     openModal={openModal}
                     onCreateTransaction={handleCreateTransaction} 
@@ -361,9 +283,9 @@ const AppContent: React.FC = () => {
                 <MainDashboard 
                     allData={filteredJobs}
                     openModal={openModal}
-                    onDelete={handleDeleteJob}
-                    onCloseJob={handleCloseJob} 
-                    onReopenJob={handleReopenJob}
+                    onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }}
+                    onCloseJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: true, closedAt: serverTimestamp() }); showNotification("WO Ditutup."); }} 
+                    onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }}
                     userPermissions={userPermissions}
                     showNotification={showNotification}
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
@@ -376,10 +298,10 @@ const AppContent: React.FC = () => {
         )}
 
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} />}
-        {currentView === 'part_monitoring' && <PartMonitoringView jobs={allData} inventoryItems={inventoryItems} />}
+        {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} userPermissions={userPermissions} showNotification={showNotification} onRefreshInventory={refreshInventory} />}
-        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={allData.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="sparepart" />}
-        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={allData.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="material" />}
+        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="sparepart" />}
+        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="material" />}
 
         {currentView === 'settings' && (
             <div className="max-w-5xl mx-auto">
@@ -387,21 +309,12 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {['job_control', 'finance'].includes(currentView) && (
-            <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
-                 <SettingsIcon className="text-gray-400 mb-2" size={32} />
-                <p className="text-gray-500 font-medium">Modul {currentView} sedang dalam pengembangan.</p>
-            </div>
-        )}
-
         <Modal 
             isOpen={modalState.isOpen} 
             onClose={closeModal} 
-            title={modalState.type === 'edit_data' ? 'Edit Data Kendaraan' : modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Detail Pekerjaan'}
-            maxWidth={modalState.type === 'edit_job' || modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'}
+            title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'}
+            maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'}
         >
-            {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveJob} onCancel={closeModal} allJobs={allData} />}
-            {modalState.type === 'add_job' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveJob} onCancel={closeModal} allJobs={allData} />}
             {modalState.type === 'create_estimation' && modalState.data && (
                 <EstimateEditor
                     job={modalState.data}
@@ -414,6 +327,7 @@ const AppContent: React.FC = () => {
                     inventoryItems={inventoryItems} 
                 />
             )}
+            {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>
     </div>
