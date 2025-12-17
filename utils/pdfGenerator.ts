@@ -11,17 +11,23 @@ const addHeader = (doc: any, settings: Settings) => {
   const wsPhone = settings.workshopPhone || "(021) 750-9999";
   const wsEmail = settings.workshopEmail || "service@mazdaranger.com";
 
-  doc.setFontSize(18);
-  doc.setTextColor(40, 40, 100);
+  // Workshop Name
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(44, 62, 80); // Dark Slate
   doc.text(wsName, 15, 20);
   
-  doc.setFontSize(10);
+  // Address & Contact
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
   doc.setTextColor(100);
-  doc.text(wsAddress, 15, 26);
-  doc.text(`Telp: ${wsPhone} | Email: ${wsEmail}`, 15, 31);
+  doc.text(wsAddress, 15, 25);
+  doc.text(`Telp: ${wsPhone} | Email: ${wsEmail}`, 15, 29);
   
+  // Separator Line
   doc.setDrawColor(200);
-  doc.line(15, 35, pageWidth - 15, 35);
+  doc.setLineWidth(0.5);
+  doc.line(15, 34, pageWidth - 15, 34);
 };
 
 export const generateEstimationPDF = (job: Job, estimateData: EstimateData, settings: Settings, creatorName?: string) => {
@@ -35,41 +41,49 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   
   doc.setFontSize(14);
   doc.setTextColor(0);
-  doc.text(isWO ? "WORK ORDER (PERINTAH KERJA)" : "ESTIMASI BIAYA PERBAIKAN", pageWidth / 2, 45, { align: 'center' });
-  
-  doc.setFontSize(11);
-  if (isWO) {
-      doc.text(`No. WO: ${job.woNumber}`, pageWidth - 15, 45, { align: 'right' });
-  } else {
-      doc.text(`No. Estimasi: ${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 45, { align: 'right' });
-  }
+  doc.setFont("helvetica", "bold");
+  doc.text(isWO ? "WORK ORDER" : "ESTIMASI BIAYA", pageWidth - 15, 25, { align: 'right' });
   
   doc.setFontSize(10);
-  doc.text(`Tanggal: ${formatDateIndo(new Date())}`, pageWidth - 15, 50, { align: 'right' });
+  doc.setTextColor(100);
+  if (isWO) {
+      doc.text(`#${job.woNumber}`, pageWidth - 15, 30, { align: 'right' });
+  } else {
+      doc.text(`#${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 30, { align: 'right' });
+  }
+  
+  doc.setFontSize(9);
+  doc.text(formatDateIndo(new Date()), pageWidth - 15, 34, { align: 'right' });
 
   // --- CUSTOMER & VEHICLE INFO ---
-  const startY = 55;
+  const startY = 45;
+  
+  doc.setFillColor(245, 247, 250);
+  doc.rect(15, 40, pageWidth - 30, 28, 'F');
   
   // Kolom Kiri (Customer)
   doc.setFontSize(9);
+  doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
-  doc.text("DATA PELANGGAN", 15, startY);
+  doc.text("DATA PELANGGAN", 20, 46);
+  
   doc.setFont("helvetica", "normal");
-  doc.text(`Nama: ${job.customerName}`, 15, startY + 5);
-  doc.text(`Telp: ${job.customerPhone || '-'}`, 15, startY + 10);
-  doc.text(`Asuransi: ${job.namaAsuransi}`, 15, startY + 15);
+  doc.text(`Nama: ${job.customerName}`, 20, 52);
+  doc.text(`Telp: ${job.customerPhone || '-'}`, 20, 57);
+  doc.text(`Asuransi: ${job.namaAsuransi}`, 20, 62);
   
   // Kolom Kanan (Vehicle)
   const rightColX = pageWidth / 2 + 10;
   doc.setFont("helvetica", "bold");
-  doc.text("DATA KENDARAAN", rightColX, startY);
+  doc.text("DATA KENDARAAN", rightColX, 46);
+  
   doc.setFont("helvetica", "normal");
-  doc.text(`No. Polisi: ${job.policeNumber}`, rightColX, startY + 5);
-  doc.text(`Merk/Model: ${job.carBrand || 'Mazda'} - ${job.carModel}`, rightColX, startY + 10);
-  doc.text(`Warna: ${job.warnaMobil}`, rightColX, startY + 15);
+  doc.text(`No. Polisi: ${job.policeNumber}`, rightColX, 52);
+  doc.text(`Merk: ${job.carBrand || 'Mazda'} - ${job.carModel}`, rightColX, 57);
+  doc.text(`Warna: ${job.warnaMobil}`, rightColX, 62);
   
   // --- TABLE JASA ---
-  let currentY = startY + 25;
+  let currentY = startY + 30;
   
   doc.setFont("helvetica", "bold");
   doc.text("A. JASA PERBAIKAN", 15, currentY);
@@ -85,13 +99,17 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
     startY: currentY,
     head: [['No', 'Uraian Pekerjaan', 'Biaya (Rp)']],
     body: jasaRows,
-    theme: 'striped',
-    headStyles: { fillColor: [63, 81, 181] },
+    theme: 'plain',
+    headStyles: { fillColor: [240, 240, 240], textColor: 50, fontStyle: 'bold' },
+    styles: { fontSize: 9, cellPadding: 2 },
     columnStyles: {
       0: { cellWidth: 10, halign: 'center' },
       2: { cellWidth: 40, halign: 'right' }
     },
-    margin: { left: 15, right: 15 }
+    margin: { left: 15, right: 15 },
+    didDrawPage: (data) => {
+        // Header is drawn by function
+    }
   });
 
   currentY = doc.lastAutoTable.finalY + 10;
@@ -114,8 +132,9 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
     startY: currentY,
     head: [['No', 'No. Part', 'Nama Sparepart', 'Qty', 'Harga @', 'Total (Rp)']],
     body: partRows,
-    theme: 'striped',
-    headStyles: { fillColor: [233, 88, 28] }, // Orange theme for parts
+    theme: 'plain',
+    headStyles: { fillColor: [240, 240, 240], textColor: 50, fontStyle: 'bold' },
+    styles: { fontSize: 9, cellPadding: 2 },
     columnStyles: {
       0: { cellWidth: 10, halign: 'center' },
       3: { cellWidth: 15, halign: 'center' },
@@ -128,8 +147,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   currentY = doc.lastAutoTable.finalY + 10;
 
   // --- SUMMARY CALCULATION ---
-  // Pastikan tidak nabrak halaman bawah
-  if (currentY > 230) {
+  if (currentY > 220) {
       doc.addPage();
       currentY = 20;
   }
@@ -138,6 +156,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   const valX = pageWidth - 15;
   
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
   
   // Subtotal Jasa
   doc.text("Subtotal Jasa:", summaryX, currentY);
@@ -146,8 +165,10 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   
   // Disc Jasa
   if (estimateData.discountJasa > 0) {
+      doc.setTextColor(200, 0, 0);
       doc.text(`Diskon Jasa (${estimateData.discountJasa}%):`, summaryX, currentY);
       doc.text(`(${formatCurrency(estimateData.discountJasaAmount)})`, valX, currentY, { align: 'right' });
+      doc.setTextColor(0);
       currentY += 5;
   }
 
@@ -158,32 +179,35 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
 
   // Disc Part
   if (estimateData.discountPart > 0) {
+      doc.setTextColor(200, 0, 0);
       doc.text(`Diskon Part (${estimateData.discountPart}%):`, summaryX, currentY);
       doc.text(`(${formatCurrency(estimateData.discountPartAmount)})`, valX, currentY, { align: 'right' });
+      doc.setTextColor(0);
       currentY += 5;
   }
 
   // Line
+  doc.setDrawColor(200);
   doc.line(summaryX, currentY, valX, currentY);
   currentY += 5;
 
   // DPP
   doc.setFont("helvetica", "bold");
-  doc.text("DPP (Dasar Pengenaan Pajak):", summaryX, currentY);
+  doc.text("DPP:", summaryX, currentY);
   doc.text(formatCurrency(estimateData.subtotalJasa + estimateData.subtotalPart - estimateData.discountJasaAmount - estimateData.discountPartAmount), valX, currentY, { align: 'right' });
   currentY += 6;
 
   // PPN
+  doc.setFont("helvetica", "normal");
   doc.text(`PPN (${settings.ppnPercentage}%):`, summaryX, currentY);
   doc.text(formatCurrency(estimateData.ppnAmount), valX, currentY, { align: 'right' });
-  currentY += 7;
+  currentY += 8;
 
   // GRAND TOTAL
-  doc.setFontSize(12);
-  doc.setFillColor(240, 240, 240);
-  doc.rect(summaryX - 2, currentY - 5, 90, 10, 'F');
-  doc.text("GRAND TOTAL:", summaryX, currentY + 1);
-  doc.text(formatCurrency(estimateData.grandTotal), valX, currentY + 1, { align: 'right' });
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text("GRAND TOTAL:", summaryX, currentY);
+  doc.text(formatCurrency(estimateData.grandTotal), valX, currentY, { align: 'right' });
 
   // --- FOOTER / SIGNATURE (MODIFIED) ---
   const signY = currentY + 30;
@@ -191,18 +215,15 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       
-      // Left Signature (SA/Admin - Now uses Creator Name)
       const col1 = 30;
       doc.text("Hormat Kami,", col1, signY, {align: 'center'});
       doc.text(`( ${creatorName || 'Admin'} )`, col1, signY + 25, {align: 'center'});
 
-      // Right Signature (Customer)
       const col3 = pageWidth - 50;
       doc.text("Disetujui Oleh,", col3, signY, {align: 'center'});
       doc.text(`( ${job.customerName} )`, col3, signY + 25, {align: 'center'});
   }
 
-  // Filename: WO... or BE...
   const fileName = `${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`;
   doc.save(fileName);
 };
@@ -214,31 +235,43 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
 
     addHeader(doc, settings);
 
-    // Title
-    doc.setFontSize(16);
+    // Title Section
+    doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
-    doc.text("PURCHASE ORDER (PO)", pageWidth / 2, 45, { align: 'center' });
-
-    // PO Info
+    doc.setTextColor(33, 33, 33);
+    doc.text("PURCHASE ORDER", 15, 48);
+    
+    // Status Badge Text (Optional visual cue)
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
+    doc.setTextColor(100);
+    doc.text(po.status.toUpperCase(), 15, 54);
+
+    // PO Info Box (Right Side)
+    const infoX = pageWidth - 80;
+    doc.setFontSize(9);
+    doc.setTextColor(50);
     
-    // Left: Supplier Info
-    doc.text("Kepada Yth:", 15, 60);
+    doc.text("No. PO", infoX, 48);
+    doc.text(`: ${po.poNumber}`, infoX + 25, 48);
+    
+    doc.text("Tanggal", infoX, 53);
+    doc.text(`: ${formatDateIndo(po.createdAt)}`, infoX + 25, 53);
+    
+    doc.text("Dibuat Oleh", infoX, 58);
+    doc.text(`: ${po.createdBy || 'Admin'}`, infoX + 25, 58);
+
+    // Supplier Section (Left Side)
+    const supplierY = 65;
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.text(po.supplierName, 15, 65);
+    doc.setTextColor(0);
+    doc.text("VENDOR / SUPPLIER:", 15, supplierY);
+    
     doc.setFont("helvetica", "normal");
-    
-    // Right: PO Details
-    const rightX = pageWidth - 70;
-    doc.text(`No. PO`, rightX, 60);
-    doc.text(`: ${po.poNumber}`, rightX + 25, 60);
-    
-    doc.text(`Tanggal`, rightX, 65);
-    doc.text(`: ${formatDateIndo(po.createdAt)}`, rightX + 25, 65);
-    
-    doc.text(`Dibuat Oleh`, rightX, 70);
-    doc.text(`: ${po.createdBy || 'Admin'}`, rightX + 25, 70);
+    doc.setFontSize(10);
+    doc.text(po.supplierName, 15, supplierY + 5);
+    // (Optional: If we had supplier address in PO object, we would print it here)
 
     // Table Items
     const tableBody = po.items.map((item, idx) => [
@@ -254,35 +287,95 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
         startY: 80,
         head: [['No', 'Kode Part', 'Deskripsi Barang', 'Qty', 'Harga Satuan', 'Total']],
         body: tableBody,
-        theme: 'grid',
-        headStyles: { fillColor: [44, 62, 80] },
+        theme: 'striped',
+        // Professional Header Style: Dark Slate, White Text
+        headStyles: { 
+            fillColor: [52, 73, 94], // Dark Slate Blue / Charcoal
+            textColor: 255, 
+            fontStyle: 'bold',
+            halign: 'center'
+        },
+        styles: { 
+            fontSize: 9, 
+            cellPadding: 3,
+            textColor: 50
+        },
         columnStyles: {
             0: { cellWidth: 10, halign: 'center' },
             3: { cellWidth: 25, halign: 'center' },
             4: { halign: 'right' },
             5: { halign: 'right' }
         },
-        foot: [
-            ['', '', '', '', 'Subtotal', formatCurrency(po.subtotal)],
-            po.hasPpn ? ['', '', '', '', 'PPN (11%)', formatCurrency(po.ppnAmount)] : null,
-            ['', '', '', '', 'GRAND TOTAL', formatCurrency(po.totalAmount)]
-        ].filter(Boolean) as any
+        // REMOVED FOOTER FROM HERE TO AVOID COLORED BLOCK
     });
 
-    let finalY = doc.lastAutoTable.finalY + 10;
+    let finalY = doc.lastAutoTable.finalY + 5;
+    const rightX = pageWidth - 15;
+    const labelX = pageWidth - 65;
+
+    // --- MANUALLY DRAW TOTALS FOR CLEANER LOOK ---
+    
+    // Check page break
+    if (finalY > 240) {
+        doc.addPage();
+        finalY = 20;
+    }
+
+    doc.setFontSize(10);
+    doc.setTextColor(50); // Dark Grey
+
+    // Subtotal
+    doc.text("Subtotal", labelX, finalY + 5, { align: 'right' });
+    doc.text(formatCurrency(po.subtotal), rightX, finalY + 5, { align: 'right' });
+
+    let currentY = finalY + 5;
+
+    // PPN
+    if (po.hasPpn) {
+        currentY += 5;
+        doc.text(`PPN (${settings.ppnPercentage}%)`, labelX, currentY, { align: 'right' });
+        doc.text(formatCurrency(po.ppnAmount), rightX, currentY, { align: 'right' });
+    }
+
+    // Separator Line
+    currentY += 3;
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.5);
+    doc.line(labelX - 20, currentY, rightX, currentY);
+
+    // Grand Total
+    currentY += 7;
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0); // Black for emphasis
+    doc.text("GRAND TOTAL", labelX, currentY, { align: 'right' });
+    doc.text(formatCurrency(po.totalAmount), rightX, currentY, { align: 'right' });
+
+    // --- NOTES & SIGNATURES ---
+    let footerY = currentY + 15;
 
     // Notes
     if(po.notes) {
         doc.setFontSize(9);
-        doc.text("Catatan:", 15, finalY);
-        doc.text(po.notes, 15, finalY + 5);
-        finalY += 15;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(50);
+        doc.text("Catatan:", 15, footerY);
+        doc.setFont("helvetica", "normal");
+        doc.text(po.notes, 15, footerY + 5);
+        footerY += 15;
     }
 
     // Signatures
-    const signY = finalY + 10;
+    const signY = footerY + 10;
     
+    // Check page break for signature
+    if (signY > 260) {
+        doc.addPage();
+    }
+
     doc.setFontSize(10);
+    doc.setTextColor(0);
+
     doc.text("Dibuat Oleh,", 30, signY, {align: 'center'});
     doc.text("( Partman / Staff )", 30, signY + 25, {align: 'center'});
 
@@ -327,7 +420,7 @@ export const generateReceivingReportPDF = (
         head: [['No', 'Kode Part', 'Deskripsi Barang', 'Qty Diterima']],
         body: tableBody,
         theme: 'striped',
-        headStyles: { fillColor: [46, 125, 50] }, // Green theme for receiving
+        headStyles: { fillColor: [52, 73, 94] }, // Matches PO Professional Look
         columnStyles: {
             0: { cellWidth: 10, halign: 'center' },
             3: { cellWidth: 30, halign: 'center' }
