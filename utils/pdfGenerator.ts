@@ -1,3 +1,4 @@
+
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Job, EstimateData, Settings, PurchaseOrder, PurchaseOrderItem } from '../types';
@@ -89,20 +90,56 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   });
 
   currentY = doc.lastAutoTable.finalY + 10;
-  if (currentY > 220) { doc.addPage(); currentY = 20; }
+  if (currentY > 200) { doc.addPage(); currentY = 20; }
+  
+  const labelX = pageWidth - 90;
   const valX = pageWidth - 15;
   doc.setFontSize(9);
-  doc.text("GRAND TOTAL:", pageWidth - 90, currentY);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80);
+
+  // Rincian Kalkulasi
+  doc.text("Total Jasa:", labelX, currentY);
+  doc.text(formatCurrency(estimateData.subtotalJasa), valX, currentY, { align: 'right' });
+  currentY += 5;
+
+  if (estimateData.discountJasaAmount > 0) {
+    doc.text(`Diskon Jasa (${estimateData.discountJasa}%):`, labelX, currentY);
+    doc.text(`- ${formatCurrency(estimateData.discountJasaAmount)}`, valX, currentY, { align: 'right' });
+    currentY += 5;
+  }
+
+  doc.text("Total Sparepart:", labelX, currentY);
+  doc.text(formatCurrency(estimateData.subtotalPart), valX, currentY, { align: 'right' });
+  currentY += 5;
+
+  if (estimateData.discountPartAmount > 0) {
+    doc.text(`Diskon Part (${estimateData.discountPart}%):`, labelX, currentY);
+    doc.text(`- ${formatCurrency(estimateData.discountPartAmount)}`, valX, currentY, { align: 'right' });
+    currentY += 5;
+  }
+
+  doc.text(`PPN (${settings.ppnPercentage}%):`, labelX, currentY);
+  doc.text(formatCurrency(estimateData.ppnAmount), valX, currentY, { align: 'right' });
+  currentY += 7;
+
+  // Grand Total Line
+  doc.setDrawColor(200);
+  doc.line(labelX, currentY - 4, valX, currentY - 4);
+  
+  doc.setFontSize(11);
+  doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
+  doc.text("GRAND TOTAL:", labelX, currentY);
   doc.text(formatCurrency(estimateData.grandTotal), valX, currentY, { align: 'right' });
 
   const signY = currentY + 30;
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.text("Hormat Kami,", 30, signY, {align: 'center'});
-  doc.text(`( ${creatorName || 'Admin'} )`, 30, signY + 25, {align: 'center'});
+  doc.text(`( ${creatorName || 'Admin'} )`, 30, signY + 30, {align: 'center'});
   doc.text("Disetujui Oleh,", pageWidth - 50, signY, {align: 'center'});
-  doc.text(`( ${job.customerName} )`, pageWidth - 50, signY + 25, {align: 'center'});
+  doc.text(`( ${job.customerName} )`, pageWidth - 50, signY + 30, {align: 'center'});
 
   doc.save(`${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`);
 };
