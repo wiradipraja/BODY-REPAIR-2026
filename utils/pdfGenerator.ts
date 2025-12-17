@@ -106,10 +106,7 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
       0: { cellWidth: 10, halign: 'center' },
       2: { cellWidth: 40, halign: 'right' }
     },
-    margin: { left: 15, right: 15 },
-    didDrawPage: (data) => {
-        // Header is drawn by function
-    }
+    margin: { left: 15, right: 15 }
   });
 
   currentY = doc.lastAutoTable.finalY + 10;
@@ -255,8 +252,10 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.text("No. PO", infoX, 48);
     doc.text(`: ${po.poNumber}`, infoX + 25, 48);
     
+    // FIXED: Show current date if po.createdAt is missing or empty
+    const poDate = po.createdAt ? formatDateIndo(po.createdAt) : formatDateIndo(new Date());
     doc.text("Tanggal", infoX, 53);
-    doc.text(`: ${formatDateIndo(po.createdAt)}`, infoX + 25, 53);
+    doc.text(`: ${poDate === '-' ? formatDateIndo(new Date()) : poDate}`, infoX + 25, 53);
     
     doc.text("Dibuat Oleh", infoX, 58);
     doc.text(`: ${po.createdBy || 'Admin'}`, infoX + 25, 58);
@@ -271,7 +270,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(po.supplierName, 15, supplierY + 5);
-    // (Optional: If we had supplier address in PO object, we would print it here)
 
     // Table Items
     const tableBody = po.items.map((item, idx) => [
@@ -288,9 +286,8 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
         head: [['No', 'Kode Part', 'Deskripsi Barang', 'Qty', 'Harga Satuan', 'Total']],
         body: tableBody,
         theme: 'striped',
-        // Professional Header Style: Dark Slate, White Text
         headStyles: { 
-            fillColor: [52, 73, 94], // Dark Slate Blue / Charcoal
+            fillColor: [52, 73, 94], 
             textColor: 255, 
             fontStyle: 'bold',
             halign: 'center'
@@ -306,7 +303,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
             4: { halign: 'right' },
             5: { halign: 'right' }
         },
-        // REMOVED FOOTER FROM HERE TO AVOID COLORED BLOCK
     });
 
     let finalY = doc.lastAutoTable.finalY + 5;
@@ -314,15 +310,13 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     const labelX = pageWidth - 65;
 
     // --- MANUALLY DRAW TOTALS FOR CLEANER LOOK ---
-    
-    // Check page break
     if (finalY > 240) {
         doc.addPage();
         finalY = 20;
     }
 
     doc.setFontSize(10);
-    doc.setTextColor(50); // Dark Grey
+    doc.setTextColor(50);
 
     // Subtotal
     doc.text("Subtotal", labelX, finalY + 5, { align: 'right' });
@@ -347,7 +341,7 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
     currentY += 7;
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(0); // Black for emphasis
+    doc.setTextColor(0); 
     doc.text("GRAND TOTAL", labelX, currentY, { align: 'right' });
     doc.text(formatCurrency(po.totalAmount), rightX, currentY, { align: 'right' });
 
@@ -367,8 +361,6 @@ export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) 
 
     // Signatures
     const signY = footerY + 10;
-    
-    // Check page break for signature
     if (signY > 260) {
         doc.addPage();
     }
@@ -420,7 +412,7 @@ export const generateReceivingReportPDF = (
         head: [['No', 'Kode Part', 'Deskripsi Barang', 'Qty Diterima']],
         body: tableBody,
         theme: 'striped',
-        headStyles: { fillColor: [52, 73, 94] }, // Matches PO Professional Look
+        headStyles: { fillColor: [52, 73, 94] }, 
         columnStyles: {
             0: { cellWidth: 10, halign: 'center' },
             3: { cellWidth: 30, halign: 'center' }
