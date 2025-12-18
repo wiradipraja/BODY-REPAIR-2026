@@ -24,6 +24,7 @@ import PartMonitoringView from './components/inventory/PartMonitoringView';
 import AccountingView from './components/finance/AccountingView'; 
 import CashierView from './components/finance/CashierView'; 
 import DebtReceivableView from './components/finance/DebtReceivableView'; 
+import InvoiceCreatorView from './components/finance/InvoiceCreatorView'; // NEW COMPONENT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -327,6 +328,7 @@ const AppContent: React.FC = () => {
         {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" />}
 
         {/* FINANCE - FULLY REAL-TIME PROPS */}
+        {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} />}
         {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}

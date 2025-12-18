@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Receipt, Scale } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Receipt, Scale, FileCheck } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -51,9 +51,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           label: 'Finance & Accounting', 
           icon: BarChart3,
           children: [
-              { id: 'finance_dashboard', label: 'Dashboard & Laporan', icon: BarChart3 },
+              { id: 'finance_invoice', label: 'Pembuatan Faktur', icon: FileCheck }, // NEW MENU
               { id: 'finance_cashier', label: 'Kasir & Gatepass', icon: Banknote },
-              { id: 'finance_debt', label: 'Hutang & Piutang', icon: Scale }, // NEW MENU
+              { id: 'finance_debt', label: 'Hutang & Piutang', icon: Scale },
+              { id: 'finance_dashboard', label: 'Laporan Keuangan', icon: BarChart3 },
           ]
       });
   }
