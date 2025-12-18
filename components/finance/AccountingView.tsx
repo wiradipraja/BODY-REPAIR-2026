@@ -1,8 +1,6 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder } from '../../types';
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
-import { db, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { Bar, Line, Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
@@ -11,34 +9,16 @@ import { Calendar, TrendingUp, TrendingDown, DollarSign, Wallet, FileText, Downl
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, ArcElement);
 
 interface AccountingViewProps {
-  jobs: Job[]; // Source of Revenue (Closed WOs) and COGS (Usage Logs)
+  jobs: Job[]; 
+  purchaseOrders: PurchaseOrder[]; // REAL-TIME PROP
 }
 
-const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pnl' | 'ledger'>('dashboard');
   
   // Filter States
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-
-  useEffect(() => {
-    const fetchPOs = async () => {
-        setLoading(true);
-        try {
-            // Fetch All POs for calculation. Ideally, filter by year in query for performance, but client-side filter is fine for MVP.
-            const q = query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'));
-            const snap = await getDocs(q);
-            setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder)));
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
-    fetchPOs();
-  }, []);
 
   // --- CORE FINANCIAL CALCULATIONS ---
   const financialData = useMemo(() => {
@@ -53,8 +33,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
     const revenuePart = closedJobs.reduce((acc, j) => acc + (j.hargaPart || 0), 0);
     const totalRevenue = revenueJasa + revenuePart;
 
-    // 2. COGS (HPP): Based on ACTUAL Usage Log Cost in those CLOSED Jobs
-    // Note: We attribute cost to the period the job was CLOSED (Matching Principle)
+    // 2. COGS (HPP)
     const cogsMaterial = closedJobs.reduce((acc, j) => acc + (j.costData?.hargaModalBahan || 0), 0);
     const cogsPart = closedJobs.reduce((acc, j) => acc + (j.costData?.hargaBeliPart || 0), 0);
     const cogsExternal = closedJobs.reduce((acc, j) => acc + (j.costData?.jasaExternal || 0), 0);
@@ -64,8 +43,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
     const grossProfit = totalRevenue - totalCOGS;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-    // 4. CASH FLOW OUT (PURCHASING): Based on POs created/approved in period
-    // This tracks cash spent on restocking, separate from COGS (Usage)
+    // 4. CASH FLOW OUT (PURCHASING)
     const periodPOs = purchaseOrders.filter(po => {
         if (!po.createdAt) return false;
         const d = po.createdAt.toDate ? po.createdAt.toDate() : new Date(po.createdAt);
@@ -74,17 +52,11 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
     
     const totalPurchasing = periodPOs.reduce((acc, po) => acc + (po.totalAmount || 0), 0);
     
-    // 5. Unpaid Receivables (Estimasi) -> Active Jobs not closed
-    const activeJobsVal = jobs
-        .filter(j => !j.isClosed && j.woNumber)
-        .reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
-
     return {
         revenueJasa, revenuePart, totalRevenue,
         cogsMaterial, cogsPart, cogsExternal, totalCOGS,
         grossProfit, grossMargin,
         totalPurchasing,
-        activeJobsVal,
         closedJobsCount: closedJobs.length,
         poCount: periodPOs.length
     };
@@ -147,7 +119,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
       };
   }, [jobs, purchaseOrders, selectedMonth, selectedYear, financialData]);
 
-  // --- LEDGER DATA (COMBINED TRANSACTIONS) ---
+  // --- LEDGER DATA ---
   const ledgerData = useMemo(() => {
       const txs: any[] = [];
       
@@ -195,7 +167,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs }) => {
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Finance & Accounting</h1>
-                    <p className="text-sm text-gray-500 font-medium">Laporan Keuangan & Analisa Profitabilitas</p>
+                    <p className="text-sm text-gray-500 font-medium">Laporan Keuangan & Analisa Profitabilitas (Real-time)</p>
                 </div>
             </div>
             

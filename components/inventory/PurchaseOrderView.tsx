@@ -11,21 +11,20 @@ import { initialSettingsState } from '../../utils/constants';
 interface PurchaseOrderViewProps {
   suppliers: Supplier[];
   inventoryItems: InventoryItem[];
+  jobs?: Job[]; 
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
-  onRefreshInventory: () => void;
+  realTimePOs?: PurchaseOrder[]; // GLOBAL REAL-TIME PROP
 }
 
 const UNIT_OPTIONS = ['Pcs', 'Set', 'Unit', 'Liter', 'Kaleng', 'Kg', 'Gram', 'Meter', 'Roll', 'Galon'];
 
 const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({ 
-  suppliers, inventoryItems, userPermissions, showNotification, onRefreshInventory
+  suppliers, inventoryItems, jobs = [], userPermissions, showNotification, realTimePOs = []
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [settings, setSettings] = useState<Settings>(initialSettingsState);
 
@@ -45,7 +44,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [foundJob, setFoundJob] = useState<Job | null>(null);
   const [selectedPartsFromWo, setSelectedPartsFromWo] = useState<Record<number, { selected: boolean, isIndent: boolean }>>({});
 
-  // Fix: More robust Manager check
   const isManager = useMemo(() => {
     return userPermissions && userPermissions.role && userPermissions.role.includes('Manager');
   }, [userPermissions]);
@@ -60,26 +58,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     fetchSettings();
   }, []);
 
-  const fetchOrders = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-          const q = query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'), limit(50));
-          const snapshot = await getDocs(q);
-          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder));
-          setOrders(data);
-      } catch (e: any) {
-          console.error(e);
-          setError("Gagal memuat data PO.");
-          showNotification("Gagal memuat data PO.", "error");
-      } finally {
-          setLoading(false);
-      }
-  };
-
+  // Sync selected PO with real-time updates
   useEffect(() => {
-      if (viewMode === 'list') fetchOrders();
-  }, [viewMode]);
+      if (selectedPO) {
+          const updated = realTimePOs.find(p => p.id === selectedPO.id);
+          if (updated) setSelectedPO(updated);
+      }
+  }, [realTimePOs]);
 
   useEffect(() => {
       if (selectedPO && (selectedPO.status === 'Ordered' || selectedPO.status === 'Partial')) {
@@ -101,11 +86,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const handlePrintPO = (po: PurchaseOrder) => {
     if (!po) return;
-    
-    // Find Supplier to get Address
     const supplier = suppliers.find(s => s.id === po.supplierId);
     const supplierAddress = supplier ? supplier.address : '';
-
     try {
         generatePurchaseOrderPDF(po, settings, supplierAddress);
         showNotification(`Mendownload ${po.poNumber}...`, "success");
@@ -115,153 +97,94 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     }
   };
 
-  // --- FIXED APPROVAL FUNCTION ---
   const handleApprovePO = async (e?: React.MouseEvent) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!selectedPO || !selectedPO.id) return;
+    if (!isManager) { showNotification("Akses Ditolak: Manager only.", "error"); return; }
 
-    if (!selectedPO || !selectedPO.id) {
-        showNotification("Sistem Error: ID dokumen di database tidak ditemukan.", "error");
-        return;
-    }
-
-    if (!isManager) {
-        showNotification("Akses Ditolak: Anda tidak memiliki otoritas Manager.", "error");
-        return;
-    }
-
-    const confirmMsg = `SETUJUI PURCHASE ORDER\n\nNomor: ${selectedPO.poNumber}\nSupplier: ${selectedPO.supplierName}\n\nApakah Anda yakin?`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!window.confirm(`Setujui PO ${selectedPO.poNumber}?`)) return;
 
     setIsProcessing(true);
     try {
         const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id);
-        
-        // Ensure doc exists
         const docSnap = await getDoc(poRef);
-        if(!docSnap.exists()) {
-            throw new Error("Dokumen PO sudah dihapus atau tidak valid.");
-        }
+        if(!docSnap.exists()) throw new Error("Dokumen PO tidak valid.");
 
         await updateDoc(poRef, {
             status: 'Ordered',
-            approvedBy: userPermissions.role || 'Manager',
+            approvedBy: userPermissions.role,
             approvedAt: serverTimestamp(),
             lastModified: serverTimestamp()
         });
 
-        showNotification(`Purchase Order ${selectedPO.poNumber} berhasil disetujui.`, "success");
-        setSelectedPO(null);
+        showNotification(`PO ${selectedPO.poNumber} disetujui.`, "success");
+        // No need to manually update state, App.tsx listener handles it
         setViewMode('list');
-        await fetchOrders();
+        setSelectedPO(null);
     } catch (e: any) {
-        console.error("DATABASE REJECTION:", e);
-        showNotification(`Gagal Menyetujui: ${e.message}`, "error");
+        showNotification(`Error: ${e.message}`, "error");
     } finally {
         setIsProcessing(false);
     }
   };
 
-  // --- FIXED REJECT FUNCTION ---
   const handleRejectPO = async (e?: React.MouseEvent) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!selectedPO || !selectedPO.id) return;
+    if (!isManager) return;
 
-    if (!selectedPO || !selectedPO.id) {
-        showNotification("Data PO tidak valid.", "error");
-        return;
-    }
-
-    if (!isManager) {
-        showNotification("Hanya Manager yang dapat menolak PO.", "error");
-        return;
-    }
-
-    const reason = window.prompt(`TOLAK PURCHASE ORDER ${selectedPO.poNumber}\nMasukkan alasan penolakan:`, "");
-    if (reason === null) return; // User pressed Cancel
-    
-    if (!reason.trim()) {
-        showNotification("Alasan penolakan tidak boleh kosong.", "error");
-        return;
-    }
+    const reason = window.prompt("Alasan penolakan:", "");
+    if (reason === null) return;
+    if (!reason.trim()) { showNotification("Alasan wajib diisi.", "error"); return; }
 
     setIsProcessing(true);
     try {
-        const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id);
-        
-        await updateDoc(poRef, {
+        await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
             status: 'Rejected',
             rejectionReason: reason,
-            approvedBy: userPermissions.role || 'Manager',
+            approvedBy: userPermissions.role,
             approvedAt: serverTimestamp()
         });
-
-        showNotification(`PO ${selectedPO.poNumber} telah ditolak.`, "success");
-        setSelectedPO(null);
+        showNotification(`PO ditolak.`, "success");
         setViewMode('list');
-        await fetchOrders();
+        setSelectedPO(null);
     } catch (e: any) {
-        console.error("REJECT ERROR:", e);
-        showNotification("Gagal menolak PO: " + e.message, "error");
+        showNotification("Gagal menolak PO.", "error");
     } finally {
         setIsProcessing(false);
     }
   };
 
-  const handleSearchWO = async () => {
+  const handleSearchWO = () => {
       if (!woSearchTerm) return;
-      setLoading(true);
-      setFoundJob(null);
-      setSelectedPartsFromWo({});
+      const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
+      const matches = jobs.filter(j => 
+          (j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '') === termUpper) || 
+          (j.policeNumber && j.policeNumber.toUpperCase().replace(/\s/g, '') === termUpper)
+      );
 
-      try {
-          const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
+      if (matches.length > 0) {
+          matches.sort((a, b) => {
+              const getTime = (val: any) => val?.seconds || 0;
+              return getTime(b.createdAt) - getTime(a.createdAt);
+          });
+          const jobWithParts = matches.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
           
-          let q = query(collection(db, SERVICE_JOBS_COLLECTION), where('woNumber', '==', termUpper));
-          let snapshot = await getDocs(q);
-          
-          if (snapshot.empty) {
-              q = query(collection(db, SERVICE_JOBS_COLLECTION), where('policeNumber', '==', termUpper));
-              snapshot = await getDocs(q);
+          if (!jobWithParts) {
+              showNotification(`Unit ditemukan, tapi estimasi part masih kosong.`, "error");
+              return;
           }
 
-          if (!snapshot.empty) {
-              const allMatchingDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
-              allMatchingDocs.sort((a, b) => {
-                  const getTime = (val: any) => {
-                    if (!val) return 0;
-                    if (typeof val.toMillis === 'function') return val.toMillis();
-                    if (val.seconds) return val.seconds * 1000;
-                    return 0;
-                  };
-                  return getTime(b.createdAt) - getTime(a.createdAt);
-              });
-
-              const jobWithParts = allMatchingDocs.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
-              
-              if (!jobWithParts) {
-                  showNotification(`Unit ditemukan, tapi estimasi part masih kosong.`, "error");
-                  return;
-              }
-
-              setFoundJob(jobWithParts);
-              const initialSelection: any = {};
-              jobWithParts.estimateData!.partItems.forEach((p, idx) => {
-                  if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
-              });
-              setSelectedPartsFromWo(initialSelection);
-          } else {
-              showNotification("No. WO atau No. Polisi tidak ditemukan.", "error");
-          }
-      } catch (e: any) {
-          console.error("Search error:", e);
-          showNotification("Gagal mencari data WO.", "error");
-      } finally {
-          setLoading(false);
+          setFoundJob(jobWithParts);
+          const initialSelection: any = {};
+          jobWithParts.estimateData!.partItems.forEach((p, idx) => {
+              if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
+          });
+          setSelectedPartsFromWo(initialSelection);
+          showNotification("Data WO ditemukan.", "success");
+      } else {
+          showNotification("No. WO atau No. Polisi tidak ditemukan di data aktif.", "error");
+          setFoundJob(null);
       }
   };
 
@@ -301,7 +224,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   refWoNumber: foundJob.woNumber,
                   refPartIndex: idx,
                   isIndent: selection.isIndent,
-                  isStockManaged: true // WO parts are usually stock managed
+                  isStockManaged: true
               });
           }
       });
@@ -496,7 +419,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
           showNotification("Barang diterima & Stok terupdate.", "success");
-          onRefreshInventory();
           setViewMode('list');
           setSelectedPO(null);
       } catch (e: any) {
@@ -735,19 +657,19 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   return (
     <div className="animate-fade-in space-y-6">
         <div className="flex justify-between items-center">
-            <div><h1 className="text-3xl font-bold text-gray-900">Purchase Order (PO)</h1><p className="text-gray-500">Kelola pengadaan barang bengkel.</p></div>
+            <div><h1 className="text-3xl font-bold text-gray-900">Purchase Order (PO)</h1><p className="text-gray-500">Kelola pengadaan barang bengkel (Real-time).</p></div>
             <button onClick={() => setViewMode('create')} className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 shadow-lg flex items-center gap-2 font-bold"><Plus size={18}/> Buat PO Baru</button>
         </div>
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
                 <div className="relative w-full max-w-md"><Search className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Cari No. PO atau Supplier..." className="w-full pl-10 p-2.5 border rounded-lg" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
             </div>
-            {loading && orders.length === 0 ? <div className="p-20 text-center text-gray-500 font-bold">Memuat data...</div> : (
+            {realTimePOs.length === 0 ? <div className="p-20 text-center text-gray-500 font-bold">Belum ada PO dibuat.</div> : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4 text-xs uppercase text-gray-500">No. PO</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Supplier</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Status</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-right">Total</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-center">Aksi</th></tr></thead>
                         <tbody className="divide-y">
-                            {orders.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
+                            {realTimePOs.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
                                 <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
                                     <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>

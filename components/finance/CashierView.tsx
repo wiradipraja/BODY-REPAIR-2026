@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
-import { collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
@@ -10,12 +10,12 @@ import { initialSettingsState } from '../../utils/constants';
 
 interface CashierViewProps {
   jobs: Job[];
+  transactions: CashierTransaction[]; // REAL-TIME PROP
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
 }
 
-const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNotification }) => {
-  const [transactions, setTransactions] = useState<CashierTransaction[]>([]);
+const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermissions, showNotification }) => {
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<Settings>(initialSettingsState);
 
@@ -24,17 +24,15 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
   const [category, setCategory] = useState('Pelunasan');
   const [amount, setAmount] = useState<number | ''>('');
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Transfer' | 'EDC'>('Transfer');
-  const [selectedBank, setSelectedBank] = useState(''); // Default empty
+  const [selectedBank, setSelectedBank] = useState('');
   const [notes, setNotes] = useState('');
   
   // WO Linking & Payment Calculation
   const [woSearch, setWoSearch] = useState('');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [paymentSummary, setPaymentSummary] = useState({ totalBill: 0, totalPaid: 0, remaining: 0 });
-  const [calculating, setCalculating] = useState(false);
 
   useEffect(() => {
-    fetchTransactions();
     fetchSettings();
   }, []);
 
@@ -44,28 +42,12 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
           if (!q.empty) {
               const data = q.docs[0].data() as Settings;
               setSettings(data);
-              // Set default bank if available
               if (data.workshopBankAccounts && data.workshopBankAccounts.length > 0) {
                   const b = data.workshopBankAccounts[0];
                   setSelectedBank(`${b.bankName} - ${b.accountNumber}`);
               }
           }
       } catch (e) { console.error(e); }
-  };
-
-  const fetchTransactions = async () => {
-      setLoading(true);
-      try {
-          // Fetch last 20 transactions
-          const q = query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc'), limit(20));
-          const snap = await getDocs(q);
-          const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction));
-          setTransactions(data);
-      } catch (e) {
-          console.error(e);
-      } finally {
-          setLoading(false);
-      }
   };
 
   // Filter Jobs for Search
@@ -76,56 +58,33 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
           (j.woNumber && j.woNumber.includes(term)) || 
           j.policeNumber.includes(term) ||
           j.customerName.toUpperCase().includes(term)
-      ).slice(0, 5); // Limit suggestions
+      ).slice(0, 5); 
   }, [jobs, woSearch]);
 
-  const handleSelectJob = async (job: Job) => {
+  const handleSelectJob = (job: Job) => {
       setSelectedJob(job);
       setWoSearch(job.woNumber || job.policeNumber);
-      setCalculating(true);
       
-      try {
-          // 1. Get Grand Total Bill
-          const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
+      // Calculate from GLOBAL transactions prop (Instant calculation)
+      const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
+      
+      const totalPaid = transactions
+          .filter(t => t.refJobId === job.id && t.type === 'IN')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
 
-          // 2. Fetch ALL previous payments for this specific Job from Server (to be accurate)
-          // Client-side transactions state only holds the last 20, so we must query DB
-          const q = query(
-              collection(db, CASHIER_COLLECTION), 
-              where('refJobId', '==', job.id), 
-              where('type', '==', 'IN')
-          );
-          const snapshot = await getDocs(q);
-          const totalPaid = snapshot.docs.reduce((acc, doc) => acc + (doc.data().amount || 0), 0);
+      const remaining = totalBill - totalPaid;
 
-          // 3. Calculate Remaining
-          const remaining = totalBill - totalPaid;
+      setPaymentSummary({ totalBill, totalPaid, remaining });
+      setAmount(remaining > 0 ? remaining : ''); 
 
-          // 4. Update Summary State
-          setPaymentSummary({ totalBill, totalPaid, remaining });
-
-          // 5. Auto-fill Input Amount with Remaining Balance (if positive)
-          // If fully paid, set to 0. If remaining is 4.7jt, set to 4.7jt.
-          setAmount(remaining > 0 ? remaining : ''); 
-
-          // Auto-set notes
-          if (totalPaid > 0) {
-              setNotes(`Pelunasan Sisa Tagihan (Total: ${formatCurrency(totalBill)}, Sudah Bayar: ${formatCurrency(totalPaid)})`);
-          } else {
-              setNotes(`Pembayaran Full Invoice ${job.woNumber}`);
-          }
-
-      } catch (error) {
-          console.error("Error calculating balance:", error);
-          showNotification("Gagal menghitung riwayat pembayaran unit ini.", "error");
-      } finally {
-          setCalculating(false);
+      if (totalPaid > 0) {
+          setNotes(`Pelunasan Sisa Tagihan (Total: ${formatCurrency(totalBill)}, Sudah Bayar: ${formatCurrency(totalPaid)})`);
+      } else {
+          setNotes(`Pembayaran Full Invoice ${job.woNumber}`);
       }
   };
 
-  // Helper to handle formatted number input
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      // Remove non-numeric characters
       const rawValue = e.target.value.replace(/[^0-9]/g, '');
       if (rawValue) {
           setAmount(parseInt(rawValue, 10));
@@ -159,11 +118,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
               createdAt: serverTimestamp()
           };
 
-          // Tambahkan data bank jika metode pembayaran Transfer atau EDC
           if (trxType === 'IN' && (paymentMethod === 'Transfer' || paymentMethod === 'EDC')) {
-              if (!selectedBank) {
-                  throw new Error("Mohon pilih Bank Penerima.");
-              }
+              if (!selectedBank) throw new Error("Mohon pilih Bank Penerima.");
               newTrx.bankName = selectedBank;
           }
 
@@ -172,7 +128,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
               newTrx.refJobId = selectedJob.id;
               newTrx.customerName = selectedJob.customerName;
           } else {
-              // Jika Petty Cash In / Out, labelnya disesuaikan
               if (category.includes('Kas Kecil')) {
                   newTrx.customerName = 'Internal / Bengkel';
               } else {
@@ -180,19 +135,15 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
               }
           }
 
-          const docRef = await addDoc(collection(db, CASHIER_COLLECTION), newTrx);
+          await addDoc(collection(db, CASHIER_COLLECTION), newTrx);
           
           showNotification("Transaksi berhasil disimpan.", "success");
           
-          // Reset Form
           setAmount('');
           setNotes('');
-          // Reset Selection to force re-calculation if user selects same car again immediately
           setSelectedJob(null);
           setWoSearch('');
           setPaymentSummary({ totalBill: 0, totalPaid: 0, remaining: 0 });
-          
-          fetchTransactions();
 
       } catch (e: any) {
           showNotification("Gagal menyimpan transaksi: " + e.message, "error");
@@ -201,38 +152,26 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
       }
   };
 
-  const handlePrintGatePass = async () => {
+  const handlePrintGatePass = () => {
       if (!selectedJob) {
           showNotification("Pilih unit/WO terlebih dahulu.", "error");
           return;
       }
 
-      // Check payment status from SERVER to ensure accuracy
-      setLoading(true);
-      try {
-          // Get total bill
-          const bill = selectedJob.estimateData?.grandTotal || 0;
-          
-          // Fetch ALL payments for this job from server
-          const q = query(collection(db, CASHIER_COLLECTION), where('refJobId', '==', selectedJob.id), where('type', '==', 'IN'));
-          const snapshot = await getDocs(q);
-          const paid = snapshot.docs.reduce((acc, doc) => acc + (doc.data().amount || 0), 0);
-          
-          if (paid < bill - 1000) { // 1000 tolerance for rounding
-              if(!window.confirm(`Peringatan: Unit ini belum lunas.\n\nTotal Tagihan: ${formatCurrency(bill)}\nSudah Bayar: ${formatCurrency(paid)}\nSisa: ${formatCurrency(bill - paid)}\n\nTetap cetak Gate Pass?`)) {
-                  setLoading(false);
-                  return;
-              }
+      const bill = selectedJob.estimateData?.grandTotal || 0;
+      // Calculate from GLOBAL transactions
+      const paid = transactions
+          .filter(t => t.refJobId === selectedJob.id && t.type === 'IN')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
+      
+      if (paid < bill - 1000) {
+          if(!window.confirm(`Peringatan: Unit ini belum lunas.\n\nTotal Tagihan: ${formatCurrency(bill)}\nSudah Bayar: ${formatCurrency(paid)}\nSisa: ${formatCurrency(bill - paid)}\n\nTetap cetak Gate Pass?`)) {
+              return;
           }
-          
-          generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
-          showNotification("Gate Pass berhasil didownload.", "success");
-      } catch (e: any) {
-          console.error("Print Gatepass Error:", e);
-          showNotification("Gagal mencetak Gate Pass: " + e.message, "error");
-      } finally {
-          setLoading(false);
       }
+      
+      generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
+      showNotification("Gate Pass berhasil didownload.", "success");
   };
 
   const handlePrintInvoice = () => {
@@ -260,7 +199,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* FORM TRANSAKSI */}
             <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-fit">
                 <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -284,7 +222,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                 
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* KIRI */}
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Transaksi</label>
@@ -326,7 +263,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         {selectedJob && <CheckCircle className="absolute right-3 top-3 text-green-600" size={18}/>}
                                     </div>
                                     
-                                    {/* Suggestion Dropdown */}
                                     {woSearch && !selectedJob && activeJobs.length > 0 && (
                                         <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
                                             {activeJobs.map(job => (
@@ -353,29 +289,20 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         <span className="text-gray-600">Pelanggan:</span>
                                         <span className="font-bold text-gray-900 truncate max-w-[150px]">{selectedJob.customerName}</span>
                                     </div>
-                                    
-                                    {/* PAYMENT SUMMARY BREAKDOWN */}
-                                    {calculating ? (
-                                        <div className="text-center text-xs text-gray-500 py-2">Menghitung riwayat...</div>
-                                    ) : (
-                                        <>
-                                            <div className="flex justify-between border-t border-indigo-100 pt-2">
-                                                <span className="text-gray-600">Total Tagihan:</span>
-                                                <span className="font-bold text-gray-800">{formatCurrency(paymentSummary.totalBill)}</span>
-                                            </div>
-                                            {paymentSummary.totalPaid > 0 && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={10}/> Sudah Dibayar:</span>
-                                                    <span className="font-bold text-emerald-600">-{formatCurrency(paymentSummary.totalPaid)}</span>
-                                                </div>
-                                            )}
-                                            <div className="flex justify-between border-t border-indigo-200 pt-2 mt-1">
-                                                <span className="text-indigo-900 font-bold">SISA TAGIHAN:</span>
-                                                <span className="font-bold text-indigo-700 text-base">{formatCurrency(paymentSummary.remaining)}</span>
-                                            </div>
-                                        </>
+                                    <div className="flex justify-between border-t border-indigo-100 pt-2">
+                                        <span className="text-gray-600">Total Tagihan:</span>
+                                        <span className="font-bold text-gray-800">{formatCurrency(paymentSummary.totalBill)}</span>
+                                    </div>
+                                    {paymentSummary.totalPaid > 0 && (
+                                        <div className="flex justify-between">
+                                            <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={10}/> Sudah Dibayar:</span>
+                                            <span className="font-bold text-emerald-600">-{formatCurrency(paymentSummary.totalPaid)}</span>
+                                        </div>
                                     )}
-                                    
+                                    <div className="flex justify-between border-t border-indigo-200 pt-2 mt-1">
+                                        <span className="text-indigo-900 font-bold">SISA TAGIHAN:</span>
+                                        <span className="font-bold text-indigo-700 text-base">{formatCurrency(paymentSummary.remaining)}</span>
+                                    </div>
                                     <div className="pt-2 border-t border-indigo-200 flex gap-2">
                                         <button 
                                             type="button"
@@ -385,27 +312,10 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                             <Printer size={14}/> Cetak Faktur (Invoice)
                                         </button>
                                     </div>
-                                    <div className="text-[10px] text-gray-500 italic mt-1 flex items-start gap-1">
-                                        <AlertCircle size={10} className="mt-0.5"/>
-                                        Invoice menampilkan Full Total. Input di samping adalah sisa yang harus dibayar.
-                                    </div>
-                                </div>
-                            )}
-
-                            {category.includes('Kas Kecil') && (
-                                <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 text-xs text-orange-800 flex items-start gap-2">
-                                    <Wallet size={16} className="shrink-0 mt-0.5"/>
-                                    <p>
-                                        {trxType === 'IN' 
-                                            ? 'Catat penerimaan uang modal kasir (Top Up) dari Bank/Manager untuk keperluan kembalian atau biaya kecil.'
-                                            : 'Gunakan kategori ini untuk pengeluaran kecil tanpa PO (Bensin, Kopi, ATK, dll).'
-                                        }
-                                    </p>
                                 </div>
                             )}
                         </div>
 
-                        {/* KANAN */}
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -422,11 +332,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         placeholder="0"
                                     />
                                 </div>
-                                {selectedJob && (
-                                    <p className="text-xs text-indigo-600 mt-1 flex items-center gap-1">
-                                        <Calculator size={12}/> Otomatis terisi sisa tagihan. Ubah jika pembayaran parsial.
-                                    </p>
-                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -446,7 +351,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                     </div>
                                 </div>
 
-                                {/* BANK SELECTION - DYNAMIC FROM SETTINGS */}
                                 {trxType === 'IN' && (paymentMethod === 'Transfer' || paymentMethod === 'EDC') && (
                                     <div className="col-span-2 animate-fade-in">
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Bank Penerima (Rekening Bengkel)</label>
@@ -493,7 +397,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                     </div>
 
                     <div className="pt-4 border-t flex gap-3 justify-end">
-                        {/* GATE PASS BUTTON (Conditional) */}
                         {category === 'Pelunasan' && selectedJob && (
                             <button 
                                 type="button"
@@ -515,18 +418,18 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                 </form>
             </div>
 
-            {/* RIWAYAT / SIDEBAR */}
+            {/* RIWAYAT (REALTIME FROM PROPS) */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[500px]">
                 <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                     <History size={18} className="text-gray-500"/>
-                    <h3 className="font-bold text-gray-800">Riwayat Transaksi</h3>
+                    <h3 className="font-bold text-gray-800">Riwayat Transaksi (Live)</h3>
                 </div>
                 <div className="overflow-y-auto flex-grow p-0">
                     {transactions.length === 0 ? (
-                        <div className="p-8 text-center text-gray-400 text-sm">Belum ada transaksi hari ini.</div>
+                        <div className="p-8 text-center text-gray-400 text-sm">Belum ada transaksi.</div>
                     ) : (
                         <div className="divide-y divide-gray-100">
-                            {transactions.map(trx => (
+                            {transactions.slice(0, 20).map(trx => (
                                 <div key={trx.id} className="p-4 hover:bg-gray-50 transition-colors group">
                                     <div className="flex justify-between items-start mb-1">
                                         <div>
@@ -549,7 +452,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         {trx.customerName && <span className="font-semibold text-indigo-900">{trx.customerName} - </span>}
                                         {trx.description || '-'}
                                     </p>
-                                    {/* Action Buttons */}
                                     <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button 
                                             onClick={() => generateReceiptPDF(trx, settings)}

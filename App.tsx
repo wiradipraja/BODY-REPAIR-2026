@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
-import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle } from './types';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
+import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder } from './types';
 import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
 
@@ -23,7 +23,7 @@ import PurchaseOrderView from './components/inventory/PurchaseOrderView';
 import PartMonitoringView from './components/inventory/PartMonitoringView'; 
 import AccountingView from './components/finance/AccountingView'; 
 import CashierView from './components/finance/CashierView'; 
-import DebtReceivableView from './components/finance/DebtReceivableView'; // NEW
+import DebtReceivableView from './components/finance/DebtReceivableView'; 
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -32,34 +32,67 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
   
-  // DATA STATES
+  // GLOBAL REAL-TIME DATA STATES
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
+  const [transactions, setTransactions] = useState<CashierTransaction[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  
   const [loadingData, setLoadingData] = useState(true);
 
-  // REALTIME LISTENERS
+  // CENTRALIZED REALTIME LISTENERS
   useEffect(() => {
     if (!user) return;
     
     setLoadingData(true);
     
-    // Listen to Vehicles
+    // 1. Vehicles
     const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION)), (snap) => {
       setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
     });
 
-    // Listen to Service Jobs
+    // 2. Service Jobs
     const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION)), (snap) => {
       setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
     });
 
+    // 3. Inventory
+    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION)), (snap) => {
+      setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+    });
+
+    // 4. Suppliers
+    const unsubSuppliers = onSnapshot(query(collection(db, SUPPLIERS_COLLECTION)), (snap) => {
+      setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
+    });
+
+    // 5. Cashier Transactions (New Real-time)
+    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
+      setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
+    });
+
+    // 6. Purchase Orders (New Real-time)
+    const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
+      setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
+    });
+
     setLoadingData(false);
-    return () => { unsubVehicles(); unsubJobs(); };
+    
+    // Cleanup listeners on unmount/logout
+    return () => { 
+        unsubVehicles(); 
+        unsubJobs(); 
+        unsubInventory();
+        unsubSuppliers();
+        unsubTransactions();
+        unsubPOs();
+    };
   }, [user]);
 
+  // Fetch Settings once
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -67,26 +100,8 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error(e); }
   };
 
-  const refreshInventory = async () => {
-      try {
-          const q = await getDocs(collection(db, SPAREPART_COLLECTION));
-          setInventoryItems(q.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
-      } catch (e) { console.error(e); }
-  };
-
-  const refreshSuppliers = async () => {
-      try {
-          const q = await getDocs(collection(db, SUPPLIERS_COLLECTION));
-          setSuppliers(q.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
-      } catch (e) { console.error(e); }
-  };
-
   useEffect(() => {
-    if (user) {
-        refreshSettings();
-        refreshInventory();
-        refreshSuppliers();
-    }
+    if (user) refreshSettings();
   }, [user]);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,7 +145,6 @@ const AppContent: React.FC = () => {
   };
 
   const handleCreateTransaction = (vehicle: Vehicle) => {
-      // Mirroring ALL vehicle data to the transaction draft for full visibility
       const newJobDraft: Partial<Job> = {
           id: `TEMP_${Date.now()}`,
           unitId: vehicle.id,
@@ -143,12 +157,9 @@ const AppContent: React.FC = () => {
           carModel: vehicle.carModel,
           warnaMobil: vehicle.warnaMobil,
           namaAsuransi: vehicle.namaAsuransi,
-          
-          // Technical Info
           nomorRangka: vehicle.nomorRangka,
           nomorMesin: vehicle.nomorMesin,
           tahunPembuatan: vehicle.tahunPembuatan,
-
           statusKendaraan: 'Booking Masuk',
           statusPekerjaan: 'Belum Mulai Perbaikan',
           posisiKendaraan: 'Di Bengkel',
@@ -306,20 +317,23 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} />}
         {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
-        {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} userPermissions={userPermissions} showNotification={showNotification} onRefreshInventory={refreshInventory} />}
-        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="sparepart" />}
-        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="material" />}
+        
+        {/* Pass Global POs to View */}
+        {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} realTimePOs={purchaseOrders} />}
+        
+        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}
+        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" />}
 
-        {/* Finance Sub-Menus */}
-        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} />}
-        {currentView === 'finance_cashier' && <CashierView jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
-        {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
+        {/* FINANCE - FULLY REAL-TIME PROPS */}
+        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} />}
+        {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
 
         {currentView === 'settings' && (
             <div className="max-w-5xl mx-auto">
-                <SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} />
+                <SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} />
             </div>
         )}
 

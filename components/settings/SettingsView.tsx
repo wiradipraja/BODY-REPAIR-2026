@@ -16,8 +16,6 @@ import { Settings, Supplier, UserPermissions, BankAccount } from '../../types';
 import * as XLSX from 'xlsx';
 import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban, Building, CreditCard } from 'lucide-react';
 
-// --- CONFIG FOR SECONDARY AUTH APP (To create user without logging out) ---
-// Using the same config as main app
 const firebaseConfig = {
   apiKey: "AIzaSyA4z2XCxu3tNAL5IiNXfY7suu6tYszPAYQ",
   authDomain: "body-repair-system.firebaseapp.com",
@@ -32,9 +30,10 @@ interface SettingsViewProps {
   refreshSettings: () => void;
   showNotification: (msg: string, type: string) => void;
   userPermissions: UserPermissions;
+  realTimeSuppliers?: Supplier[]; // Added prop
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSettings, showNotification, userPermissions }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSettings, showNotification, userPermissions, realTimeSuppliers = [] }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'system' | 'suppliers'>('users');
   const [isLoading, setIsLoading] = useState(false);
   const isManager = userPermissions.role === 'Manager';
@@ -52,24 +51,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const [newBank, setNewBank] = useState<BankAccount>({ bankName: '', accountNumber: '', accountHolder: '' });
   
   // --- STATE FOR SUPPLIERS ---
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  // We use realTimeSuppliers prop if available, otherwise empty.
+  // We don't fetch manually anymore.
   const [supplierForm, setSupplierForm] = useState<Partial<Supplier>>({});
   const [isEditingSupplier, setIsEditingSupplier] = useState(false);
 
   useEffect(() => {
     setLocalSettings(currentSettings);
-    if (activeTab === 'suppliers') fetchSuppliers();
-  }, [currentSettings, activeTab]);
-
-  const fetchSuppliers = async () => {
-    try {
-        const querySnapshot = await getDocs(collection(db, SUPPLIERS_COLLECTION));
-        const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier));
-        setSuppliers(data);
-    } catch (e) {
-        console.error("Fetch suppliers error", e);
-    }
-  };
+  }, [currentSettings]);
 
   // --- HANDLERS: USER MANAGEMENT ---
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -77,7 +66,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     if (!isManager) return;
     setIsLoading(true);
     try {
-        // 1. Init secondary app safely to create user without logging out admin
         let secondaryApp;
         const existingApps = getApps();
         if (existingApps.length > 0 && existingApps.find(app => app.name === "SecondaryApp")) {
@@ -87,15 +75,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
         }
 
         const secondaryAuth = getAuth(secondaryApp);
-        
-        // 2. Create User in Auth
         const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newUser.email, newUser.password);
-        
-        // 3. Update Profile Name
         await updateProfile(userCredential.user, { displayName: newUser.name });
 
-        // 4. Create User Document in Firestore with Role (Using Main DB instance)
-        // This requires the current logged-in user (Admin) to have write permissions on 'users' collection
         await setDoc(doc(db, USERS_COLLECTION, userCredential.user.uid), {
             uid: userCredential.user.uid,
             displayName: newUser.name,
@@ -104,7 +86,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
             createdAt: serverTimestamp()
         });
 
-        // 5. Cleanup (Sign out but keep app instance to avoid re-init errors)
         await secondaryAuth.signOut(); 
 
         showNotification(`Pengguna ${newUser.name} berhasil dibuat sebagai ${newUser.role}!`, 'success');
@@ -154,11 +135,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
         const user = auth.currentUser;
 
         if (user && user.email) {
-            // 1. Re-authenticate user
             const credential = EmailAuthProvider.credential(user.email, changePass.current);
             await reauthenticateWithCredential(user, credential);
-
-            // 2. Update Password
             await updatePassword(user, changePass.new);
             
             showNotification("Password Anda berhasil diubah.", "success");
@@ -296,7 +274,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           }
           setSupplierForm({});
           setIsEditingSupplier(false);
-          fetchSuppliers();
+          // fetchSuppliers(); // No need, realtime listener in App.tsx updates realTimeSuppliers
       } catch (error: any) {
           console.error("Save Supplier Error:", error);
           showNotification("Gagal menyimpan supplier: " + error.message, "error");
@@ -310,7 +288,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       if(!window.confirm("Hapus supplier ini?")) return;
       try {
           await deleteDoc(doc(db, SUPPLIERS_COLLECTION, id));
-          fetchSuppliers();
           showNotification("Supplier dihapus", "success");
       } catch (e: any) { 
           console.error(e);
@@ -348,7 +325,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
             }
         }
         showNotification(`Berhasil import ${count} supplier`, 'success');
-        fetchSuppliers();
     };
     reader.readAsBinaryString(file);
   };
@@ -778,7 +754,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               {/* LIST */}
               <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold text-gray-800">Daftar Supplier</h3>
+                        <h3 className="text-lg font-bold text-gray-800">Daftar Supplier (Real-time)</h3>
                         <label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-sm font-medium">
                             <Upload size={16}/> Import Excel
                             <input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportSuppliers} />
@@ -795,7 +771,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                               </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
-                              {suppliers.map(s => (
+                              {realTimeSuppliers.map(s => (
                                   <tr key={s.id} className="hover:bg-gray-50">
                                       <td className="px-4 py-2 font-medium">
                                           {s.name}
@@ -816,7 +792,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                       </td>
                                   </tr>
                               ))}
-                              {suppliers.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-400">Belum ada data supplier</td></tr>}
+                              {realTimeSuppliers.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-400">Belum ada data supplier</td></tr>}
                           </tbody>
                       </table>
                   </div>
