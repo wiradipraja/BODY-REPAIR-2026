@@ -1,3 +1,4 @@
+
 import { Settings, Job } from '../types';
 
 export const carBrands = ["Mazda", "Toyota", "Honda", "Mitsubishi", "Suzuki", "Daihatsu", "Nissan", "Hyundai", "Wuling", "BMW", "Mercedes-Benz", "Lainnya"];
@@ -27,7 +28,8 @@ export const initialSettingsState: Settings = {
     statusKendaraanOptions: ["Banding Harga SPK", "Booking Masuk", "Klaim Asuransi", "Work In Progress", "Selesai", "Sudah Di ambil Pemilik"].sort(),
     statusPekerjaanOptions: ["Belum Mulai Perbaikan", "Las Ketok", "Bongkar", "Dempul", "Cat", "Poles", "Pemasangan", "Finishing", "Quality Control", "Tunggu Part", "Selesai"],
     userRoles: {},
-    roleOptions: ["Manager", "Service Advisor", "Admin Bengkel", "Foreman", "Sparepart", "Staff"]
+    roleOptions: ["Manager", "Service Advisor", "Admin Bengkel", "Foreman", "Sparepart", "Staff"],
+    workshopBankAccounts: [] // Default empty
 };
 
 export const initialCostState = { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };

@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Receipt, Scale } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -16,7 +17,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   isOpen, setIsOpen, currentView, setCurrentView, userData, userPermissions, onLogout 
 }) => {
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-      'sparepart_root': true // Default open for convenience
+      'sparepart_root': true,
+      'finance_root': true
   });
 
   const toggleMenu = (id: string) => {
@@ -33,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Sparepart & Gudang', 
         icon: Wrench,
         children: [
-            { id: 'part_monitoring', label: 'Monitoring Part WO', icon: ClipboardList }, // NEW
+            { id: 'part_monitoring', label: 'Monitoring Part WO', icon: ClipboardList },
             { id: 'inventory', label: 'Master Stok', icon: Package },
             { id: 'purchase_order', label: 'Purchase Order (PO)', icon: ShoppingCart },
             { id: 'part_issuance', label: 'Keluar Part (WO)', icon: Truck }, 
@@ -41,6 +43,20 @@ const Sidebar: React.FC<SidebarProps> = ({
         ]
     },
   ];
+
+  // Add Finance Menu for Managers (Dropdown)
+  if (userPermissions.hasFinanceAccess) {
+      menuItems.push({ 
+          id: 'finance_root', 
+          label: 'Finance & Accounting', 
+          icon: BarChart3,
+          children: [
+              { id: 'finance_dashboard', label: 'Dashboard & Laporan', icon: BarChart3 },
+              { id: 'finance_cashier', label: 'Kasir & Gatepass', icon: Banknote },
+              { id: 'finance_debt', label: 'Hutang & Piutang', icon: Scale }, // NEW MENU
+          ]
+      });
+  }
 
   return (
     <>

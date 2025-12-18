@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
@@ -11,7 +12,7 @@ import {
 } from 'firebase/auth';
 import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, SETTINGS_COLLECTION, SUPPLIERS_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
-import { Settings, Supplier, UserPermissions } from '../../types';
+import { Settings, Supplier, UserPermissions, BankAccount } from '../../types';
 import * as XLSX from 'xlsx';
 import { Save, UserPlus, KeyRound, Upload, Trash2, Edit2, Database, Users, Truck, Plus, Lock, Shield, Ban, Building, CreditCard } from 'lucide-react';
 
@@ -48,6 +49,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   // --- STATE FOR SYSTEM ---
   const [localSettings, setLocalSettings] = useState<Settings>(currentSettings);
   const [newRoleName, setNewRoleName] = useState('');
+  const [newBank, setNewBank] = useState<BankAccount>({ bankName: '', accountNumber: '', accountHolder: '' });
   
   // --- STATE FOR SUPPLIERS ---
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -195,7 +197,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                 workshopEmail: localSettings.workshopEmail || '',
                 ppnPercentage: localSettings.ppnPercentage,
                 insuranceOptions: localSettings.insuranceOptions,
-                roleOptions: localSettings.roleOptions || []
+                roleOptions: localSettings.roleOptions || [],
+                workshopBankAccounts: localSettings.workshopBankAccounts || []
             });
         }
         showNotification("Pengaturan Sistem Berhasil Disimpan", 'success');
@@ -227,6 +230,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           ...prev,
           roleOptions: prev.roleOptions.filter(r => r !== role)
       }));
+  };
+
+  const handleAddBank = () => {
+      if (newBank.bankName && newBank.accountNumber) {
+          setLocalSettings(prev => ({
+              ...prev,
+              workshopBankAccounts: [...(prev.workshopBankAccounts || []), newBank]
+          }));
+          setNewBank({ bankName: '', accountNumber: '', accountHolder: '' });
+      } else {
+          showNotification("Nama Bank dan No. Rekening wajib diisi.", "error");
+      }
+  };
+
+  const handleRemoveBank = (index: number) => {
+      const updated = [...(localSettings.workshopBankAccounts || [])];
+      updated.splice(index, 1);
+      setLocalSettings(prev => ({ ...prev, workshopBankAccounts: updated }));
   };
 
   const handleImportInsurance = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -540,6 +561,69 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   </div>
                   <button disabled={!isManager} onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
                        <Save size={18}/> Simpan Identitas
+                  </button>
+               </div>
+               
+               {/* BANK ACCOUNTS (NEW SECTION) */}
+               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                      <CreditCard size={20} className="text-emerald-600"/> Rekening Bank Penerimaan
+                  </h3>
+                  <div className="space-y-4">
+                      {/* ADD NEW BANK */}
+                      <div className="flex flex-col md:flex-row gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                          <input 
+                             disabled={!isManager}
+                             placeholder="Nama Bank (BCA, Mandiri...)" 
+                             value={newBank.bankName} 
+                             onChange={e => setNewBank({...newBank, bankName: e.target.value})}
+                             className="p-2 border rounded text-sm w-full md:w-1/4"
+                          />
+                          <input 
+                             disabled={!isManager}
+                             placeholder="No. Rekening" 
+                             value={newBank.accountNumber} 
+                             onChange={e => setNewBank({...newBank, accountNumber: e.target.value})}
+                             className="p-2 border rounded text-sm w-full md:w-1/4 font-mono"
+                          />
+                          <input 
+                             disabled={!isManager}
+                             placeholder="Atas Nama (A/N)" 
+                             value={newBank.accountHolder} 
+                             onChange={e => setNewBank({...newBank, accountHolder: e.target.value})}
+                             className="p-2 border rounded text-sm w-full md:w-1/4"
+                          />
+                          <button 
+                             disabled={!isManager} 
+                             onClick={handleAddBank} 
+                             className="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-emerald-700 flex items-center justify-center gap-2"
+                          >
+                             <Plus size={16}/> Tambah
+                          </button>
+                      </div>
+
+                      {/* LIST OF BANKS */}
+                      <div className="space-y-2">
+                          {(localSettings.workshopBankAccounts || []).map((bank, idx) => (
+                              <div key={idx} className="flex justify-between items-center p-3 bg-white border border-gray-200 rounded-lg">
+                                  <div>
+                                      <div className="font-bold text-gray-800">{bank.bankName} - {bank.accountNumber}</div>
+                                      <div className="text-xs text-gray-500 font-medium">A/N: {bank.accountHolder}</div>
+                                  </div>
+                                  {isManager && (
+                                      <button onClick={() => handleRemoveBank(idx)} className="text-red-500 hover:text-red-700 p-2 rounded hover:bg-red-50 transition-colors">
+                                          <Trash2 size={16}/>
+                                      </button>
+                                  )}
+                              </div>
+                          ))}
+                          {(!localSettings.workshopBankAccounts || localSettings.workshopBankAccounts.length === 0) && (
+                              <div className="text-center text-gray-400 italic py-2 text-sm">Belum ada rekening bank yang didaftarkan.</div>
+                          )}
+                      </div>
+                  </div>
+                  <button disabled={!isManager} onClick={handleSaveSettings} className="mt-5 flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700">
+                       <Save size={18}/> Simpan Daftar Rekening
                   </button>
                </div>
 

@@ -1,9 +1,10 @@
 
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Job, EstimateData, Settings, PurchaseOrder, PurchaseOrderItem } from '../types';
+import { Job, EstimateData, Settings, PurchaseOrder, PurchaseOrderItem, CashierTransaction } from '../types';
 import { formatCurrency, formatDateIndo } from './helpers';
 
+// Helper for standard B&W Header
 const addHeader = (doc: any, settings: Settings) => {
   const pageWidth = doc.internal.pageSize.width;
   const wsName = settings.workshopName || "MAZDA RANGER BODY & PAINT";
@@ -13,16 +14,15 @@ const addHeader = (doc: any, settings: Settings) => {
 
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(44, 62, 80);
+  doc.setTextColor(0, 0, 0); // Black
   doc.text(wsName, 15, 20);
   
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(100);
   doc.text(wsAddress, 15, 25);
   doc.text(`Telp: ${wsPhone} | Email: ${wsEmail}`, 15, 29);
   
-  doc.setDrawColor(200);
+  doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.5);
   doc.line(15, 34, pageWidth - 15, 34);
 };
@@ -39,10 +39,10 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text(isWO ? "WORK ORDER" : "ESTIMASI BIAYA", pageWidth - 15, 25, { align: 'right' });
   
   doc.setFontSize(10);
-  doc.setTextColor(100);
   doc.text(isWO ? `#${job.woNumber}` : `#${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 30, { align: 'right' });
   doc.text(formatDateIndo(new Date()), pageWidth - 15, 34, { align: 'right' });
 
+  // Standard formatting for Estimations (can keep some shading or remove if preferred, keeping standard here)
   doc.setFillColor(245, 247, 250);
   doc.rect(15, 40, pageWidth - 30, 28, 'F');
   
@@ -96,9 +96,8 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   const valX = pageWidth - 15;
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(80);
-
-  // Rincian Kalkulasi
+  
+  // Totals
   doc.text("Total Jasa:", labelX, currentY);
   doc.text(formatCurrency(estimateData.subtotalJasa), valX, currentY, { align: 'right' });
   currentY += 5;
@@ -123,12 +122,10 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text(formatCurrency(estimateData.ppnAmount), valX, currentY, { align: 'right' });
   currentY += 7;
 
-  // Grand Total Line
-  doc.setDrawColor(200);
+  doc.setDrawColor(0);
   doc.line(labelX, currentY - 4, valX, currentY - 4);
   
   doc.setFontSize(11);
-  doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
   doc.text("GRAND TOTAL:", labelX, currentY);
   doc.text(formatCurrency(estimateData.grandTotal), valX, currentY, { align: 'right' });
@@ -142,6 +139,196 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text(`( ${job.customerName} )`, pageWidth - 50, signY + 30, {align: 'center'});
 
   doc.save(`${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`);
+};
+
+// --- INVOICE (FAKTUR PENAGIHAN) - PRINTER FRIENDLY (NO BLOCKS) ---
+export const generateInvoicePDF = (job: Job, settings: Settings) => {
+  const doc: any = new jsPDF();
+  const pageWidth = doc.internal.pageSize.width;
+  addHeader(doc, settings);
+
+  doc.setFontSize(18);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.text("FAKTUR / INVOICE", pageWidth - 15, 25, { align: 'right' });
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text(`No: INV/${job.woNumber}`, pageWidth - 15, 32, { align: 'right' });
+  doc.text(`Tgl: ${formatDateIndo(new Date())}`, pageWidth - 15, 37, { align: 'right' });
+
+  // BOX INFO (STROKE ONLY, NO FILL)
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.2);
+  doc.rect(15, 45, pageWidth - 30, 35); // Outline box
+
+  doc.setFontSize(9);
+  
+  // Left: Bill To
+  doc.setFont("helvetica", "bold");
+  doc.text("TAGIHAN KEPADA:", 20, 52);
+  doc.setFont("helvetica", "normal");
+  doc.text(job.customerName, 20, 57);
+  doc.text(job.customerAddress || 'Alamat tidak tersedia', 20, 62);
+  doc.text(`Telp: ${job.customerPhone || '-'}`, 20, 67);
+  doc.text(job.namaAsuransi !== 'Umum / Pribadi' ? `Asuransi: ${job.namaAsuransi}` : 'Pelanggan Umum', 20, 72);
+
+  // Right: Vehicle Info
+  const col2 = pageWidth / 2 + 10;
+  doc.setFont("helvetica", "bold");
+  doc.text("DATA KENDARAAN:", col2, 52);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Nopol: ${job.policeNumber}`, col2, 57);
+  doc.text(`Merk: ${job.carBrand} ${job.carModel}`, col2, 62);
+  doc.text(`Warna: ${job.warnaMobil}`, col2, 67);
+  doc.text(`Rangka: ${job.nomorRangka || '-'}`, col2, 72);
+
+  const estimate = job.estimateData;
+  if (!estimate) return;
+
+  // -- SECTION: JASA --
+  let currentY = 85;
+  doc.setFont("helvetica", "bold");
+  doc.text("I. RINCIAN JASA & PEKERJAAN", 15, currentY);
+  
+  // Table: Plain theme for clean print
+  autoTable(doc, {
+    startY: currentY + 2,
+    head: [['No', 'Uraian Pekerjaan', 'Biaya (Rp)']],
+    body: estimate.jasaItems.map((item, idx) => [idx + 1, item.name, formatCurrency(item.price)]),
+    theme: 'plain', 
+    headStyles: { 
+        fillColor: false, 
+        textColor: 0, 
+        fontStyle: 'bold',
+        lineWidth: { bottom: 0.5 }, // Line under header
+        lineColor: 0
+    },
+    bodyStyles: { textColor: 0 },
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' } },
+    didDrawPage: (data) => {
+        // Footer line for table manually if needed, but 'plain' usually is open.
+    }
+  });
+
+  // -- SECTION: PARTS --
+  currentY = doc.lastAutoTable.finalY + 10;
+  
+  if (estimate.partItems && estimate.partItems.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.text("II. SUKU CADANG (SPAREPARTS)", 15, currentY);
+      autoTable(doc, {
+        startY: currentY + 2,
+        head: [['No', 'Kode Part', 'Nama Sparepart', 'Qty', 'Harga', 'Total']],
+        body: estimate.partItems.map((item, idx) => [
+            idx + 1, 
+            item.number || '-', 
+            item.name, 
+            item.qty || 1, 
+            formatCurrency(item.price), 
+            formatCurrency((item.price || 0) * (item.qty || 1))
+        ]),
+        theme: 'plain',
+        headStyles: { 
+            fillColor: false, 
+            textColor: 0, 
+            fontStyle: 'bold',
+            lineWidth: { bottom: 0.5 },
+            lineColor: 0
+        },
+        bodyStyles: { textColor: 0 },
+        styles: { fontSize: 9, cellPadding: 2 },
+        columnStyles: { 
+            0: { cellWidth: 10, halign: 'center' }, 
+            3: { halign: 'center', cellWidth: 15 },
+            4: { halign: 'right' }, 
+            5: { halign: 'right' } 
+        }
+      });
+      currentY = doc.lastAutoTable.finalY + 10;
+  }
+
+  // Check Page Break
+  if (currentY > 200) { doc.addPage(); currentY = 20; }
+
+  // -- SUMMARY (Clean Layout) --
+  const labelX = pageWidth - 90;
+  const valX = pageWidth - 15;
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(0);
+
+  // Line Separator
+  doc.setLineWidth(0.2);
+  doc.line(labelX, currentY, pageWidth - 15, currentY);
+  currentY += 5;
+
+  doc.text("Total Jasa:", labelX, currentY);
+  doc.text(formatCurrency(estimate.subtotalJasa), valX, currentY, { align: 'right' });
+  currentY += 5;
+
+  if (estimate.discountJasaAmount > 0) {
+      doc.text("Diskon Jasa:", labelX, currentY);
+      doc.text(`- ${formatCurrency(estimate.discountJasaAmount)}`, valX, currentY, { align: 'right' });
+      currentY += 5;
+  }
+
+  doc.text("Total Sparepart:", labelX, currentY);
+  doc.text(formatCurrency(estimate.subtotalPart), valX, currentY, { align: 'right' });
+  currentY += 5;
+
+  if (estimate.discountPartAmount > 0) {
+      doc.text("Diskon Sparepart:", labelX, currentY);
+      doc.text(`- ${formatCurrency(estimate.discountPartAmount)}`, valX, currentY, { align: 'right' });
+      currentY += 5;
+  }
+
+  doc.text("PPN:", labelX, currentY);
+  doc.text(formatCurrency(estimate.ppnAmount), valX, currentY, { align: 'right' });
+  currentY += 2;
+
+  // GRAND TOTAL (Double Line for accounting style)
+  doc.setLineWidth(0.5);
+  doc.line(labelX, currentY + 3, pageWidth - 15, currentY + 3);
+  doc.line(labelX, currentY + 13, pageWidth - 15, currentY + 13);
+  
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("GRAND TOTAL", labelX, currentY + 9);
+  doc.text(formatCurrency(estimate.grandTotal), valX, currentY + 9, { align: 'right' });
+
+  // -- FOOTER PAYMENT INFO --
+  currentY += 20;
+  if (currentY > 250) { doc.addPage(); currentY = 40; }
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Info Pembayaran:", 15, currentY);
+  currentY += 5;
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  if (settings.workshopBankAccounts && settings.workshopBankAccounts.length > 0) {
+      settings.workshopBankAccounts.forEach(bank => {
+          doc.text(`• ${bank.bankName} : ${bank.accountNumber} (a/n ${bank.accountHolder})`, 15, currentY);
+          currentY += 5;
+      });
+  } else {
+      doc.text("- Hubungi Kasir", 15, currentY);
+      currentY += 5;
+  }
+
+  // SIGNATURES
+  const signY = currentY + 10;
+  doc.text("Hormat Kami,", 30, signY, {align: 'center'});
+  doc.text("Penerima / Customer,", pageWidth - 50, signY, {align: 'center'});
+  
+  doc.text("( ........................... )", 30, signY + 25, {align: 'center'});
+  doc.text("( ........................... )", pageWidth - 50, signY + 25, {align: 'center'});
+
+  doc.save(`INVOICE_${job.woNumber}.pdf`);
 };
 
 export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings, supplierAddress?: string) => {
@@ -305,4 +492,121 @@ export const generateReceivingReportPDF = (po: PurchaseOrder, receivedItems: {it
     doc.text(`( ${receiverName} )`, pageWidth - 40, finalY + 25, { align: 'center' });
 
     doc.save(`BST_${po.poNumber}_${new Date().getTime()}.pdf`);
+};
+
+// --- GATE PASS TICKET ---
+export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: string) => {
+    const doc: any = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    addHeader(doc, settings);
+
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("SURAT JALAN KELUAR", pageWidth / 2, 50, { align: 'center' });
+    doc.text("( GATE PASS )", pageWidth / 2, 60, { align: 'center' });
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    const today = formatDateIndo(new Date());
+    doc.text(`Tanggal: ${today}`, pageWidth - 15, 70, { align: 'right' });
+
+    // Box Info Kendaraan
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.5);
+    doc.rect(20, 80, pageWidth - 40, 60);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`NO. POLISI : ${job.policeNumber}`, 30, 95);
+    
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Jenis Kendaraan : ${job.carBrand} ${job.carModel}`, 30, 105);
+    doc.text(`Warna : ${job.warnaMobil}`, 30, 113);
+    doc.text(`Pemilik : ${job.customerName}`, 30, 121);
+    doc.text(`No. WO : ${job.woNumber}`, 30, 129);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("STATUS: LUNAS / SELESAI", pageWidth / 2, 160, { align: 'center' });
+
+    // Signatures
+    const signY = 190;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    
+    doc.text("Dikeluarkan Oleh (Kasir),", 40, signY, { align: 'center' });
+    doc.text("Security / Gate,", pageWidth - 40, signY, { align: 'center' });
+
+    doc.setFont("helvetica", "normal");
+    doc.text(`( ${cashierName} )`, 40, signY + 30, { align: 'center' });
+    doc.text("( ........................... )", pageWidth - 40, signY + 30, { align: 'center' });
+
+    doc.setFontSize(8);
+    doc.text("* Harap serahkan tiket ini ke petugas keamanan saat keluar.", pageWidth / 2, 250, { align: 'center' });
+
+    doc.save(`GATEPASS_${job.policeNumber}.pdf`);
+};
+
+// --- NEW FUNCTION: RECEIPT ---
+export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) => {
+    const doc: any = new jsPDF('l', 'mm', 'a5'); // Landscape A5
+    const pageWidth = doc.internal.pageSize.width;
+    
+    // Header Custom for Receipt
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(settings.workshopName || "MAZDA RANGER", 10, 15);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(settings.workshopAddress || "", 10, 20);
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("KWITANSI PEMBAYARAN", pageWidth - 10, 15, { align: 'right' });
+    
+    doc.setFontSize(10);
+    doc.text(`No: ${String(trx.createdAt?.seconds || Date.now()).slice(-6)}`, pageWidth - 10, 22, { align: 'right' });
+    doc.text(`Tanggal: ${formatDateIndo(trx.date)}`, pageWidth - 10, 27, { align: 'right' });
+
+    doc.line(10, 32, pageWidth - 10, 32);
+
+    const startY = 45;
+    const lineHeight = 10;
+
+    doc.setFontSize(11);
+    doc.text("Telah Terima Dari", 15, startY);
+    doc.text(`:  ${trx.customerName || 'Pelanggan Umum'}`, 55, startY);
+
+    doc.text("Uang Sejumlah", 15, startY + lineHeight);
+    doc.setFont("helvetica", "bold");
+    doc.text(`:  ${formatCurrency(trx.amount)}`, 55, startY + lineHeight);
+    doc.setFont("helvetica", "normal");
+
+    doc.text("Untuk Pembayaran", 15, startY + (lineHeight * 2));
+    doc.text(`:  ${trx.category} - ${trx.description || ''}`, 55, startY + (lineHeight * 2));
+    if(trx.refNumber) {
+        doc.text(`   (Ref: ${trx.refNumber})`, 55, startY + (lineHeight * 2) + 5);
+    }
+
+    doc.text("Metode Bayar", 15, startY + (lineHeight * 3) + 5);
+    // Display Bank Name in Receipt if available
+    const paymentInfo = trx.bankName ? `${trx.paymentMethod} - ${trx.bankName}` : trx.paymentMethod;
+    doc.text(`:  ${paymentInfo}`, 55, startY + (lineHeight * 3) + 5);
+
+    // Box Amount
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.5);
+    doc.rect(15, 105, 60, 15);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(formatCurrency(trx.amount), 45, 114, { align: 'center' });
+
+    // Signature
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Kasir / Finance,", pageWidth - 40, 105, { align: 'center' });
+    doc.text(`( ${trx.createdBy} )`, pageWidth - 40, 130, { align: 'center' });
+
+    doc.save(`RECEIPT_${trx.refNumber || 'TRX'}.pdf`);
 };

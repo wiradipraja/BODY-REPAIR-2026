@@ -202,6 +202,29 @@ export interface PurchaseOrder {
   lastModified?: any;
 }
 
+export interface CashierTransaction {
+  id: string;
+  date: any;
+  type: 'IN' | 'OUT';
+  category: 'Uang Muka' | 'Pelunasan' | 'Invoice Masuk' | 'Operasional' | 'Lainnya';
+  amount: number;
+  paymentMethod: 'Cash' | 'Transfer' | 'EDC';
+  bankName?: string; 
+  refNumber?: string; // WO Number or Invoice Number
+  refJobId?: string;
+  refPoId?: string; // NEW: Link to Purchase Order ID for AP
+  description?: string;
+  customerName?: string;
+  createdBy: string;
+  createdAt: any;
+}
+
+export interface BankAccount {
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+}
+
 export interface Settings {
   workshopName?: string;
   workshopAddress?: string;
@@ -219,4 +242,5 @@ export interface Settings {
   statusPekerjaanOptions: string[];
   userRoles: Record<string, { role: string; financeAccess: boolean }>;
   roleOptions: string[];
+  workshopBankAccounts?: BankAccount[]; 
 }

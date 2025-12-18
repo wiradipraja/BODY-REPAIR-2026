@@ -48,6 +48,11 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
+    // Rules untuk Transaksi Kasir (Cashier & Gatepass)
+    match /bengkel-cashier-transactions/{trxId} {
+      allow read, write: if isAuthenticated();
+    }
+
     // Rules untuk Profil Pengguna
     match /users/{uid} {
       allow read, write: if isAuthenticated();

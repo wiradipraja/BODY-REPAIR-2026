@@ -29,5 +29,6 @@ export const USERS_COLLECTION = "users";
 export const SPAREPART_COLLECTION = "bengkel-spareparts-master";
 export const SUPPLIERS_COLLECTION = "bengkel-suppliers";
 export const PURCHASE_ORDERS_COLLECTION = "bengkel-purchase-orders";
+export const CASHIER_COLLECTION = "bengkel-cashier-transactions"; // NEW
 // DEPRECATED (Keeping reference for migration if needed)
 export const JOBS_COLLECTION = "shared-bengkel-jobs";

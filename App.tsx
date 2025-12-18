@@ -21,6 +21,9 @@ import InventoryView from './components/inventory/InventoryView';
 import MaterialIssuanceView from './components/inventory/MaterialIssuanceView'; 
 import PurchaseOrderView from './components/inventory/PurchaseOrderView'; 
 import PartMonitoringView from './components/inventory/PartMonitoringView'; 
+import AccountingView from './components/finance/AccountingView'; 
+import CashierView from './components/finance/CashierView'; 
+import DebtReceivableView from './components/finance/DebtReceivableView'; // NEW
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -308,6 +311,11 @@ const AppContent: React.FC = () => {
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} userPermissions={userPermissions} showNotification={showNotification} onRefreshInventory={refreshInventory} />}
         {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="sparepart" />}
         {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={refreshInventory} issuanceType="material" />}
+
+        {/* Finance Sub-Menus */}
+        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} />}
+        {currentView === 'finance_cashier' && <CashierView jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
 
         {currentView === 'settings' && (
             <div className="max-w-5xl mx-auto">
