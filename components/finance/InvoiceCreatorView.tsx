@@ -1,19 +1,20 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { Job, Settings } from '../../types';
+import { Job, Settings, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw } from 'lucide-react';
+// Added Eye to the imports from lucide-react
+import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw, Box, Truck, Eye } from 'lucide-react';
 
 interface InvoiceCreatorViewProps {
   jobs: Job[];
   settings: Settings;
   showNotification: (msg: string, type: string) => void;
+  userPermissions: UserPermissions;
 }
 
-const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings, showNotification }) => {
+const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings, showNotification, userPermissions }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   
@@ -22,28 +23,57 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
   const [discountPart, setDiscountPart] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Filter Active WO
-  const activeWOs = useMemo(() => {
+  const isManager = userPermissions.role === 'Manager';
+
+  // Helper to check if a job is fully ready for invoice
+  const isJobReadyForInvoice = (job: Job) => {
+      if (!job.woNumber || job.isDeleted) return false;
+      
+      const allPartsIssued = (job.estimateData?.partItems || []).every(p => p.hasArrived);
+      const materialsIssued = job.usageLog?.some(l => l.category === 'material');
+      const isClosed = job.isClosed;
+
+      return isClosed && allPartsIssued && materialsIssued;
+  };
+
+  // Filter ONLY ready WOs for the search dropdown results
+  const eligibleWOs = useMemo(() => {
       const term = searchTerm.toUpperCase().trim();
       return jobs.filter(j => 
-          j.woNumber && !j.isDeleted &&
+          isJobReadyForInvoice(j) &&
           (term === '' || 
-           j.woNumber.includes(term) || 
+           j.woNumber?.includes(term) || 
            j.policeNumber.includes(term) ||
            j.customerName.toUpperCase().includes(term))
       );
   }, [jobs, searchTerm]);
+
+  // Check if search has results but they are locked by WIP status
+  const searchMatchesWIP = useMemo(() => {
+      if (!searchTerm || eligibleWOs.length > 0) return false;
+      const term = searchTerm.toUpperCase().trim();
+      return jobs.some(j => 
+          !j.isDeleted && j.woNumber && !isJobReadyForInvoice(j) &&
+          (j.woNumber.includes(term) || j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term))
+      );
+  }, [jobs, searchTerm, eligibleWOs]);
 
   // List of Invoices History
   const invoicesHistory = useMemo(() => {
       return jobs
         .filter(j => j.hasInvoice && !j.isDeleted)
         .sort((a, b) => {
-            // Sort by Invoice Date logic (fallback to updated at)
             const tA = a.closedAt?.seconds || 0;
             const tB = b.closedAt?.seconds || 0;
             return tB - tA;
         });
+  }, [jobs]);
+
+  // List of Work In Progress (WIP) Units
+  const wipUnits = useMemo(() => {
+      return jobs
+        .filter(j => !j.isClosed && j.woNumber && !j.isDeleted)
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [jobs]);
 
   // Load Job into State
@@ -54,7 +84,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       }
   }, [selectedJob]);
 
-  // Recalculate Logic (Same as EstimateEditor)
   const calculations = useMemo(() => {
       if (!selectedJob || !selectedJob.estimateData) return null;
       
@@ -89,7 +118,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
       setIsProcessing(true);
       try {
-          // 1. Update Job with Final Discounts & Totals & LOCK Flag
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           const updatePayload = {
               'estimateData.discountJasa': discountJasa,
@@ -102,12 +130,11 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
               'estimateData.grandTotal': calculations.grandTotal,
               'hargaJasa': calculations.subtotalJasa, 
               'hargaPart': calculations.subtotalPart,
-              'hasInvoice': true // LOCKS THE WO
+              'hasInvoice': true 
           };
 
           await updateDoc(jobRef, cleanObject(updatePayload));
 
-          // 2. Refresh Local Object for PDF (Merges current job with updated values)
           const updatedJob = {
               ...selectedJob,
               hasInvoice: true,
@@ -124,11 +151,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
               }
           };
 
-          // 3. Generate PDF
           generateInvoicePDF(updatedJob, settings);
           showNotification(isAlreadyInvoiced ? "Salinan Faktur dicetak." : "Faktur berhasil dibuat & disimpan.", "success");
           
-          if (!isAlreadyInvoiced) setSelectedJob(null); // Go back to list if new
+          if (!isAlreadyInvoiced) setSelectedJob(null); 
 
       } catch (e: any) {
           console.error(e);
@@ -140,11 +166,15 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
   const handleCancelInvoice = async () => {
       if (!selectedJob || !selectedJob.hasInvoice) return;
+      if (!isManager) {
+          alert("Akses Ditolak: Pembatalan faktur hanya dapat dilakukan oleh Manager.");
+          return;
+      }
       
       const reason = prompt("Masukkan alasan pembatalan faktur:");
       if (!reason) return;
 
-      if (!window.confirm("Yakin ingin membatalkan Faktur? Akses edit WO akan dibuka kembali.")) return;
+      if (!window.confirm("Yakin ingin membatalkan Faktur? Akses edit WO akan dibuka kembali oleh sistem.")) return;
 
       setIsProcessing(true);
       try {
@@ -173,7 +203,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Pembuatan Faktur (Invoice)</h1>
-                    <p className="text-sm text-gray-500 font-medium">Verifikasi Akhir Work Order & Cetak Dokumen Penagihan</p>
+                    <p className="text-sm text-gray-500 font-medium">Verifikasi Akhir Work Order & Cetak Dokumen Penagihan Resmi</p>
                 </div>
             </div>
         </div>
@@ -191,9 +221,9 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                 />
             </div>
             
-            {!selectedJob && searchTerm && (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {activeWOs.map(job => (
+            {searchTerm && !selectedJob && (
+                <div className="space-y-2 max-h-60 overflow-y-auto animate-fade-in">
+                    {eligibleWOs.map(job => (
                         <div 
                             key={job.id}
                             onClick={() => { setSelectedJob(job); setSearchTerm(''); }}
@@ -211,70 +241,133 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                             </div>
                         </div>
                     ))}
-                    {activeWOs.length === 0 && <p className="text-center text-gray-400 py-4 italic">Tidak ada WO aktif ditemukan.</p>}
+                    
+                    {searchMatchesWIP && (
+                        <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-3">
+                            <AlertTriangle className="text-orange-600 mt-1 shrink-0" size={20}/>
+                            <div>
+                                <p className="font-bold text-orange-800 text-sm">Unit Tidak Siap Faktur</p>
+                                <p className="text-xs text-orange-700 mt-1">Data yang anda cari belum melakukan **Close WO** dan **Pembebanan Spare Part & Bahan Baku**. Pastikan produksi sudah selesai di input.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {!searchMatchesWIP && eligibleWOs.length === 0 && (
+                        <p className="text-center text-gray-400 py-4 italic">Pencarian tidak ditemukan.</p>
+                    )}
                 </div>
             )}
         </div>
 
-        {/* INVOICE HISTORY TABLE (WHEN NO SELECTION) */}
         {!selectedJob && !searchTerm && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
-                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <Clock size={18} className="text-gray-500"/> Riwayat Faktur Terbit
-                    </h3>
-                    <span className="text-xs bg-white border border-gray-200 px-2 py-1 rounded text-gray-500 font-medium">{invoicesHistory.length} Record</span>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-gray-100 text-gray-600 uppercase font-semibold text-xs">
-                            <tr>
-                                <th className="px-6 py-3">No. Invoice (WO)</th>
-                                <th className="px-6 py-3">Tanggal</th>
-                                <th className="px-6 py-3">Pelanggan</th>
-                                <th className="px-6 py-3 text-right">Total Tagihan</th>
-                                <th className="px-6 py-3 text-center">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {invoicesHistory.slice(0, 10).map((job) => (
-                                <tr key={job.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4">
-                                        <div className="font-bold text-indigo-700">{job.woNumber}</div>
-                                        <div className="text-xs text-gray-500">{job.policeNumber}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-600">
-                                        {formatDateIndo(job.closedAt || new Date())}
-                                    </td>
-                                    <td className="px-6 py-4 font-medium text-gray-800">
-                                        {job.customerName}
-                                        <div className="text-xs text-gray-500">{job.namaAsuransi}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-right font-bold text-gray-900">
-                                        {formatCurrency(job.estimateData?.grandTotal)}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <button 
-                                            onClick={() => setSelectedJob(job)} 
-                                            className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 px-3 py-1.5 rounded hover:bg-indigo-100 transition-colors"
-                                        >
-                                            Buka
-                                        </button>
-                                    </td>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 animate-fade-in">
+                {/* WIP UNITS DASHBOARD */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                            <Truck size={18} className="text-blue-500"/> Monitor Produksi (WIP)
+                        </h3>
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">{wipUnits.length} Unit Aktif</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-[400px]">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-100 text-gray-600 uppercase font-semibold text-[10px] sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">Unit</th>
+                                    <th className="px-4 py-3 text-center">Part</th>
+                                    <th className="px-4 py-3 text-center">Bahan</th>
+                                    <th className="px-4 py-3 text-center">Ready?</th>
                                 </tr>
-                            ))}
-                            {invoicesHistory.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-8 text-gray-400 italic">Belum ada faktur yang diterbitkan.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {wipUnits.map(j => {
+                                    const allPartsIssued = (j.estimateData?.partItems || []).every(p => p.hasArrived);
+                                    const materialsIssued = j.usageLog?.some(l => l.category === 'material');
+                                    const isReady = allPartsIssued && materialsIssued;
+
+                                    return (
+                                        <tr key={j.id} className="hover:bg-gray-50">
+                                            <td className="px-4 py-3">
+                                                <div className="font-bold text-gray-900">{j.policeNumber}</div>
+                                                <div className="text-[10px] text-gray-500">{j.woNumber} | {j.customerName.split(' ')[0]}</div>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {allPartsIssued ? <CheckCircle size={14} className="text-green-500 mx-auto"/> : <XCircle size={14} className="text-red-400 mx-auto"/>}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {materialsIssued ? <CheckCircle size={14} className="text-green-500 mx-auto"/> : <XCircle size={14} className="text-red-400 mx-auto"/>}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {isReady ? (
+                                                    <span className="text-[9px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">SIAP CLOSE</span>
+                                                ) : (
+                                                    <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">BELUM</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {wipUnits.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-gray-400">Tidak ada unit WIP.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* INVOICE HISTORY TABLE */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                            <Clock size={18} className="text-gray-500"/> Riwayat Faktur Terbit
+                        </h3>
+                        <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-bold">{invoicesHistory.length} Record</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-[400px]">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-100 text-gray-600 uppercase font-semibold text-[10px] sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">No. Invoice (WO)</th>
+                                    <th className="px-4 py-3">Pelanggan</th>
+                                    <th className="px-4 py-3 text-right">Total</th>
+                                    <th className="px-4 py-3 text-center w-10"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {invoicesHistory.map((job) => (
+                                    <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-4 py-3">
+                                            <div className="font-bold text-indigo-700">{job.woNumber}</div>
+                                            <div className="text-[10px] text-gray-500">{formatDateIndo(job.closedAt)}</div>
+                                        </td>
+                                        <td className="px-4 py-3 font-medium text-gray-800">
+                                            {job.customerName.split(' ')[0]}
+                                            <div className="text-[10px] text-gray-500">{job.policeNumber}</div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-bold text-gray-900">
+                                            {formatCurrency(job.estimateData?.grandTotal)}
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <button 
+                                                onClick={() => setSelectedJob(job)} 
+                                                className="p-1.5 bg-gray-100 hover:bg-indigo-100 rounded text-gray-600 hover:text-indigo-600 transition-colors"
+                                            >
+                                                <Eye size={16}/>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {invoicesHistory.length === 0 && (
+                                    <tr><td colSpan={4} className="text-center py-8 text-gray-400 italic">Belum ada faktur.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         )}
 
         {selectedJob && calculations && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
-                {/* LEFT PANEL: INFO (READ ONLY) */}
+                {/* LEFT PANEL: INFO */}
                 <div className="lg:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
@@ -302,7 +395,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                             </div>
                         </div>
 
-                        {/* JASA TABLE */}
+                        {/* TABLES: JASA & PARTS */}
                         <div className="border-t border-gray-100">
                             <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase">Jasa Perbaikan</div>
                             <table className="w-full text-sm">
@@ -317,7 +410,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                             </table>
                         </div>
 
-                        {/* PART TABLE */}
                         <div className="border-t border-gray-100">
                             <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase">Sparepart & Bahan</div>
                             <table className="w-full text-sm">
@@ -348,44 +440,29 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <span>Total Jasa</span>
                                 <span className="font-medium">{formatCurrency(calculations.subtotalJasa)}</span>
                             </div>
-                            
-                            {/* EDITABLE DISCOUNT JASA */}
                             <div className="flex justify-between items-center bg-blue-50 p-2 rounded border border-blue-100">
                                 <span className="text-blue-800 font-semibold">Disc Jasa (%)</span>
                                 <input 
                                     disabled={selectedJob.hasInvoice}
                                     type="number" min="0" max="100" 
-                                    className="w-16 p-1 text-right text-sm font-bold border border-blue-300 rounded text-blue-900 focus:ring-1 ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                                    className="w-16 p-1 text-right text-sm font-bold border border-blue-300 rounded text-blue-900 focus:ring-1 ring-blue-500 disabled:bg-gray-100"
                                     value={discountJasa}
                                     onChange={e => setDiscountJasa(Number(e.target.value))}
                                 />
                             </div>
-                            <div className="flex justify-between text-gray-500 text-xs italic">
-                                <span>Potongan:</span>
-                                <span>- {formatCurrency(calculations.discJasaRp)}</span>
-                            </div>
-
-                            <div className="border-t border-dashed my-2"></div>
-
                             <div className="flex justify-between text-gray-600">
                                 <span>Total Sparepart</span>
                                 <span className="font-medium">{formatCurrency(calculations.subtotalPart)}</span>
                             </div>
-
-                            {/* EDITABLE DISCOUNT PART */}
                             <div className="flex justify-between items-center bg-orange-50 p-2 rounded border border-orange-100">
                                 <span className="text-orange-800 font-semibold">Disc Part (%)</span>
                                 <input 
                                     disabled={selectedJob.hasInvoice}
                                     type="number" min="0" max="100" 
-                                    className="w-16 p-1 text-right text-sm font-bold border border-orange-300 rounded text-orange-900 focus:ring-1 ring-orange-500 disabled:bg-gray-100 disabled:text-gray-500"
+                                    className="w-16 p-1 text-right text-sm font-bold border border-orange-300 rounded text-orange-900 focus:ring-1 ring-orange-500 disabled:bg-gray-100"
                                     value={discountPart}
                                     onChange={e => setDiscountPart(Number(e.target.value))}
                                 />
-                            </div>
-                            <div className="flex justify-between text-gray-500 text-xs italic">
-                                <span>Potongan:</span>
-                                <span>- {formatCurrency(calculations.discPartRp)}</span>
                             </div>
 
                             <div className="border-t border-gray-200 pt-3 mt-4">
@@ -406,22 +483,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                         </div>
 
                         <div className="mt-6 pt-6 border-t border-gray-100 space-y-3">
-                            {!selectedJob.hasInvoice ? (
-                                <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 flex gap-2 border border-yellow-200">
-                                    <AlertTriangle size={16} className="shrink-0"/>
-                                    <p>Pastikan fisik WO sudah sesuai. Tombol di bawah akan mengunci data dan mencetak faktur resmi.</p>
-                                </div>
-                            ) : (
-                                <div className="bg-green-50 p-3 rounded text-xs text-green-800 flex gap-2 border border-green-200">
-                                    <CheckCircle size={16} className="shrink-0"/>
-                                    <p>Faktur sudah diterbitkan. Gunakan tombol di bawah untuk mencetak ulang atau membatalkan.</p>
-                                </div>
-                            )}
-
                             <button 
                                 onClick={handleFinalizeAndPrint}
                                 disabled={isProcessing}
-                                className={`w-full flex items-center justify-center gap-2 text-white py-3 rounded-lg font-bold shadow-lg transition-all transform active:scale-95 disabled:opacity-70 disabled:transform-none ${selectedJob.hasInvoice ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                                className={`w-full flex items-center justify-center gap-2 text-white py-3 rounded-lg font-bold shadow-lg transition-all transform active:scale-95 disabled:opacity-70 ${selectedJob.hasInvoice ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                             >
                                 {isProcessing ? 'Memproses...' : <><Printer size={20}/> {selectedJob.hasInvoice ? 'Cetak Salinan (Copy)' : 'Simpan & Cetak Faktur'}</>}
                             </button>
@@ -430,17 +495,14 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <button 
                                     onClick={handleCancelInvoice}
                                     disabled={isProcessing}
-                                    className="w-full flex items-center justify-center gap-2 bg-red-100 text-red-600 border border-red-200 py-3 rounded-lg font-bold hover:bg-red-200 transition-all"
+                                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg font-bold transition-all border ${isManager ? 'bg-red-100 text-red-600 border-red-200 hover:bg-red-200' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'}`}
+                                    title={!isManager ? "Hanya Manager yang dapat membatalkan faktur" : ""}
                                 >
-                                    <XCircle size={18}/> Batalkan Faktur (Buka WO)
+                                    <XCircle size={18}/> Batalkan Faktur (Approval Manager)
                                 </button>
                             )}
                             
-                            <button 
-                                onClick={() => setSelectedJob(null)}
-                                disabled={isProcessing}
-                                className="w-full text-gray-500 font-medium text-sm hover:text-gray-700 py-2 flex items-center justify-center gap-1"
-                            >
+                            <button onClick={() => setSelectedJob(null)} disabled={isProcessing} className="w-full text-gray-500 font-medium text-sm hover:text-gray-700 py-2 flex items-center justify-center gap-1">
                                 <RotateCcw size={14}/> Batalkan / Ganti Unit
                             </button>
                         </div>

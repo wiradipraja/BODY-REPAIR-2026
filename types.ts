@@ -207,7 +207,7 @@ export interface CashierTransaction {
   id: string;
   date: any;
   type: 'IN' | 'OUT';
-  category: 'Uang Muka' | 'Pelunasan' | 'Invoice Masuk' | 'Operasional' | 'Lainnya';
+  category: 'Uang Muka' | 'Pelunasan' | 'Invoice Masuk' | 'Operasional' | 'Pajak' | 'Lainnya'; // Added 'Pajak'
   amount: number;
   paymentMethod: 'Cash' | 'Transfer' | 'EDC';
   bankName?: string; 

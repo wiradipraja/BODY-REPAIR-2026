@@ -24,7 +24,8 @@ import PartMonitoringView from './components/inventory/PartMonitoringView';
 import AccountingView from './components/finance/AccountingView'; 
 import CashierView from './components/finance/CashierView'; 
 import DebtReceivableView from './components/finance/DebtReceivableView'; 
-import InvoiceCreatorView from './components/finance/InvoiceCreatorView'; // NEW COMPONENT
+import InvoiceCreatorView from './components/finance/InvoiceCreatorView';
+import TaxManagementView from './components/finance/TaxManagementView'; // NEW IMPORT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -242,6 +243,38 @@ const AppContent: React.FC = () => {
       }
   };
 
+  // --- REVISED CLOSE JOB LOGIC WITH VALIDATION ---
+  const handleCloseJob = async (job: Job) => {
+      // 1. Validate Sparepart Issuance
+      const partItems = job.estimateData?.partItems || [];
+      const hasUnissuedParts = partItems.some(p => !p.hasArrived);
+      if (hasUnissuedParts) {
+          alert("Gagal Tutup WO: Terdapat item Sparepart yang belum dikeluarkan (Issued) dari Gudang.");
+          return;
+      }
+
+      // 2. Validate Material Issuance
+      const hasMaterials = job.usageLog?.some(l => l.category === 'material');
+      if (!hasMaterials) {
+          alert("Gagal Tutup WO: Belum ada record pembebanan Bahan Baku (Material). Pastikan Bahan sudah dialokasikan.");
+          return;
+      }
+
+      if (!window.confirm(`Yakin ingin menutup WO ${job.woNumber}? Data pembebanan sudah divalidasi.`)) return;
+
+      try {
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+              isClosed: true, 
+              closedAt: serverTimestamp(),
+              statusKendaraan: 'Selesai',
+              statusPekerjaan: 'Selesai'
+          }); 
+          showNotification("WO Berhasil Ditutup.", "success");
+      } catch (e) {
+          showNotification("Gagal menutup WO.", "error");
+      }
+  };
+
   const filteredJobs = useMemo(() => {
       let fJobs = jobs;
       if (!showClosedJobs) fJobs = fJobs.filter(j => !j.isClosed);
@@ -305,7 +338,7 @@ const AppContent: React.FC = () => {
                     allData={filteredJobs}
                     openModal={openModal}
                     onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }}
-                    onCloseJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: true, closedAt: serverTimestamp() }); showNotification("WO Ditutup."); }} 
+                    onCloseJob={handleCloseJob} // USING VALIDATED HANDLER
                     onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }}
                     userPermissions={userPermissions}
                     showNotification={showNotification}
@@ -328,7 +361,8 @@ const AppContent: React.FC = () => {
         {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" />}
 
         {/* FINANCE - FULLY REAL-TIME PROPS */}
-        {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} />}
+        {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
+        {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
         {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
