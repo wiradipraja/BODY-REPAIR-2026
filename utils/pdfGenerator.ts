@@ -12,7 +12,8 @@ const addHeader = (doc: any, settings: Settings) => {
   const wsPhone = settings.workshopPhone || "(021) 750-9999";
   const wsEmail = settings.workshopEmail || "service@mazdaranger.com";
 
-  doc.setFontSize(16);
+  // Left Side: Company Info
+  doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(0, 0, 0); // Black
   doc.text(wsName, 15, 20);
@@ -22,6 +23,7 @@ const addHeader = (doc: any, settings: Settings) => {
   doc.text(wsAddress, 15, 25);
   doc.text(`Telp: ${wsPhone} | Email: ${wsEmail}`, 15, 29);
   
+  // Bottom Line
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.5);
   doc.line(15, 34, pageWidth - 15, 34);
@@ -36,13 +38,14 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.setFontSize(14);
   doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
-  doc.text(isWO ? "WORK ORDER" : "ESTIMASI BIAYA", pageWidth - 15, 25, { align: 'right' });
+  // Position aligned with header text but on the right
+  doc.text(isWO ? "WORK ORDER" : "ESTIMASI BIAYA", pageWidth - 15, 20, { align: 'right' });
   
   doc.setFontSize(10);
-  doc.text(isWO ? `#${job.woNumber}` : `#${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 30, { align: 'right' });
-  doc.text(formatDateIndo(new Date()), pageWidth - 15, 34, { align: 'right' });
+  doc.text(isWO ? `#${job.woNumber}` : `#${estimateData.estimationNumber || 'DRAFT'}`, pageWidth - 15, 25, { align: 'right' });
+  doc.text(formatDateIndo(new Date()), pageWidth - 15, 29, { align: 'right' });
 
-  // Standard formatting for Estimations (can keep some shading or remove if preferred, keeping standard here)
+  // Standard formatting for Estimations
   doc.setFillColor(245, 247, 250);
   doc.rect(15, 40, pageWidth - 30, 28, 'F');
   
@@ -141,53 +144,61 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.save(`${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`);
 };
 
-// --- INVOICE (FAKTUR PENAGIHAN) - PRINTER FRIENDLY (NO BLOCKS) ---
+// --- INVOICE (FAKTUR PENAGIHAN) - REVISED LAYOUT ---
 export const generateInvoicePDF = (job: Job, settings: Settings) => {
   const doc: any = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
+  
+  // Use standard header which draws text at 20, 25, 29 and Line at 34
   addHeader(doc, settings);
 
-  doc.setFontSize(18);
+  // OVERRIDE: Add Invoice Info aligned with the Header Text, ABOVE the line
   doc.setTextColor(0, 0, 0);
-  doc.setFont("helvetica", "bold");
-  doc.text("FAKTUR / INVOICE", pageWidth - 15, 25, { align: 'right' });
   
+  // Title aligned with Company Name (Y=20)
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text("FAKTUR / INVOICE", pageWidth - 15, 20, { align: 'right' });
+  
+  // No Invoice aligned with Address (Y=25)
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.text(`No: INV/${job.woNumber}`, pageWidth - 15, 32, { align: 'right' });
-  doc.text(`Tgl: ${formatDateIndo(new Date())}`, pageWidth - 15, 37, { align: 'right' });
+  doc.text(`No: INV/${job.woNumber}`, pageWidth - 15, 25, { align: 'right' });
+  
+  // Date aligned with Phone (Y=29)
+  doc.text(`Tgl: ${formatDateIndo(new Date())}`, pageWidth - 15, 29, { align: 'right' });
 
   // BOX INFO (STROKE ONLY, NO FILL)
   doc.setDrawColor(0);
   doc.setLineWidth(0.2);
-  doc.rect(15, 45, pageWidth - 30, 35); // Outline box
+  doc.rect(15, 40, pageWidth - 30, 35); // Start Y=40 (Below the line which is at 34)
 
   doc.setFontSize(9);
   
   // Left: Bill To
   doc.setFont("helvetica", "bold");
-  doc.text("TAGIHAN KEPADA:", 20, 52);
+  doc.text("TAGIHAN KEPADA:", 20, 47);
   doc.setFont("helvetica", "normal");
-  doc.text(job.customerName, 20, 57);
-  doc.text(job.customerAddress || 'Alamat tidak tersedia', 20, 62);
-  doc.text(`Telp: ${job.customerPhone || '-'}`, 20, 67);
-  doc.text(job.namaAsuransi !== 'Umum / Pribadi' ? `Asuransi: ${job.namaAsuransi}` : 'Pelanggan Umum', 20, 72);
+  doc.text(job.customerName, 20, 52);
+  doc.text(job.customerAddress || 'Alamat tidak tersedia', 20, 57);
+  doc.text(`Telp: ${job.customerPhone || '-'}`, 20, 62);
+  doc.text(job.namaAsuransi !== 'Umum / Pribadi' ? `Asuransi: ${job.namaAsuransi}` : 'Pelanggan Umum', 20, 67);
 
   // Right: Vehicle Info
   const col2 = pageWidth / 2 + 10;
   doc.setFont("helvetica", "bold");
-  doc.text("DATA KENDARAAN:", col2, 52);
+  doc.text("DATA KENDARAAN:", col2, 47);
   doc.setFont("helvetica", "normal");
-  doc.text(`Nopol: ${job.policeNumber}`, col2, 57);
-  doc.text(`Merk: ${job.carBrand} ${job.carModel}`, col2, 62);
-  doc.text(`Warna: ${job.warnaMobil}`, col2, 67);
-  doc.text(`Rangka: ${job.nomorRangka || '-'}`, col2, 72);
+  doc.text(`Nopol: ${job.policeNumber}`, col2, 52);
+  doc.text(`Merk: ${job.carBrand} ${job.carModel}`, col2, 57);
+  doc.text(`Warna: ${job.warnaMobil}`, col2, 62);
+  doc.text(`Rangka: ${job.nomorRangka || '-'}`, col2, 67);
 
   const estimate = job.estimateData;
   if (!estimate) return;
 
   // -- SECTION: JASA --
-  let currentY = 85;
+  let currentY = 82;
   doc.setFont("helvetica", "bold");
   doc.text("I. RINCIAN JASA & PEKERJAAN", 15, currentY);
   
@@ -206,10 +217,7 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
     },
     bodyStyles: { textColor: 0 },
     styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' } },
-    didDrawPage: (data) => {
-        // Footer line for table manually if needed, but 'plain' usually is open.
-    }
+    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' } }
   });
 
   // -- SECTION: PARTS --
@@ -521,7 +529,7 @@ export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: s
     
     doc.setFontSize(12);
     doc.setFont("helvetica", "normal");
-    doc.text(`Jenis Kendaraan : ${job.carBrand} ${job.carModel}`, 30, 105);
+    doc.text(`Jenis Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, 30, 105);
     doc.text(`Warna : ${job.warnaMobil}`, 30, 113);
     doc.text(`Pemilik : ${job.customerName}`, 30, 121);
     doc.text(`No. WO : ${job.woNumber}`, 30, 129);
@@ -539,7 +547,7 @@ export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: s
     doc.text("Security / Gate,", pageWidth - 40, signY, { align: 'center' });
 
     doc.setFont("helvetica", "normal");
-    doc.text(`( ${cashierName} )`, 40, signY + 30, { align: 'center' });
+    doc.text(`( ${cashierName || 'Staff'} )`, 40, signY + 30, { align: 'center' });
     doc.text("( ........................... )", pageWidth - 40, signY + 30, { align: 'center' });
 
     doc.setFontSize(8);

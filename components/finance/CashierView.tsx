@@ -163,29 +163,48 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
       }
   };
 
-  const handlePrintGatePass = () => {
+  const handlePrintGatePass = async () => {
       if (!selectedJob) {
           showNotification("Pilih unit/WO terlebih dahulu.", "error");
           return;
       }
-      // Simple validation: check if total payments cover the bill
-      const bill = selectedJob.estimateData?.grandTotal || 0;
-      const paid = transactions
-          .filter(t => t.refJobId === selectedJob.id && t.type === 'IN')
-          .reduce((acc, t) => acc + t.amount, 0);
+
+      // Check payment status from SERVER to ensure accuracy (client state is limited to 20)
+      setLoading(true);
+      try {
+          // Get total bill
+          const bill = selectedJob.estimateData?.grandTotal || 0;
           
-      if (paid < bill - 1000) { // 1000 tolerance
-          if(!window.confirm(`Peringatan: Unit ini belum lunas.\nTotal Tagihan: ${formatCurrency(bill)}\nSudah Bayar: ${formatCurrency(paid)}\n\nTetap cetak Gate Pass?`)) {
-              return;
+          // Fetch ALL payments for this job from server
+          const q = query(collection(db, CASHIER_COLLECTION), where('refJobId', '==', selectedJob.id), where('type', '==', 'IN'));
+          const snapshot = await getDocs(q);
+          const paid = snapshot.docs.reduce((acc, doc) => acc + (doc.data().amount || 0), 0);
+          
+          if (paid < bill - 1000) { // 1000 tolerance for rounding
+              if(!window.confirm(`Peringatan: Unit ini belum lunas.\n\nTotal Tagihan: ${formatCurrency(bill)}\nSudah Bayar: ${formatCurrency(paid)}\nSisa: ${formatCurrency(bill - paid)}\n\nTetap cetak Gate Pass?`)) {
+                  setLoading(false);
+                  return;
+              }
           }
+          
+          generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
+          showNotification("Gate Pass berhasil didownload.", "success");
+      } catch (e: any) {
+          console.error("Print Gatepass Error:", e);
+          showNotification("Gagal mencetak Gate Pass: " + e.message, "error");
+      } finally {
+          setLoading(false);
       }
-      
-      generateGatePassPDF(selectedJob, settings, userPermissions.role);
   };
 
   const handlePrintInvoice = () => {
       if (!selectedJob) return;
-      generateInvoicePDF(selectedJob, settings);
+      try {
+        generateInvoicePDF(selectedJob, settings);
+      } catch (e) {
+        console.error(e);
+        showNotification("Gagal mencetak Invoice.", "error");
+      }
   };
 
   return (
