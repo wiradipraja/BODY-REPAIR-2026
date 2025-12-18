@@ -5,7 +5,7 @@ import { collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, wh
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
-import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
+import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface CashierViewProps {
@@ -27,9 +27,11 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
   const [selectedBank, setSelectedBank] = useState(''); // Default empty
   const [notes, setNotes] = useState('');
   
-  // WO Linking
+  // WO Linking & Payment Calculation
   const [woSearch, setWoSearch] = useState('');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [paymentSummary, setPaymentSummary] = useState({ totalBill: 0, totalPaid: 0, remaining: 0 });
+  const [calculating, setCalculating] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
@@ -77,14 +79,48 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
       ).slice(0, 5); // Limit suggestions
   }, [jobs, woSearch]);
 
-  const handleSelectJob = (job: Job) => {
+  const handleSelectJob = async (job: Job) => {
       setSelectedJob(job);
       setWoSearch(job.woNumber || job.policeNumber);
+      setCalculating(true);
       
-      // Auto-fill amount based on remaining bill
-      // Round down to avoid decimal issues in UI
-      const bill = Math.floor(job.estimateData?.grandTotal || 0);
-      setAmount(bill);
+      try {
+          // 1. Get Grand Total Bill
+          const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
+
+          // 2. Fetch ALL previous payments for this specific Job from Server (to be accurate)
+          // Client-side transactions state only holds the last 20, so we must query DB
+          const q = query(
+              collection(db, CASHIER_COLLECTION), 
+              where('refJobId', '==', job.id), 
+              where('type', '==', 'IN')
+          );
+          const snapshot = await getDocs(q);
+          const totalPaid = snapshot.docs.reduce((acc, doc) => acc + (doc.data().amount || 0), 0);
+
+          // 3. Calculate Remaining
+          const remaining = totalBill - totalPaid;
+
+          // 4. Update Summary State
+          setPaymentSummary({ totalBill, totalPaid, remaining });
+
+          // 5. Auto-fill Input Amount with Remaining Balance (if positive)
+          // If fully paid, set to 0. If remaining is 4.7jt, set to 4.7jt.
+          setAmount(remaining > 0 ? remaining : ''); 
+
+          // Auto-set notes
+          if (totalPaid > 0) {
+              setNotes(`Pelunasan Sisa Tagihan (Total: ${formatCurrency(totalBill)}, Sudah Bayar: ${formatCurrency(totalPaid)})`);
+          } else {
+              setNotes(`Pembayaran Full Invoice ${job.woNumber}`);
+          }
+
+      } catch (error) {
+          console.error("Error calculating balance:", error);
+          showNotification("Gagal menghitung riwayat pembayaran unit ini.", "error");
+      } finally {
+          setCalculating(false);
+      }
   };
 
   // Helper to handle formatted number input
@@ -151,9 +187,11 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
           // Reset Form
           setAmount('');
           setNotes('');
-          // Do not clear Job to allow printing Gatepass immediately
-          // setSelectedJob(null);
-          // setWoSearch('');
+          // Reset Selection to force re-calculation if user selects same car again immediately
+          setSelectedJob(null);
+          setWoSearch('');
+          setPaymentSummary({ totalBill: 0, totalPaid: 0, remaining: 0 });
+          
           fetchTransactions();
 
       } catch (e: any) {
@@ -169,7 +207,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
           return;
       }
 
-      // Check payment status from SERVER to ensure accuracy (client state is limited to 20)
+      // Check payment status from SERVER to ensure accuracy
       setLoading(true);
       try {
           // Get total bill
@@ -280,7 +318,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         <input 
                                             type="text" 
                                             value={woSearch} 
-                                            onChange={e => { setWoSearch(e.target.value); setSelectedJob(null); }}
+                                            onChange={e => { setWoSearch(e.target.value); setSelectedJob(null); setPaymentSummary({ totalBill: 0, totalPaid: 0, remaining: 0 }); }}
                                             placeholder="Ketik Nopol atau WO..."
                                             className={`w-full pl-10 p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono ${selectedJob ? 'border-green-500 bg-green-50 text-green-800 font-bold' : 'border-gray-300'}`}
                                         />
@@ -313,12 +351,30 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                     </h4>
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">Pelanggan:</span>
-                                        <span className="font-bold text-gray-900">{selectedJob.customerName}</span>
+                                        <span className="font-bold text-gray-900 truncate max-w-[150px]">{selectedJob.customerName}</span>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Total Tagihan:</span>
-                                        <span className="font-bold text-indigo-700">{formatCurrency(selectedJob.estimateData?.grandTotal)}</span>
-                                    </div>
+                                    
+                                    {/* PAYMENT SUMMARY BREAKDOWN */}
+                                    {calculating ? (
+                                        <div className="text-center text-xs text-gray-500 py-2">Menghitung riwayat...</div>
+                                    ) : (
+                                        <>
+                                            <div className="flex justify-between border-t border-indigo-100 pt-2">
+                                                <span className="text-gray-600">Total Tagihan:</span>
+                                                <span className="font-bold text-gray-800">{formatCurrency(paymentSummary.totalBill)}</span>
+                                            </div>
+                                            {paymentSummary.totalPaid > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={10}/> Sudah Dibayar:</span>
+                                                    <span className="font-bold text-emerald-600">-{formatCurrency(paymentSummary.totalPaid)}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between border-t border-indigo-200 pt-2 mt-1">
+                                                <span className="text-indigo-900 font-bold">SISA TAGIHAN:</span>
+                                                <span className="font-bold text-indigo-700 text-base">{formatCurrency(paymentSummary.remaining)}</span>
+                                            </div>
+                                        </>
+                                    )}
                                     
                                     <div className="pt-2 border-t border-indigo-200 flex gap-2">
                                         <button 
@@ -331,7 +387,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                     </div>
                                     <div className="text-[10px] text-gray-500 italic mt-1 flex items-start gap-1">
                                         <AlertCircle size={10} className="mt-0.5"/>
-                                        Print Invoice sebelum pembayaran agar customer dapat melakukan cek detail biaya.
+                                        Invoice menampilkan Full Total. Input di samping adalah sisa yang harus dibayar.
                                     </div>
                                 </div>
                             )}
@@ -352,7 +408,9 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                         {/* KANAN */}
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Nominal (Rp)</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {selectedJob ? 'Nominal Pembayaran (Kekurangan)' : 'Nominal (Rp)'}
+                                </label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-3 text-gray-500 font-bold">Rp</span>
                                     <input 
@@ -364,6 +422,11 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, userPermissions, showNo
                                         placeholder="0"
                                     />
                                 </div>
+                                {selectedJob && (
+                                    <p className="text-xs text-indigo-600 mt-1 flex items-center gap-1">
+                                        <Calculator size={12}/> Otomatis terisi sisa tagihan. Ubah jika pembayaran parsial.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

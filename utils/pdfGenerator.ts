@@ -504,54 +504,62 @@ export const generateReceivingReportPDF = (po: PurchaseOrder, receivedItems: {it
 
 // --- GATE PASS TICKET ---
 export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: string) => {
-    const doc: any = new jsPDF();
-    const pageWidth = doc.internal.pageSize.width;
+    // A5 Portrait
+    const doc: any = new jsPDF('p', 'mm', 'a5');
+    const pageWidth = doc.internal.pageSize.width; // 148mm
+    
+    // Header
+    // The shared addHeader uses standard margins which fit A5 width (148mm)
     addHeader(doc, settings);
 
-    doc.setFontSize(22);
+    doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    doc.text("SURAT JALAN KELUAR", pageWidth / 2, 50, { align: 'center' });
-    doc.text("( GATE PASS )", pageWidth / 2, 60, { align: 'center' });
+    doc.text("SURAT JALAN KELUAR", pageWidth / 2, 45, { align: 'center' });
+    doc.text("( GATE PASS )", pageWidth / 2, 52, { align: 'center' });
 
-    doc.setFontSize(12);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     const today = formatDateIndo(new Date());
-    doc.text(`Tanggal: ${today}`, pageWidth - 15, 70, { align: 'right' });
+    doc.text(`Tanggal: ${today}`, pageWidth - 10, 60, { align: 'right' });
 
     // Box Info Kendaraan
+    const boxY = 65;
+    const boxHeight = 55;
+    
     doc.setDrawColor(0);
     doc.setLineWidth(0.5);
-    doc.rect(20, 80, pageWidth - 40, 60);
+    doc.rect(10, boxY, pageWidth - 20, boxHeight);
 
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(`NO. POLISI : ${job.policeNumber}`, 30, 95);
-    
     doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`NO. POLISI : ${job.policeNumber}`, 15, boxY + 10);
+    
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(`Jenis Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, 30, 105);
-    doc.text(`Warna : ${job.warnaMobil}`, 30, 113);
-    doc.text(`Pemilik : ${job.customerName}`, 30, 121);
-    doc.text(`No. WO : ${job.woNumber}`, 30, 129);
+    doc.text(`Jenis Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, 15, boxY + 20);
+    doc.text(`Warna : ${job.warnaMobil}`, 15, boxY + 28);
+    doc.text(`Pemilik : ${job.customerName}`, 15, boxY + 36);
+    doc.text(`No. WO : ${job.woNumber}`, 15, boxY + 44);
 
+    // Status
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("STATUS: LUNAS / SELESAI", pageWidth / 2, 160, { align: 'center' });
+    doc.text("STATUS: LUNAS / SELESAI", pageWidth / 2, boxY + boxHeight + 15, { align: 'center' });
 
     // Signatures
-    const signY = 190;
-    doc.setFontSize(10);
+    const signY = boxY + boxHeight + 35;
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     
-    doc.text("Dikeluarkan Oleh (Kasir),", 40, signY, { align: 'center' });
-    doc.text("Security / Gate,", pageWidth - 40, signY, { align: 'center' });
+    doc.text("Dikeluarkan Oleh (Kasir),", 30, signY, { align: 'center' });
+    doc.text("Security / Gate,", pageWidth - 30, signY, { align: 'center' });
 
     doc.setFont("helvetica", "normal");
-    doc.text(`( ${cashierName || 'Staff'} )`, 40, signY + 30, { align: 'center' });
-    doc.text("( ........................... )", pageWidth - 40, signY + 30, { align: 'center' });
+    doc.text(`( ${cashierName || 'Staff'} )`, 30, signY + 25, { align: 'center' });
+    doc.text("( ........................... )", pageWidth - 30, signY + 25, { align: 'center' });
 
-    doc.setFontSize(8);
-    doc.text("* Harap serahkan tiket ini ke petugas keamanan saat keluar.", pageWidth / 2, 250, { align: 'center' });
+    doc.setFontSize(7);
+    doc.text("* Harap serahkan tiket ini ke petugas keamanan saat keluar.", pageWidth / 2, 195, { align: 'center' });
 
     doc.save(`GATEPASS_${job.policeNumber}.pdf`);
 };
