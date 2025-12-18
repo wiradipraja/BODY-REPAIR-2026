@@ -4,7 +4,7 @@ import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Suppli
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
-import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target } from 'lucide-react';
+import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, RefreshCw } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -23,33 +23,32 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [filterWo, setFilterWo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // State for Material Mode
   const [materialSearchTerm, setMaterialSearchTerm] = useState(''); 
   const [inputQty, setInputQty] = useState<number | ''>(''); 
   const [notes, setNotes] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<string>(''); 
 
-  // --- LOGIC: FIFO Stock Allocation & Recommendation Engine ---
   const recommendations = useMemo(() => {
-    // Clone stock for virtual allocation
     const stockMap: Record<string, number> = {};
     inventoryItems.forEach(item => { stockMap[item.id] = item.stock; });
 
-    // Filter relevant jobs (WIP only)
     const wipJobs = activeJobs.filter(j => !j.isClosed && j.woNumber);
 
-    // Sort by Date (FIFO)
     wipJobs.sort((a, b) => {
-        const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
-        const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
-        return dateA - dateB;
+        const getTime = (val: any) => {
+          if (!val) return 0;
+          if (typeof val.toMillis === 'function') return val.toMillis();
+          if (val.seconds) return val.seconds * 1000;
+          const d = new Date(val).getTime();
+          return isNaN(d) ? 0 : d;
+        };
+        return getTime(a.createdAt) - getTime(b.createdAt);
     });
 
     const readyForPart: Job[] = [];
     const missingMaterial: Job[] = [];
 
     wipJobs.forEach(job => {
-        // Part Checking
         const parts = job.estimateData?.partItems || [];
         if (parts.length > 0) {
             let allReady = true;
@@ -70,7 +69,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             if (allReady && hasUnissued) readyForPart.push(job);
         }
 
-        // Material Checking
         const hasMaterialLog = job.usageLog?.some(log => log.category === 'material');
         if (!hasMaterialLog) missingMaterial.push(job);
     });
@@ -244,158 +242,163 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       return opts;
   }, [currentItem]);
 
+  const themeColor = issuanceType === 'sparepart' ? 'indigo' : 'orange';
+  const themeBg = issuanceType === 'sparepart' ? 'bg-indigo-600' : 'bg-orange-600';
+  const themeLightBg = issuanceType === 'sparepart' ? 'bg-indigo-50' : 'bg-orange-50';
+  const themeText = issuanceType === 'sparepart' ? 'text-indigo-700' : 'text-orange-700';
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8 p-6 animate-fade-in pb-20">
-        
-        {/* HEADER SECTION - PROFESSIONAL LOOK */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden">
-            <div className={`absolute top-0 right-0 w-64 h-64 opacity-[0.03] -mr-20 -mt-20 pointer-events-none ${issuanceType === 'sparepart' ? 'text-indigo-600' : 'text-orange-600'}`}>
-                {issuanceType === 'sparepart' ? <Truck size={256}/> : <PaintBucket size={256}/>}
-            </div>
-            
-            <div className="flex items-center gap-6 relative z-10">
-                <div className={`p-5 rounded-3xl shadow-xl ${issuanceType === 'sparepart' ? 'bg-indigo-600' : 'bg-orange-500'} text-white`}>
-                    {issuanceType === 'sparepart' ? <Truck size={40}/> : <PaintBucket size={40}/>}
+    <div className="space-y-6 animate-fade-in pb-12">
+        {/* HEADER STANDARD */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl shadow-sm text-white ${themeBg}`}>
+                    {issuanceType === 'sparepart' ? <Truck size={24}/> : <PaintBucket size={24}/>}
                 </div>
                 <div>
-                    <h1 className="text-4xl font-black text-gray-900 tracking-tight uppercase leading-none">
+                    <h1 className="text-2xl font-bold text-gray-900">
                         {issuanceType === 'sparepart' ? 'Logistics / Keluar Part' : 'Supply / Pakai Bahan'}
                     </h1>
-                    <p className="text-gray-500 font-bold mt-2 flex items-center gap-2">
-                        <Package size={16}/> Manajemen Alokasi Stok Gudang & Bahan Produksi
+                    <p className="text-sm text-gray-500 font-medium">
+                        Manajemen Alokasi Stok Gudang & Bahan Produksi
                     </p>
                 </div>
             </div>
-
-            <div className="flex flex-col items-end gap-1 relative z-10">
-                <div className="bg-gray-50 px-5 py-3 rounded-2xl border border-gray-100 shadow-inner">
-                    <span className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">TOTAL BIAYA WO</span>
-                    <span className={`text-2xl font-black ${issuanceType === 'sparepart' ? 'text-indigo-700' : 'text-orange-700'}`}>{formatCurrency(totalUsageCost)}</span>
-                </div>
+            <div className="text-right bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+                <span className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">TOTAL BIAYA WO</span>
+                <span className={`text-xl font-bold ${themeText}`}>{formatCurrency(totalUsageCost)}</span>
             </div>
         </div>
 
-        {/* RECOMMENDATION AREA - FIFO DRIVEN */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm space-y-4">
-                <div className="flex items-center gap-3 border-b pb-3">
-                    <div className="p-2 bg-indigo-50 rounded-lg"><Zap size={18} className="text-indigo-600"/></div>
-                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-tight">Rekomendasi Ready (FIFO)</h3>
-                </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                    {recommendations.readyForPart.length > 0 ? recommendations.readyForPart.map(job => (
-                        <button 
-                            key={job.id} 
-                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
-                            className="shrink-0 bg-indigo-50 border border-indigo-100 p-4 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all group text-left min-w-[200px]"
-                        >
-                            <span className="block text-[10px] font-black opacity-60 group-hover:text-white mb-1">UNIT PRIORITAS</span>
-                            <span className="block font-black text-lg leading-tight">{job.policeNumber}</span>
-                            <span className="block text-xs font-bold opacity-80">{job.woNumber}</span>
-                        </button>
-                    )) : (
-                        <div className="py-8 text-center w-full text-xs text-gray-400 font-bold italic">Belum ada unit yang 100% ready di gudang</div>
-                    )}
-                </div>
+        {/* SEARCH WORK ORDER */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                    <Search size={18} className="text-gray-400"/> Cari Work Order Aktif
+                </h3>
             </div>
-
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm space-y-4">
-                <div className="flex items-center gap-3 border-b pb-3">
-                    <div className="p-2 bg-orange-50 rounded-lg"><Target size={18} className="text-orange-600"/></div>
-                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-tight">Belum Ada Record Bahan</h3>
-                </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                    {recommendations.missingMaterial.length > 0 ? recommendations.missingMaterial.map(job => (
-                        <button 
-                            key={job.id} 
-                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
-                            className="shrink-0 bg-orange-50 border border-orange-100 p-4 rounded-2xl hover:bg-orange-600 hover:text-white transition-all group text-left min-w-[200px]"
-                        >
-                            <span className="block text-[10px] font-black opacity-60 group-hover:text-white mb-1">INPUT DIBUTUHKAN</span>
-                            <span className="block font-black text-lg leading-tight">{job.policeNumber}</span>
-                            <span className="block text-xs font-bold opacity-80">{job.woNumber}</span>
-                        </button>
-                    )) : (
-                        <div className="py-8 text-center w-full text-xs text-gray-400 font-bold italic">Semua unit aktif sudah memiliki log bahan</div>
-                    )}
-                </div>
-            </div>
-        </div>
-
-        {/* WORK ORDER SELECTION */}
-        <div className="bg-white p-8 rounded-[2rem] border-2 border-gray-100 shadow-sm space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="bg-gray-100 p-2 rounded-xl"><Search size={22} className="text-gray-500"/></div>
-                <label className="text-md font-black text-gray-800 uppercase tracking-tight">Cari Work Order Aktif</label>
-            </div>
+            
             <div className="relative">
                 <input 
                     type="text" 
-                    placeholder="Contoh: WO2501... atau B1234ABC..." 
+                    placeholder="Ketik No. WO, Nopol, atau Pelanggan..." 
                     value={filterWo} 
                     onChange={e => { setFilterWo(e.target.value); if(!e.target.value) setSelectedJobId(''); }}
-                    className="w-full p-6 border-2 border-gray-100 rounded-3xl focus:border-indigo-500 text-3xl font-mono font-black uppercase transition-all shadow-inner bg-gray-50/50"
+                    className="w-full pl-4 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono font-bold uppercase text-lg"
                 />
+                
+                {/* DROPDOWN RESULTS */}
                 {filterWo && !selectedJobId && (
-                    <div className="absolute top-full left-0 right-0 mt-4 bg-white border-2 border-gray-100 rounded-[2rem] shadow-2xl z-50 max-h-96 overflow-y-auto divide-y divide-gray-50">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-80 overflow-y-auto divide-y divide-gray-100">
                         {filteredJobs.length > 0 ? filteredJobs.map(job => (
                             <button 
                                 key={job.id}
                                 onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || job.policeNumber); }}
-                                className="w-full text-left p-6 hover:bg-indigo-50 flex justify-between items-center group transition-colors"
+                                className="w-full text-left p-4 hover:bg-gray-50 flex justify-between items-center group transition-colors"
                             >
                                 <div>
-                                    <span className="font-black text-indigo-700 block text-2xl tracking-tighter">{job.woNumber || 'DRAFT'}</span>
-                                    <div className="flex gap-2 mt-1">
-                                        <span className="text-sm text-gray-800 font-black">{job.policeNumber}</span>
-                                        <span className="text-sm text-gray-400 font-bold">— {job.carModel}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`font-bold ${themeText} text-lg`}>{job.woNumber || 'DRAFT'}</span>
+                                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold">{job.policeNumber}</span>
                                     </div>
+                                    <div className="text-sm text-gray-500 mt-0.5">{job.carModel} - {job.customerName}</div>
                                 </div>
-                                <ArrowRight size={28} className="text-gray-200 group-hover:text-indigo-600 transition-all transform group-hover:translate-x-2" />
+                                <ArrowRight size={18} className="text-gray-300 group-hover:text-indigo-600" />
                             </button>
-                        )) : <div className="p-12 text-center text-gray-400 font-black uppercase text-sm italic tracking-widest">Pencarian tidak ditemukan</div>}
+                        )) : <div className="p-6 text-center text-gray-400 text-sm italic">Pencarian tidak ditemukan</div>}
                     </div>
                 )}
             </div>
 
+            {/* SELECTED CONTEXT */}
             {selectedJob && (
-                <div className={`mt-8 p-8 rounded-[2.5rem] border-4 flex flex-col md:flex-row justify-between items-center shadow-2xl animate-fade-in transition-all ${issuanceType === 'sparepart' ? 'bg-indigo-700 border-indigo-800 text-white' : 'bg-orange-600 border-orange-700 text-white'}`}>
-                    <div className="flex items-center gap-6 mb-4 md:mb-0">
-                        <div className="bg-white/20 p-5 rounded-3xl backdrop-blur-md border border-white/20"><Package size={32}/></div>
+                <div className={`mt-4 p-4 rounded-lg border flex flex-col md:flex-row justify-between items-center gap-4 ${issuanceType === 'sparepart' ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
+                    <div className="flex items-center gap-4">
+                        <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-100">
+                            <Package size={24} className={themeText}/>
+                        </div>
                         <div>
-                            <span className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">CONTEXT TERPILIH</span>
-                            <h3 className="text-4xl font-black leading-none mt-1 tracking-tighter">{selectedJob.woNumber}</h3>
-                            <p className="text-white/80 font-bold text-sm uppercase mt-2 tracking-wide">{selectedJob.policeNumber} • {selectedJob.carModel} • {selectedJob.namaAsuransi}</p>
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Work Order Terpilih</span>
+                            <div className="flex items-baseline gap-2">
+                                <h3 className="text-xl font-bold text-gray-900">{selectedJob.woNumber}</h3>
+                                <span className="text-sm font-medium text-gray-600">| {selectedJob.policeNumber}</span>
+                            </div>
+                            <p className="text-xs text-gray-500">{selectedJob.carModel} • {selectedJob.namaAsuransi}</p>
                         </div>
                     </div>
-                    <button onClick={() => { setSelectedJobId(''); setFilterWo(''); }} className="bg-white/10 hover:bg-white/20 px-8 py-3 rounded-2xl text-xs font-black uppercase border border-white/30 transition-all active:scale-95">Reset / Ganti</button>
+                    <button onClick={() => { setSelectedJobId(''); setFilterWo(''); }} className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-bold shadow-sm transition-colors">
+                        Ganti Unit
+                    </button>
                 </div>
             )}
         </div>
 
-        {/* SPAREPART GRID - PRECISION LOOK */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* RECOMMENDATIONS - READY */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                    <Zap size={16} className="text-indigo-500"/>
+                    <h3 className="text-sm font-bold text-gray-700 uppercase">Rekomendasi Ready (FIFO)</h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                    {recommendations.readyForPart.length > 0 ? recommendations.readyForPart.map(job => (
+                        <button 
+                            key={job.id} 
+                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
+                            className="shrink-0 bg-indigo-50 border border-indigo-100 p-3 rounded-lg hover:bg-indigo-100 transition-colors text-left min-w-[160px]"
+                        >
+                            <span className="block text-[10px] font-bold text-indigo-400 mb-1">UNIT PRIORITAS</span>
+                            <span className="block font-bold text-gray-900">{job.policeNumber}</span>
+                            <span className="block text-xs text-gray-500">{job.woNumber}</span>
+                        </button>
+                    )) : (
+                        <div className="py-4 text-center w-full text-xs text-gray-400 italic">Belum ada unit 100% ready</div>
+                    )}
+                </div>
+            </div>
+
+            {/* RECOMMENDATIONS - NEED INPUT */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                    <Target size={16} className="text-orange-500"/>
+                    <h3 className="text-sm font-bold text-gray-700 uppercase">Belum Ada Record Bahan</h3>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                    {recommendations.missingMaterial.length > 0 ? recommendations.missingMaterial.map(job => (
+                        <button 
+                            key={job.id} 
+                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
+                            className="shrink-0 bg-orange-50 border border-orange-100 p-3 rounded-lg hover:bg-orange-100 transition-colors text-left min-w-[160px]"
+                        >
+                            <span className="block text-[10px] font-bold text-orange-400 mb-1">INPUT DIBUTUHKAN</span>
+                            <span className="block font-bold text-gray-900">{job.policeNumber}</span>
+                            <span className="block text-xs text-gray-500">{job.woNumber}</span>
+                        </button>
+                    )) : (
+                        <div className="py-4 text-center w-full text-xs text-gray-400 italic">Semua unit sudah memiliki log bahan</div>
+                    )}
+                </div>
+            </div>
+        </div>
+
+        {/* SPAREPART ISSUANCE TABLE */}
         {issuanceType === 'sparepart' && selectedJob && (
-            <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
-                <div className="p-8 border-b bg-gray-50 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-indigo-100 rounded-2xl"><Truck size={24} className="text-indigo-600"/></div>
-                        <div>
-                            <h3 className="font-black text-gray-900 uppercase tracking-tight text-xl">Daftar Kebutuhan Part</h3>
-                            <p className="text-xs text-gray-400 font-bold">Sinkronisasi Real-time dengan Estimasi SA</p>
-                        </div>
-                    </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
+                <div className="p-4 bg-gray-50 border-b flex items-center gap-3">
+                    <Truck size={20} className="text-gray-500"/>
+                    <h3 className="font-bold text-gray-800">Daftar Kebutuhan Part (Estimasi SA)</h3>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-100 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-100 text-xs font-semibold text-gray-500 uppercase">
                             <tr>
-                                <th className="px-8 py-6">Detail Suku Cadang</th>
-                                <th className="px-8 py-6 text-center">Req. Qty</th>
-                                <th className="px-8 py-6 text-center">Stok Gudang</th>
-                                <th className="px-8 py-6 text-right">Aksi Logistik</th>
+                                <th className="px-6 py-3">Detail Suku Cadang</th>
+                                <th className="px-6 py-3 text-center">Req. Qty</th>
+                                <th className="px-6 py-3 text-center">Stok Gudang</th>
+                                <th className="px-6 py-3 text-right">Aksi Logistik</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-50">
+                        <tbody className="divide-y divide-gray-100">
                             {(selectedJob.estimateData?.partItems || []).map((item, idx) => {
                                 const inv = inventoryItems.find(i => 
                                     (item.inventoryId && i.id === item.inventoryId) || 
@@ -406,34 +409,33 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                 const reqQty = Number(item.qty || 1);
 
                                 return (
-                                    <tr key={idx} className={`${isIssued ? 'bg-emerald-50/50' : 'hover:bg-indigo-50/30'} transition-all`}>
-                                        <td className="px-8 py-8">
-                                            <div className="font-black text-gray-900 text-lg leading-tight">{item.name}</div>
-                                            <div className="text-xs font-mono text-indigo-400 mt-2 font-bold tracking-wider">{item.number || 'TANPA NOMOR PART'}</div>
+                                    <tr key={idx} className={isIssued ? 'bg-gray-50' : 'hover:bg-indigo-50/10'}>
+                                        <td className="px-6 py-4">
+                                            <div className="font-bold text-gray-900">{item.name}</div>
+                                            <div className="text-xs font-mono text-gray-500 mt-1">{item.number || 'TANPA NOMOR PART'}</div>
                                         </td>
-                                        <td className="px-8 py-8 text-center">
-                                            <span className="text-2xl font-black text-indigo-900">{reqQty}</span>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className="font-bold text-gray-900">{reqQty}</span>
                                         </td>
-                                        <td className="px-8 py-8 text-center">
+                                        <td className="px-6 py-4 text-center">
                                             {inv ? (
-                                                <div className={`inline-flex flex-col items-center px-6 py-3 rounded-2xl border-2 ${readyStock >= reqQty ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                                                    <span className="text-xl font-black leading-none">{readyStock}</span>
-                                                    <span className="text-[10px] uppercase font-black mt-1 tracking-widest">{inv.unit}</span>
+                                                <div className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold ${readyStock >= reqQty ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {readyStock} {inv.unit}
                                                 </div>
-                                            ) : <span className="text-gray-300 text-xs font-black uppercase italic tracking-widest">Link Lost</span>}
+                                            ) : <span className="text-gray-400 text-xs italic">Link Lost</span>}
                                         </td>
-                                        <td className="px-8 py-8 text-right">
+                                        <td className="px-6 py-4 text-right">
                                             {isIssued ? (
-                                                <div className="flex items-center justify-end gap-2 text-emerald-600 font-black text-xs uppercase bg-emerald-100/50 px-6 py-3 rounded-2xl inline-flex border border-emerald-200">
-                                                    <CheckCircle size={20}/> Issued
-                                                </div>
+                                                <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-xs bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+                                                    <CheckCircle size={14}/> Issued
+                                                </span>
                                             ) : (
                                                 <button 
                                                     onClick={() => handlePartIssuance(item, idx)}
                                                     disabled={isSubmitting || !inv || readyStock < reqQty}
-                                                    className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm uppercase shadow-xl hover:bg-indigo-700 disabled:opacity-20 transition-all active:scale-95 flex items-center gap-3 ml-auto"
+                                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-2"
                                                 >
-                                                    {isSubmitting ? 'Processing' : <><Save size={20}/> Keluarkan Part</>}
+                                                    {isSubmitting ? '...' : <><Save size={14}/> Keluar Part</>}
                                                 </button>
                                             )}
                                         </td>
@@ -446,57 +448,54 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* MATERIAL FORM - PRECISION LOOK */}
+        {/* MATERIAL ISSUANCE FORM */}
         {issuanceType === 'material' && selectedJob && (
-            <div className="bg-white p-10 rounded-[2rem] border border-gray-200 shadow-sm space-y-10 animate-fade-in">
-                <div className="flex items-center gap-4">
-                    <div className="p-3 bg-orange-100 rounded-2xl"><PaintBucket size={24} className="text-orange-600"/></div>
-                    <div>
-                        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">Input Alokasi Bahan Baku</h3>
-                        <p className="text-xs text-gray-400 font-bold">Pastikan jumlah & satuan sesuai dengan pemakaian riil</p>
-                    </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-fade-in">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b">
+                    <PaintBucket size={20} className="text-orange-600"/>
+                    <h3 className="font-bold text-gray-800 text-lg">Input Alokasi Bahan Baku</h3>
                 </div>
                 
-                <form onSubmit={handleMaterialIssuance} className="space-y-10">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                        <div className="space-y-4">
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Cari Katalog Bahan</label>
+                <form onSubmit={handleMaterialIssuance} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Cari Katalog Bahan</label>
                             <div className="relative">
-                                <Search className="absolute left-6 top-6 text-gray-400" size={24}/>
+                                <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
                                 <input 
                                     list="mat-list"
                                     type="text" 
                                     placeholder="Ketik Nama atau Kode Bahan..."
                                     value={materialSearchTerm}
                                     onChange={e => setMaterialSearchTerm(e.target.value)}
-                                    className="w-full pl-16 p-6 border-2 border-gray-100 rounded-3xl focus:border-orange-500 font-bold bg-gray-50/50 text-xl"
+                                    className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 font-medium"
                                 />
                                 <datalist id="mat-list">
                                     {materialInventory.map(m => <option key={m.id} value={m.name}>{m.code} | Stok: {m.stock} {m.unit}</option>)}
                                 </datalist>
                             </div>
                             {currentItem && (
-                                <div className="flex justify-between items-center p-6 bg-orange-50 border-2 border-orange-100 rounded-3xl shadow-inner animate-pulse-once">
-                                    <div className="text-sm font-black text-orange-900 uppercase tracking-tight">{currentItem.name}</div>
-                                    <div className="text-xl font-black text-orange-950 bg-white px-6 py-2 rounded-2xl border border-orange-200">GUDANG: {currentItem.stock} {currentItem.unit}</div>
+                                <div className="mt-2 text-xs flex justify-between items-center text-gray-600 bg-gray-50 p-2 rounded border border-gray-200">
+                                    <span className="font-bold">{currentItem.name}</span>
+                                    <span>Stok: <strong className={currentItem.stock > 0 ? 'text-green-600' : 'text-red-600'}>{currentItem.stock} {currentItem.unit}</strong></span>
                                 </div>
                             )}
                         </div>
 
-                        <div className="space-y-4">
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Takaran / Qty Digunakan</label>
-                            <div className="flex gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Takaran / Qty Digunakan</label>
+                            <div className="flex gap-2">
                                 <input 
                                     type="number" step="0.01" required
                                     value={inputQty}
                                     onChange={e => setInputQty(e.target.value === '' ? '' : Number(e.target.value))}
                                     placeholder="0.00"
-                                    className="flex-grow p-6 border-2 border-gray-100 rounded-3xl focus:border-orange-500 text-4xl font-black text-center text-orange-900 bg-gray-50/50 shadow-inner"
+                                    className="flex-grow p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 font-bold text-gray-900"
                                 />
                                 <select 
                                     value={selectedUnit} 
                                     onChange={e => setSelectedUnit(e.target.value)}
-                                    className="w-48 p-6 border-2 border-gray-100 rounded-3xl bg-white font-black text-center text-xl shadow-sm appearance-none"
+                                    className="w-28 p-2.5 border border-gray-300 rounded-lg bg-white font-medium"
                                 >
                                     {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                                 </select>
@@ -504,75 +503,83 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Catatan Operasional</label>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Operasional (Opsional)</label>
                         <input 
                             type="text" 
                             value={notes} 
                             onChange={e => setNotes(e.target.value)}
-                            placeholder="Contoh: Pemakaian untuk panel pintu depan & bumper..."
-                            className="w-full p-6 border-2 border-gray-100 rounded-3xl focus:border-orange-500 font-bold text-lg"
+                            placeholder="Contoh: Pemakaian untuk panel pintu depan..."
+                            className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                         />
                     </div>
 
-                    <button 
-                        type="submit" 
-                        disabled={isSubmitting || !materialSearchTerm || !inputQty}
-                        className="w-full py-7 bg-orange-500 text-white rounded-3xl font-black text-2xl shadow-2xl hover:bg-orange-600 disabled:opacity-20 active:scale-[0.98] transition-all flex items-center justify-center gap-5 uppercase tracking-tight"
-                    >
-                        {isSubmitting ? 'MENYIMPAN...' : <><Save size={32}/> Konfirmasi Pemakaian Bahan</>}
-                    </button>
+                    <div className="flex justify-end pt-2">
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting || !materialSearchTerm || !inputQty}
+                            className="bg-orange-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                        >
+                            {isSubmitting ? 'Menyimpan...' : <><Save size={18}/> Simpan Pemakaian</>}
+                        </button>
+                    </div>
                 </form>
             </div>
         )}
 
-        {/* LOG HISTORY - PRECISION DATA TABLE */}
+        {/* HISTORY TABLE */}
         {selectedJob && (
-            <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
-                <div className="p-8 bg-gray-50 border-b flex justify-between items-center">
-                    <h3 className="font-black text-gray-900 uppercase tracking-tight flex items-center gap-4 text-xl"><History size={26} className="text-gray-400"/> Riwayat Alokasi Unit Ini</h3>
-                    <div className="text-2xl font-black text-indigo-700 bg-indigo-50 px-8 py-3 rounded-2xl border-2 border-indigo-100">{formatCurrency(totalUsageCost)}</div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <History size={18} className="text-gray-500"/> Riwayat Alokasi Unit Ini
+                    </h3>
+                    <div className="text-sm font-bold text-indigo-700 bg-white px-3 py-1 rounded border border-gray-200 shadow-sm">
+                        Total: {formatCurrency(totalUsageCost)}
+                    </div>
                 </div>
                 {usageHistory.length > 0 ? (
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-100 font-black text-gray-400 text-[11px] uppercase tracking-[0.15em]">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-100 font-semibold text-gray-500 text-xs uppercase">
                                 <tr>
-                                    <th className="px-10 py-6">Timestamp</th>
-                                    <th className="px-10 py-6">Deskripsi Item</th>
-                                    <th className="px-10 py-6 text-center">Qty Keluar</th>
-                                    <th className="px-10 py-6 text-right">Biaya Modal</th>
-                                    <th className="px-10 py-6 text-center w-24">Aksi</th>
+                                    <th className="px-6 py-3">Timestamp</th>
+                                    <th className="px-6 py-3">Deskripsi Item</th>
+                                    <th className="px-6 py-3 text-center">Qty Keluar</th>
+                                    <th className="px-6 py-3 text-right">Biaya Modal</th>
+                                    <th className="px-6 py-3 text-center w-20">Aksi</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-50">
+                            <tbody className="divide-y divide-gray-100">
                                 {usageHistory.map((log, i) => (
-                                    <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                                        <td className="px-10 py-6 text-gray-400 font-bold text-xs">
+                                    <tr key={i} className="hover:bg-gray-50">
+                                        <td className="px-6 py-3 text-gray-500 text-xs">
                                             {formatDateIndo(log.issuedAt)} 
-                                            <span className="block text-[10px] mt-1 opacity-60 font-mono">{new Date(log.issuedAt).toLocaleTimeString()}</span>
+                                            <div className="text-[10px] opacity-75">{new Date(log.issuedAt).toLocaleTimeString()}</div>
                                         </td>
-                                        <td className="px-10 py-6">
-                                            <div className="font-black text-gray-900 text-base">{log.itemName}</div>
-                                            <div className="text-[10px] text-gray-400 font-mono font-bold uppercase mt-1 tracking-wider">{log.itemCode} | {log.notes}</div>
+                                        <td className="px-6 py-3">
+                                            <div className="font-bold text-gray-900">{log.itemName}</div>
+                                            <div className="text-xs text-gray-500 font-mono mt-0.5">{log.itemCode} | {log.notes}</div>
                                         </td>
-                                        <td className="px-10 py-6 text-center">
-                                            <span className="bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black text-sm border border-indigo-100">
+                                        <td className="px-6 py-3 text-center">
+                                            <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold border border-gray-200">
                                                 {log.inputQty || log.qty} {log.inputUnit || ''}
                                             </span>
                                         </td>
-                                        <td className="px-10 py-6 text-right font-black text-emerald-600 text-lg">{formatCurrency(log.totalCost)}</td>
-                                        <td className="px-10 py-6 text-center">
+                                        <td className="px-6 py-3 text-right font-bold text-emerald-600">{formatCurrency(log.totalCost)}</td>
+                                        <td className="px-6 py-3 text-center">
                                             {userPermissions.role.includes('Manager') ? (
-                                                <button onClick={() => handleCancelIssuance(log)} className="bg-red-50 text-red-500 p-3 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"><XCircle size={22}/></button>
-                                            ) : <div className="p-2 bg-gray-50 rounded-xl text-gray-300"><Clock size={18}/></div>}
+                                                <button onClick={() => handleCancelIssuance(log)} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded" title="Batalkan">
+                                                    <XCircle size={18}/>
+                                                </button>
+                                            ) : <span className="text-gray-300">-</span>}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                ) : <div className="p-24 text-center text-gray-300 font-black uppercase text-sm italic tracking-[0.2em]">Belum ada item yang dialokasikan</div>}
+                ) : <div className="p-8 text-center text-gray-400 text-sm italic">Belum ada item yang dialokasikan</div>}
             </div>
         )}
     </div>

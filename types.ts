@@ -1,5 +1,4 @@
 
-
 import { Timestamp } from 'firebase/firestore';
 
 export interface Vehicle {
@@ -9,6 +8,9 @@ export interface Vehicle {
   customerPhone?: string;
   customerAddress?: string;
   customerKota?: string;
+  customerKelurahan?: string;
+  customerKecamatan?: string;
+  customerProvinsi?: string;
   carBrand?: string;
   carModel: string;
   warnaMobil: string;
@@ -16,6 +18,8 @@ export interface Vehicle {
   nomorMesin?: string;
   tahunPembuatan?: string;
   namaAsuransi: string;
+  nomorPolis?: string;
+  asuransiExpiryDate?: string;
   createdAt?: Timestamp;
   isDeleted?: boolean;
 }
@@ -29,10 +33,15 @@ export interface Job {
   customerPhone?: string;
   customerAddress?: string;
   customerKota?: string;
+  customerKelurahan?: string;
+  customerKecamatan?: string;
+  customerProvinsi?: string;
   carBrand?: string;
   carModel: string;
   warnaMobil: string;
   namaAsuransi: string;
+  nomorPolis?: string;
+  asuransiExpiryDate?: string;
   
   // Mirrored technical info from Vehicle for full transaction visibility
   nomorRangka?: string;
@@ -44,8 +53,10 @@ export interface Job {
   statusKendaraan: string;
   statusPekerjaan: string;
   posisiKendaraan: string;
+  jumlahPanel?: number;
   
   tanggalMasuk?: string;
+  tanggalEstimasiSelesai?: string;
   isClosed: boolean;
   closedAt?: Timestamp;
   createdAt?: Timestamp;
@@ -118,6 +129,7 @@ export interface UsageLogItem {
   category: 'sparepart' | 'material';
   issuedAt: string;
   issuedBy: string;
+  notes?: string;
 }
 
 export interface Supplier {
@@ -165,6 +177,7 @@ export interface PurchaseOrderItem {
   refWoNumber?: string;
   refPartIndex?: number;
   isIndent?: boolean;
+  isStockManaged?: boolean;
 }
 
 export interface PurchaseOrder {
@@ -181,6 +194,12 @@ export interface PurchaseOrder {
   notes?: string;
   createdBy: string;
   createdAt: any;
+  approvedBy?: string;
+  approvedAt?: any;
+  rejectionReason?: string;
+  receivedAt?: any;
+  receivedBy?: string;
+  lastModified?: any;
 }
 
 export interface Settings {

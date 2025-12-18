@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -43,6 +44,7 @@ service cloud.firestore {
 
     // Rules untuk Purchase Orders (PO)
     match /bengkel-purchase-orders/{poId} {
+      // Menggunakan read dan write (create, update, delete) secara eksplisit
       allow read, write: if isAuthenticated();
     }
 

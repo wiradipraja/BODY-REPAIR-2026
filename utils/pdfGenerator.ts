@@ -144,42 +144,110 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.save(`${isWO ? job.woNumber : (estimateData.estimationNumber || 'ESTIMASI')}_${job.policeNumber}.pdf`);
 };
 
-export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings) => {
+export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings, supplierAddress?: string) => {
     const doc: any = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
     addHeader(doc, settings);
 
     doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
     doc.text("PURCHASE ORDER", 15, 48);
     
+    // Header Info (No PO & Date)
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     const infoX = pageWidth - 80;
+    
     doc.text("No. PO", infoX, 48);
     doc.text(`: ${po.poNumber}`, infoX + 25, 48);
+    
     doc.text("Tanggal", infoX, 53);
-    doc.text(`: ${po.createdAt ? formatDateIndo(po.createdAt) : formatDateIndo(new Date())}`, infoX + 25, 53);
+    
+    // Fix: Fallback if date is missing or invalid (returns '-')
+    let dateStr = po.createdAt ? formatDateIndo(po.createdAt) : formatDateIndo(new Date());
+    if (dateStr === '-') dateStr = formatDateIndo(new Date());
+    
+    doc.text(`: ${dateStr}`, infoX + 25, 53);
 
+    // Supplier Section
     doc.setFont("helvetica", "bold");
     doc.text("VENDOR / SUPPLIER:", 15, 65);
+    
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
     doc.text(po.supplierName, 15, 70);
+    
+    // Supplier Address (Wrapped)
+    let addressHeight = 0;
+    if (supplierAddress) {
+        doc.setFontSize(9);
+        doc.setTextColor(50); // Slightly darker for readability
+        // Wrap text to width of 80mm
+        const splitAddress = doc.splitTextToSize(supplierAddress, 80);
+        doc.text(splitAddress, 15, 75);
+        addressHeight = splitAddress.length * 4;
+    }
 
+    // Items Table
+    // Adjust start position if address is long
+    const tableStartY = supplierAddress ? (75 + addressHeight + 5) : 80;
+    
     autoTable(doc, {
-        startY: 80,
+        startY: tableStartY,
         head: [['No', 'Kode Part', 'Deskripsi Barang', 'Qty', 'Harga Satuan', 'Total']],
-        body: po.items.map((item, idx) => [idx + 1, item.code, item.brand ? `${item.name} (${item.brand})` : item.name, `${item.qty} ${item.unit}`, formatCurrency(item.price), formatCurrency(item.total)]),
+        body: po.items.map((item, idx) => [
+            idx + 1, 
+            item.code, 
+            item.brand ? `${item.name} (${item.brand})` : item.name, 
+            `${item.qty} ${item.unit}`, 
+            formatCurrency(item.price), 
+            formatCurrency(item.total)
+        ]),
         theme: 'striped',
         headStyles: { fillColor: [52, 73, 94], fontStyle: 'bold' },
         styles: { fontSize: 9 },
-        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'right' }, 5: { halign: 'right' } }
+        columnStyles: { 
+            0: { cellWidth: 10, halign: 'center' }, 
+            3: { halign: 'center' }, 
+            4: { halign: 'right' }, 
+            5: { halign: 'right' } 
+        }
     });
 
     let finalY = doc.lastAutoTable.finalY + 10;
+    doc.setTextColor(0);
+    
+    // Grand Total
     doc.setFont("helvetica", "bold");
     doc.text("GRAND TOTAL:", pageWidth - 90, finalY);
     doc.text(formatCurrency(po.totalAmount), pageWidth - 15, finalY, { align: 'right' });
+
+    // Signatures
+    let signY = finalY + 30;
+    // Check if enough space for signatures, if not add page
+    if (signY > 260) {
+        doc.addPage();
+        signY = 40;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    
+    // Left Signature (Created By)
+    doc.text("Diajukan Oleh,", 30, signY, { align: 'center' });
+    
+    // Right Signature (Approved By)
+    doc.text("Disetujui Oleh,", pageWidth - 50, signY, { align: 'center' });
+
+    doc.setFont("helvetica", "normal");
+    
+    // Names (Or Roles if names unavailable)
+    const creator = po.createdBy || 'Partman';
+    const approver = po.approvedBy || 'Manager';
+    
+    doc.text(`( ${creator} )`, 30, signY + 25, { align: 'center' });
+    doc.text(`( ${approver} )`, pageWidth - 50, signY + 25, { align: 'center' });
 
     doc.save(`${po.poNumber}.pdf`);
 };
@@ -197,7 +265,12 @@ export const generateReceivingReportPDF = (po: PurchaseOrder, receivedItems: {it
     doc.setFont("helvetica", "normal");
     doc.text(`Ref PO: ${po.poNumber}`, 15, 55);
     doc.text(`Supplier: ${po.supplierName}`, 15, 60);
-    doc.text(`Penerima: ${receiverName}`, pageWidth - 15, 60, { align: 'right' });
+    
+    // Added Date
+    const todayStr = formatDateIndo(new Date());
+    doc.text(`Tanggal: ${todayStr}`, pageWidth - 15, 55, { align: 'right' });
+    
+    doc.text(`Pencatat: ${receiverName}`, pageWidth - 15, 60, { align: 'right' });
 
     autoTable(doc, {
         startY: 70,
@@ -206,6 +279,30 @@ export const generateReceivingReportPDF = (po: PurchaseOrder, receivedItems: {it
         theme: 'striped',
         headStyles: { fillColor: [52, 73, 94] }
     });
+    
+    // Added Signatures
+    let finalY = doc.lastAutoTable.finalY + 20;
+    
+    // Check for page break
+    if (finalY > 250) {
+        doc.addPage();
+        finalY = 40;
+    }
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    
+    // Left: Supplier
+    doc.text("Diserahkan Oleh,", 40, finalY, { align: 'center' });
+    
+    // Right: Warehouse/Sparepart (Receiver)
+    doc.text("Diterima Oleh,", pageWidth - 40, finalY, { align: 'center' });
+
+    doc.setFont("helvetica", "normal");
+    
+    // Names
+    doc.text(`( ${po.supplierName} )`, 40, finalY + 25, { align: 'center' });
+    doc.text(`( ${receiverName} )`, pageWidth - 40, finalY + 25, { align: 'center' });
 
     doc.save(`BST_${po.poNumber}_${new Date().getTime()}.pdf`);
 };

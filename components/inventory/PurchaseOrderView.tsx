@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
@@ -28,11 +29,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [settings, setSettings] = useState<Settings>(initialSettingsState);
 
-  // Partial Receive State
   const [selectedItemsToReceive, setSelectedItemsToReceive] = useState<number[]>([]);
   const [receiveQtyMap, setReceiveQtyMap] = useState<Record<number, number>>({});
 
-  // CREATE FORM STATE
   const [poCreationMode, setPoCreationMode] = useState<'manual' | 'wo'>('manual');
   const [poForm, setPoForm] = useState<Partial<PurchaseOrder>>({
       supplierId: '',
@@ -42,19 +41,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // WO IMPORT STATE
   const [woSearchTerm, setWoSearchTerm] = useState('');
   const [foundJob, setFoundJob] = useState<Job | null>(null);
   const [selectedPartsFromWo, setSelectedPartsFromWo] = useState<Record<number, { selected: boolean, isIndent: boolean }>>({});
 
-  // Pengecekan Izin Manager yang lebih kuat
-  const isManager = React.useMemo(() => {
-    const role = (userPermissions.role || '').toUpperCase();
-    console.log("DEBUG: Current User Role Check:", role); // DEBUG LOG
-    return role === 'MANAGER' || role === 'SUPER ADMIN' || role === 'ADMIN';
-  }, [userPermissions.role]);
+  // Fix: More robust Manager check
+  const isManager = useMemo(() => {
+    return userPermissions && userPermissions.role && userPermissions.role.includes('Manager');
+  }, [userPermissions]);
 
-  // Load Settings for PDF Header
   useEffect(() => {
     const fetchSettings = async () => {
         try {
@@ -106,8 +101,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const handlePrintPO = (po: PurchaseOrder) => {
     if (!po) return;
+    
+    // Find Supplier to get Address
+    const supplier = suppliers.find(s => s.id === po.supplierId);
+    const supplierAddress = supplier ? supplier.address : '';
+
     try {
-        generatePurchaseOrderPDF(po, settings);
+        generatePurchaseOrderPDF(po, settings, supplierAddress);
         showNotification(`Mendownload ${po.poNumber}...`, "success");
     } catch (err: any) {
         console.error("PDF Print Error:", err);
@@ -115,52 +115,36 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     }
   };
 
-  // --- RECONSTRUCTED APPROVE LOGIC (DEBUGGED) ---
+  // --- FIXED APPROVAL FUNCTION ---
   const handleApprovePO = async (e?: React.MouseEvent) => {
-    // Prevent default button behavior and bubbling
     if (e) {
         e.preventDefault();
         e.stopPropagation();
     }
 
-    console.log("DEBUG: Tombol Approve Diklik"); // DEBUG LOG
-
-    // 1. Validasi Keberadaan Objek & ID
-    if (!selectedPO) {
-        console.error("DEBUG: selectedPO is null");
-        alert("Kesalahan: Objek PO tidak terpilih.");
-        return;
-    }
-    
-    const docId = selectedPO.id;
-    console.log("DEBUG: PO ID:", docId); // DEBUG LOG
-
-    if (!docId) {
-        console.error("DEBUG: ID PO kosong", selectedPO);
-        alert("Sistem Error: ID dokumen di database tidak ditemukan. Coba segarkan halaman.");
+    if (!selectedPO || !selectedPO.id) {
+        showNotification("Sistem Error: ID dokumen di database tidak ditemukan.", "error");
         return;
     }
 
-    // 2. Validasi Izin
     if (!isManager) {
-        console.warn("DEBUG: Permission denied. Role:", userPermissions.role);
-        alert("Akses Ditolak: Anda tidak memiliki otoritas Manager.");
+        showNotification("Akses Ditolak: Anda tidak memiliki otoritas Manager.", "error");
         return;
     }
 
-    // 3. Konfirmasi
     const confirmMsg = `SETUJUI PURCHASE ORDER\n\nNomor: ${selectedPO.poNumber}\nSupplier: ${selectedPO.supplierName}\n\nApakah Anda yakin?`;
-    if (!window.confirm(confirmMsg)) {
-        console.log("DEBUG: User cancelled approval");
-        return;
-    }
+    if (!window.confirm(confirmMsg)) return;
 
-    // 4. Proses Update
     setIsProcessing(true);
     try {
-        console.log(`DEBUG: Menyetujui PO dengan ID: ${docId}...`);
-        const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, docId);
+        const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id);
         
+        // Ensure doc exists
+        const docSnap = await getDoc(poRef);
+        if(!docSnap.exists()) {
+            throw new Error("Dokumen PO sudah dihapus atau tidak valid.");
+        }
+
         await updateDoc(poRef, {
             status: 'Ordered',
             approvedBy: userPermissions.role || 'Manager',
@@ -168,60 +152,47 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             lastModified: serverTimestamp()
         });
 
-        console.log("DEBUG: Update Success");
         showNotification(`Purchase Order ${selectedPO.poNumber} berhasil disetujui.`, "success");
-        
-        // Reset View
         setSelectedPO(null);
         setViewMode('list');
         await fetchOrders();
     } catch (e: any) {
-        console.error("DEBUG: DATABASE REJECTION:", e);
-        let errorMsg = e.message;
-        if (e.code === 'permission-denied') {
-            errorMsg = "Izin Ditolak oleh Database (Firestore Rules). Pastikan akun Anda memiliki flag 'Manager'.";
-        }
-        alert(`Gagal Menyetujui: ${errorMsg}`);
+        console.error("DATABASE REJECTION:", e);
+        showNotification(`Gagal Menyetujui: ${e.message}`, "error");
     } finally {
         setIsProcessing(false);
     }
   };
 
-  // --- RECONSTRUCTED REJECT LOGIC (DEBUGGED) ---
+  // --- FIXED REJECT FUNCTION ---
   const handleRejectPO = async (e?: React.MouseEvent) => {
     if (e) {
         e.preventDefault();
         e.stopPropagation();
     }
 
-    console.log("DEBUG: Tombol Reject Diklik"); // DEBUG LOG
-
     if (!selectedPO || !selectedPO.id) {
-        console.error("DEBUG: selectedPO invalid for reject");
-        alert("Data PO tidak valid.");
+        showNotification("Data PO tidak valid.", "error");
         return;
     }
 
     if (!isManager) {
-        alert("Hanya Manager yang dapat menolak PO.");
+        showNotification("Hanya Manager yang dapat menolak PO.", "error");
         return;
     }
 
     const reason = window.prompt(`TOLAK PURCHASE ORDER ${selectedPO.poNumber}\nMasukkan alasan penolakan:`, "");
-    if (reason === null) {
-        console.log("DEBUG: User cancelled reject");
-        return;
-    }
+    if (reason === null) return; // User pressed Cancel
     
     if (!reason.trim()) {
-        alert("Alasan penolakan tidak boleh kosong.");
+        showNotification("Alasan penolakan tidak boleh kosong.", "error");
         return;
     }
 
     setIsProcessing(true);
     try {
-        console.log(`DEBUG: Rejecting PO ID: ${selectedPO.id}`);
         const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id);
+        
         await updateDoc(poRef, {
             status: 'Rejected',
             rejectionReason: reason,
@@ -234,8 +205,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         setViewMode('list');
         await fetchOrders();
     } catch (e: any) {
-        console.error("DEBUG: REJECT ERROR:", e);
-        alert("Gagal menolak PO: " + e.message);
+        console.error("REJECT ERROR:", e);
+        showNotification("Gagal menolak PO: " + e.message, "error");
     } finally {
         setIsProcessing(false);
     }
@@ -261,9 +232,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           if (!snapshot.empty) {
               const allMatchingDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
               allMatchingDocs.sort((a, b) => {
-                  const timeA = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
-                  const timeB = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
-                  return timeB - timeA;
+                  const getTime = (val: any) => {
+                    if (!val) return 0;
+                    if (typeof val.toMillis === 'function') return val.toMillis();
+                    if (val.seconds) return val.seconds * 1000;
+                    return 0;
+                  };
+                  return getTime(b.createdAt) - getTime(a.createdAt);
               });
 
               const jobWithParts = allMatchingDocs.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
@@ -325,7 +300,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   refJobId: foundJob.id,
                   refWoNumber: foundJob.woNumber,
                   refPartIndex: idx,
-                  isIndent: selection.isIndent
+                  isIndent: selection.isIndent,
+                  isStockManaged: true // WO parts are usually stock managed
               });
           }
       });
@@ -350,7 +326,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       setPoForm(prev => ({
           ...prev,
           items: [...(prev.items || []), { 
-              code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0
+              code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0, isStockManaged: true
           }]
       }));
   };
@@ -369,7 +345,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   category: match.category, 
                   unit: match.unit, 
                   price: match.buyPrice, 
-                  code: match.code 
+                  code: match.code,
+                  isStockManaged: match.isStockManaged ?? true
               };
           } else {
              newItems[index] = { ...newItems[index], inventoryId: null, code: codeUpper };
@@ -410,7 +387,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const sanitizedItems = (poForm.items || []).map(item => ({
           ...item,
           code: item.code.toUpperCase(),
-          qtyReceived: 0
+          qtyReceived: 0,
+          isStockManaged: item.isStockManaged ?? true
       }));
 
       const payload: any = {
@@ -495,8 +473,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       stock: qtyNow, 
                       unit: item.unit, 
                       minStock: 2, 
-                      buyPrice: item.price,
+                      buyPrice: item.price, 
                       sellPrice: Math.round(item.price * 1.3), 
+                      isStockManaged: item.isStockManaged ?? true,
                       createdAt: serverTimestamp(), 
                       updatedAt: serverTimestamp()
                   });
@@ -621,6 +600,20 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                             <option value="sparepart">Part</option>
                                             <option value="material">Bahan</option>
                                         </select>
+                                        {item.category === 'material' && (
+                                            <div className="mt-1 flex items-center gap-1">
+                                                <input 
+                                                    type="checkbox" 
+                                                    id={`stockManaged-${idx}`}
+                                                    checked={item.isStockManaged === false} 
+                                                    onChange={e => handleUpdateItem(idx, 'isStockManaged', !e.target.checked)}
+                                                    className="w-3 h-3 text-orange-600 rounded focus:ring-orange-500 cursor-pointer"
+                                                />
+                                                <label htmlFor={`stockManaged-${idx}`} className="text-[10px] text-orange-700 font-bold cursor-pointer whitespace-nowrap">
+                                                    Ready Use (Vendor)
+                                                </label>
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="p-2 border"><input type="text" className="w-full p-2 border rounded font-mono uppercase text-xs" value={item.code} onChange={e => handleUpdateItem(idx, 'code', e.target.value)} placeholder="Kode..." disabled={!!item.refJobId}/></td>
                                     <td className="p-2 border">

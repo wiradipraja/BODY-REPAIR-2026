@@ -30,9 +30,14 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
 
     // 2. Sort by Entry Date (First In First Out priority for stock)
     activeJobs.sort((a, b) => {
-        const dateA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
-        const dateB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
-        return dateA - dateB;
+        const getTime = (val: any) => {
+          if (!val) return 0;
+          if (typeof val.toMillis === 'function') return val.toMillis();
+          if (val.seconds) return val.seconds * 1000;
+          const d = new Date(val).getTime();
+          return isNaN(d) ? 0 : d;
+        };
+        return getTime(a.createdAt) - getTime(b.createdAt);
     });
 
     // 3. Create a Virtual Stock Map from Inventory Master
@@ -47,29 +52,24 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         const totalParts = parts.length;
         let readyCount = 0;
         
-        // Enrich parts with availability status based on Virtual Stock
         const processedParts = parts.map(part => {
             let status: 'ISSUED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
             const reqQty = part.qty || 1;
 
-            // Priority 1: Already Issued/Arrived
             if (part.hasArrived) {
                 status = 'ISSUED';
-                readyCount++; // Considered "Complete" for this car
+                readyCount++;
             }
-            // Priority 2: Explicitly marked as Indent (Override Stock Check)
             else if (part.isIndent) {
                 status = 'INDENT_MANUAL';
             }
-            // Priority 3: Check Virtual Stock
             else if (part.inventoryId && stockMap[part.inventoryId] >= reqQty) {
-                status = 'READY'; // Booked/Reserved for this car
-                stockMap[part.inventoryId] -= reqQty; // Deduct from virtual stock
+                status = 'READY';
+                stockMap[part.inventoryId] -= reqQty;
                 readyCount++;
             }
-            // Priority 4: No Stock Available
             else {
-                status = 'WAITING'; // Stock 0 or taken by previous cars
+                status = 'WAITING';
             }
 
             return { ...part, allocationStatus: status };
@@ -85,24 +85,21 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             ...job,
             partStatus: jobStatus,
             totalParts,
-            readyParts: readyCount, // Includes ISSUED and READY (Allocated)
+            readyParts: readyCount,
             detailedParts: processedParts
         };
     }).filter(job => {
-        // Search Filter
         const matchesSearch = 
             job.policeNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
             job.woNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             job.customerName.toLowerCase().includes(searchTerm.toLowerCase());
         
-        // Status Filter
         const matchesStatus = statusFilter === 'ALL' || job.partStatus === statusFilter;
 
         return matchesSearch && matchesStatus;
     });
   }, [jobs, inventoryItems, searchTerm, statusFilter]);
 
-  // --- STATS CALCULATION ---
   const stats = useMemo(() => {
       const lengkap = processedJobs.filter(j => j.partStatus === 'LENGKAP').length;
       const partial = processedJobs.filter(j => j.partStatus === 'PARTIAL').length;
@@ -110,40 +107,32 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
       return { total: processedJobs.length, lengkap, partial, indent };
   }, [processedJobs]);
 
-  // --- ACTIONS: PARTMAN SET INDENT ---
   const handleToggleIndent = async (partIndex: number, currentIndentStatus: boolean, currentETA?: string) => {
       if (!selectedJob) return;
       
-      // If toggling ON indent, allow input ETA
       let newETA = currentETA || '';
       if (!currentIndentStatus) {
           const input = prompt("Masukkan Estimasi Tanggal Datang (ETA) (Opsional):", newETA);
-          if (input === null) return; // Cancelled
+          if (input === null) return;
           newETA = input;
       } else {
-          // If toggling OFF, clear ETA
           newETA = '';
       }
 
       setIsUpdating(true);
       try {
-          // Deep clone the parts array
           const updatedParts = [...(selectedJob.estimateData?.partItems || [])];
-          
-          // Update the specific part
           updatedParts[partIndex] = {
               ...updatedParts[partIndex],
               isIndent: !currentIndentStatus,
               indentETA: newETA
           };
 
-          // Update Firestore
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           await updateDoc(jobRef, {
               'estimateData.partItems': updatedParts
           });
 
-          // Optimistic Update for UI smoothness (optional since realtime listener will catch it)
           setSelectedJob(prev => prev ? ({
               ...prev,
               estimateData: {
@@ -169,7 +158,6 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             </div>
         </div>
 
-        {/* STATS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div 
                 onClick={() => setStatusFilter('ALL')}
@@ -219,7 +207,6 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             </div>
         </div>
 
-        {/* SEARCH & TABLE */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50">
                 <Search className="text-gray-400" size={20}/>
@@ -307,7 +294,6 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             </div>
         </div>
 
-        {/* MODAL DETAIL PART - CONTROL TOWER */}
         <Modal 
             isOpen={!!selectedJob} 
             onClose={() => setSelectedJob(null)} 
@@ -316,7 +302,6 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         >
             {selectedJob && (
                 <div className="space-y-4">
-                    {/* Header Summary */}
                     <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg text-sm border border-gray-200">
                         <div>
                             <span className="block text-gray-500 text-xs uppercase">Pelanggan / Asuransi</span>
@@ -352,7 +337,6 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                            {/* Use the detailedParts from the processedJobs logic */}
                             {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || []).map((part: any, idx: number) => {
                                 let statusBadge;
                                 let rowClass = 'bg-white';
