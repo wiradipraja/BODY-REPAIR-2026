@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2 } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -24,6 +23,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [settings, setSettings] = useState<Settings>(initialSettingsState);
@@ -47,8 +47,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [foundJob, setFoundJob] = useState<Job | null>(null);
   const [selectedPartsFromWo, setSelectedPartsFromWo] = useState<Record<number, { selected: boolean, isIndent: boolean }>>({});
 
-  // Manager Access Check
-  const isManager = userPermissions.role === 'Manager' || userPermissions.role === 'Super Admin';
+  // Pengecekan Izin Manager yang lebih kuat
+  const isManager = React.useMemo(() => {
+    const role = (userPermissions.role || '').toUpperCase();
+    console.log("DEBUG: Current User Role Check:", role); // DEBUG LOG
+    return role === 'MANAGER' || role === 'SUPER ADMIN' || role === 'ADMIN';
+  }, [userPermissions.role]);
 
   // Load Settings for PDF Header
   useEffect(() => {
@@ -107,63 +111,134 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         showNotification(`Mendownload ${po.poNumber}...`, "success");
     } catch (err: any) {
         console.error("PDF Print Error:", err);
-        showNotification("Gagal mencetak PDF. Cek console.", "error");
+        showNotification("Gagal mencetak PDF.", "error");
     }
   };
 
-  const handleApprovePO = async () => {
-      if (!selectedPO) return;
-      if (!isManager) {
-          showNotification("Hanya Manager yang dapat menyetujui PO.", "error");
-          return;
-      }
-      if (!window.confirm("Setujui PO ini? Status akan berubah menjadi Ordered dan dapat dilakukan penerimaan barang.")) return;
-      
-      setLoading(true);
-      try {
-          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
-              status: 'Ordered',
-              approvedBy: userPermissions.role,
-              approvedAt: serverTimestamp()
-          });
-          showNotification("Purchase Order Disetujui (Approved).", "success");
-          setSelectedPO(null);
-          setViewMode('list');
-          fetchOrders();
-      } catch (e: any) {
-          showNotification("Gagal menyetujui PO: " + e.message, "error");
-      } finally {
-          setLoading(false);
-      }
+  // --- RECONSTRUCTED APPROVE LOGIC (DEBUGGED) ---
+  const handleApprovePO = async (e?: React.MouseEvent) => {
+    // Prevent default button behavior and bubbling
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    console.log("DEBUG: Tombol Approve Diklik"); // DEBUG LOG
+
+    // 1. Validasi Keberadaan Objek & ID
+    if (!selectedPO) {
+        console.error("DEBUG: selectedPO is null");
+        alert("Kesalahan: Objek PO tidak terpilih.");
+        return;
+    }
+    
+    const docId = selectedPO.id;
+    console.log("DEBUG: PO ID:", docId); // DEBUG LOG
+
+    if (!docId) {
+        console.error("DEBUG: ID PO kosong", selectedPO);
+        alert("Sistem Error: ID dokumen di database tidak ditemukan. Coba segarkan halaman.");
+        return;
+    }
+
+    // 2. Validasi Izin
+    if (!isManager) {
+        console.warn("DEBUG: Permission denied. Role:", userPermissions.role);
+        alert("Akses Ditolak: Anda tidak memiliki otoritas Manager.");
+        return;
+    }
+
+    // 3. Konfirmasi
+    const confirmMsg = `SETUJUI PURCHASE ORDER\n\nNomor: ${selectedPO.poNumber}\nSupplier: ${selectedPO.supplierName}\n\nApakah Anda yakin?`;
+    if (!window.confirm(confirmMsg)) {
+        console.log("DEBUG: User cancelled approval");
+        return;
+    }
+
+    // 4. Proses Update
+    setIsProcessing(true);
+    try {
+        console.log(`DEBUG: Menyetujui PO dengan ID: ${docId}...`);
+        const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, docId);
+        
+        await updateDoc(poRef, {
+            status: 'Ordered',
+            approvedBy: userPermissions.role || 'Manager',
+            approvedAt: serverTimestamp(),
+            lastModified: serverTimestamp()
+        });
+
+        console.log("DEBUG: Update Success");
+        showNotification(`Purchase Order ${selectedPO.poNumber} berhasil disetujui.`, "success");
+        
+        // Reset View
+        setSelectedPO(null);
+        setViewMode('list');
+        await fetchOrders();
+    } catch (e: any) {
+        console.error("DEBUG: DATABASE REJECTION:", e);
+        let errorMsg = e.message;
+        if (e.code === 'permission-denied') {
+            errorMsg = "Izin Ditolak oleh Database (Firestore Rules). Pastikan akun Anda memiliki flag 'Manager'.";
+        }
+        alert(`Gagal Menyetujui: ${errorMsg}`);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
-  const handleRejectPO = async () => {
-      if (!selectedPO) return;
-      if (!isManager) return;
-      const reason = window.prompt("⚠️ TOLAK PO\n\nMasukkan alasan penolakan (Wajib):", "Budget tidak sesuai / revisi item");
-      if (reason === null) return;
-      if (!reason.trim()) {
-          showNotification("Alasan penolakan harus diisi!", "error");
-          return;
-      }
+  // --- RECONSTRUCTED REJECT LOGIC (DEBUGGED) ---
+  const handleRejectPO = async (e?: React.MouseEvent) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
 
-      setLoading(true);
-      try {
-          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), {
-              status: 'Rejected',
-              rejectionReason: reason,
-              approvedBy: userPermissions.role,
-              approvedAt: serverTimestamp()
-          });
-          showNotification("PO Berhasil Ditolak.", "success");
-          setSelectedPO(null);
-          setViewMode('list');
-          fetchOrders();
-      } catch (e: any) {
-          showNotification("Gagal menolak PO.", "error");
-      } finally {
-          setLoading(false);
-      }
+    console.log("DEBUG: Tombol Reject Diklik"); // DEBUG LOG
+
+    if (!selectedPO || !selectedPO.id) {
+        console.error("DEBUG: selectedPO invalid for reject");
+        alert("Data PO tidak valid.");
+        return;
+    }
+
+    if (!isManager) {
+        alert("Hanya Manager yang dapat menolak PO.");
+        return;
+    }
+
+    const reason = window.prompt(`TOLAK PURCHASE ORDER ${selectedPO.poNumber}\nMasukkan alasan penolakan:`, "");
+    if (reason === null) {
+        console.log("DEBUG: User cancelled reject");
+        return;
+    }
+    
+    if (!reason.trim()) {
+        alert("Alasan penolakan tidak boleh kosong.");
+        return;
+    }
+
+    setIsProcessing(true);
+    try {
+        console.log(`DEBUG: Rejecting PO ID: ${selectedPO.id}`);
+        const poRef = doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id);
+        await updateDoc(poRef, {
+            status: 'Rejected',
+            rejectionReason: reason,
+            approvedBy: userPermissions.role || 'Manager',
+            approvedAt: serverTimestamp()
+        });
+
+        showNotification(`PO ${selectedPO.poNumber} telah ditolak.`, "success");
+        setSelectedPO(null);
+        setViewMode('list');
+        await fetchOrders();
+    } catch (e: any) {
+        console.error("DEBUG: REJECT ERROR:", e);
+        alert("Gagal menolak PO: " + e.message);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   const handleSearchWO = async () => {
@@ -175,7 +250,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
           
-          // MENCARI DI SERVICE_JOBS_COLLECTION BUKAN JOBS_COLLECTION YANG DEPRECATED
           let q = query(collection(db, SERVICE_JOBS_COLLECTION), where('woNumber', '==', termUpper));
           let snapshot = await getDocs(q);
           
@@ -388,7 +462,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const invalidQty = selectedItemsToReceive.some(idx => (receiveQtyMap[idx] || 0) <= 0);
       if (invalidQty) { showNotification("Qty datang harus lebih dari 0.", "error"); return; }
 
-      setLoading(true);
+      setIsProcessing(true);
       try {
           const updatedItems = [...selectedPO.items];
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
@@ -449,7 +523,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       } catch (e: any) {
           showNotification("Error saat penerimaan: " + e.message, "error");
       } finally {
-          setLoading(false);
+          setIsProcessing(false);
       }
   };
 
@@ -606,12 +680,27 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <div className="flex gap-2">
                       {showApprovalActions && (
                           <>
-                            <button onClick={handleRejectPO} disabled={loading} className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1"><Ban size={18}/> Tolak</button>
-                            <button onClick={handleApprovePO} disabled={loading} className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold hover:bg-green-700 transition-all flex items-center gap-1"><Check size={18}/> Setujui (Approve)</button>
+                            <button 
+                                type="button" 
+                                onClick={(e) => handleRejectPO(e)} 
+                                disabled={isProcessing} 
+                                className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1 disabled:opacity-50"
+                            >
+                                <Ban size={18}/> Tolak
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={(e) => handleApprovePO(e)} 
+                                disabled={isProcessing} 
+                                className="px-4 py-2 bg-green-600 text-white rounded shadow font-bold hover:bg-green-700 transition-all flex items-center gap-1 disabled:opacity-50"
+                            >
+                                {isProcessing ? <Loader2 size={18} className="animate-spin"/> : <Check size={18}/>}
+                                Setujui (Approve)
+                            </button>
                           </>
                       )}
                       {isReceivable && selectedItemsToReceive.length > 0 && (
-                        <button onClick={handleProcessReceiving} disabled={loading} className="px-4 py-2 bg-indigo-600 text-white rounded shadow font-bold animate-pulse hover:bg-indigo-700">Simpan Terima ({selectedItemsToReceive.length})</button>
+                        <button onClick={handleProcessReceiving} disabled={isProcessing} className="px-4 py-2 bg-indigo-600 text-white rounded shadow font-bold animate-pulse hover:bg-indigo-700">Simpan Terima ({selectedItemsToReceive.length})</button>
                       )}
                       <button onClick={() => handlePrintPO(selectedPO)} className="px-4 py-2 border rounded flex items-center gap-2 font-bold border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"><Printer size={18}/> Print PO</button>
                   </div>
