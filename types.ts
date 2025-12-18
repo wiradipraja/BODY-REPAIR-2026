@@ -58,6 +58,7 @@ export interface Job {
   tanggalMasuk?: string;
   tanggalEstimasiSelesai?: string;
   isClosed: boolean;
+  hasInvoice?: boolean; // NEW FLAG: Locks the WO if true
   closedAt?: Timestamp;
   createdAt?: Timestamp;
   isDeleted?: boolean;
