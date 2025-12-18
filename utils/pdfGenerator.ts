@@ -502,64 +502,73 @@ export const generateReceivingReportPDF = (po: PurchaseOrder, receivedItems: {it
     doc.save(`BST_${po.poNumber}_${new Date().getTime()}.pdf`);
 };
 
-// --- GATE PASS TICKET ---
+// --- GATE PASS TICKET (A5 LANDSCAPE) ---
 export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: string) => {
-    // A5 Portrait
-    const doc: any = new jsPDF('p', 'mm', 'a5');
-    const pageWidth = doc.internal.pageSize.width; // 148mm
+    // A5 Landscape
+    const doc: any = new jsPDF('l', 'mm', 'a5');
+    const pageWidth = doc.internal.pageSize.width; // 210mm
+    const pageHeight = doc.internal.pageSize.height; // 148mm
     
     // Header
-    // The shared addHeader uses standard margins which fit A5 width (148mm)
     addHeader(doc, settings);
 
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    doc.text("SURAT JALAN KELUAR", pageWidth / 2, 45, { align: 'center' });
-    doc.text("( GATE PASS )", pageWidth / 2, 52, { align: 'center' });
+    doc.text("SURAT JALAN KELUAR (GATE PASS)", pageWidth / 2, 45, { align: 'center' });
 
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     const today = formatDateIndo(new Date());
-    doc.text(`Tanggal: ${today}`, pageWidth - 10, 60, { align: 'right' });
+    doc.text(`Tanggal: ${today}`, pageWidth - 15, 45, { align: 'right' });
 
     // Box Info Kendaraan
-    const boxY = 65;
-    const boxHeight = 55;
+    const boxY = 55;
+    const boxHeight = 45;
+    const boxWidth = pageWidth - 30; // 15mm margin each side
     
     doc.setDrawColor(0);
     doc.setLineWidth(0.5);
-    doc.rect(10, boxY, pageWidth - 20, boxHeight);
+    doc.rect(15, boxY, boxWidth, boxHeight);
 
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text(`NO. POLISI : ${job.policeNumber}`, 15, boxY + 10);
-    
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Jenis Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, 15, boxY + 20);
-    doc.text(`Warna : ${job.warnaMobil}`, 15, boxY + 28);
-    doc.text(`Pemilik : ${job.customerName}`, 15, boxY + 36);
-    doc.text(`No. WO : ${job.woNumber}`, 15, boxY + 44);
+    // Layout inside box: 2 Columns
+    const col1X = 20;
+    const col2X = pageWidth / 2 + 5;
+    const rowHeight = 7;
+    let currentY = boxY + 10;
 
-    // Status
+    // Col 1
     doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`NOPOL : ${job.policeNumber}`, col1X, currentY);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, col1X, currentY + rowHeight);
+    doc.text(`Warna : ${job.warnaMobil}`, col1X, currentY + (rowHeight * 2));
+
+    // Col 2
+    doc.text(`Pemilik : ${job.customerName}`, col2X, currentY);
+    doc.text(`No. WO : ${job.woNumber}`, col2X, currentY + rowHeight);
+    
+    // Status
+    doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.text("STATUS: LUNAS / SELESAI", pageWidth / 2, boxY + boxHeight + 15, { align: 'center' });
 
     // Signatures
-    const signY = boxY + boxHeight + 35;
-    doc.setFontSize(9);
+    const signY = pageHeight - 30;
+    doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     
-    doc.text("Dikeluarkan Oleh (Kasir),", 30, signY, { align: 'center' });
-    doc.text("Security / Gate,", pageWidth - 30, signY, { align: 'center' });
+    doc.text("Dikeluarkan Oleh (Kasir),", 40, signY, { align: 'center' });
+    doc.text("Security / Gate,", pageWidth - 40, signY, { align: 'center' });
 
     doc.setFont("helvetica", "normal");
-    doc.text(`( ${cashierName || 'Staff'} )`, 30, signY + 25, { align: 'center' });
-    doc.text("( ........................... )", pageWidth - 30, signY + 25, { align: 'center' });
+    doc.text(`( ${cashierName || 'Staff'} )`, 40, signY + 20, { align: 'center' });
+    doc.text("( ........................... )", pageWidth - 40, signY + 20, { align: 'center' });
 
-    doc.setFontSize(7);
-    doc.text("* Harap serahkan tiket ini ke petugas keamanan saat keluar.", pageWidth / 2, 195, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text("* Harap serahkan tiket ini ke petugas keamanan saat keluar.", pageWidth / 2, pageHeight - 5, { align: 'center' });
 
     doc.save(`GATEPASS_${job.policeNumber}.pdf`);
 };
