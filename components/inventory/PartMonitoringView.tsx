@@ -15,11 +15,13 @@ interface PartMonitoringViewProps {
 const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventoryItems }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'LENGKAP' | 'PARTIAL' | 'INDENT' | 'NEED_ORDER'>('ALL');
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  // Use any to allow augmented properties from processedJobs which are not defined on Job interface
+  const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
   // --- LOGIC: FIFO Stock Allocation Algorithm ---
-  const processedJobs = useMemo(() => {
+  // Typed as any[] to allow augmented properties in TS during mapping and rendering
+  const processedJobs = useMemo<any[]>(() => {
     // 1. Filter only Active WOs that have Parts
     const activeJobs = jobs.filter(j => 
         !j.isClosed && 
