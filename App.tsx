@@ -30,7 +30,7 @@ import SpklManagementView from './components/production/SpklManagementView';
 import AssetManagementView from './components/general/AssetManagementView';
 import CrcDashboardView from './components/crc/CrcDashboardView'; 
 import JobControlView from './components/production/JobControlView';
-import ClaimsControlView from './components/admin/ClaimsControlView'; // NEW IMPORT
+import ClaimsControlView from './components/admin/ClaimsControlView'; 
 import ReportCenterView from './components/reports/ReportCenterView';
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
@@ -274,9 +274,8 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* NEW ADMIN CONTROL VIEW */}
         {currentView === 'claims_control' && (
-            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} openModal={openModal} />
+            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} />
         )}
 
         {currentView === 'entry_data' && (

@@ -1,18 +1,20 @@
 
 import React, { useState, useMemo } from 'react';
-import { Job, Settings, UserPermissions, InventoryItem } from '../../types';
-import { doc, updateDoc } from 'firebase/firestore';
+import { Job, Settings, UserPermissions, InventoryItem, Vehicle } from '../../types';
+import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { formatDateIndo, formatCurrency } from '../../utils/helpers';
+import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers';
 import { 
     ShieldCheck, Clock, AlertTriangle, ChevronRight, User, 
     MessageSquare, Search, Phone, Package, Calendar, ArrowRight,
-    ClipboardList, CheckCircle2, Zap
+    ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info
 } from 'lucide-react';
+import Modal from '../ui/Modal';
 
 interface ClaimsControlViewProps {
   jobs: Job[];
   inventoryItems: InventoryItem[];
+  vehicles: Vehicle[]; 
   settings: Settings;
   showNotification: (msg: string, type: string) => void;
   openModal: (type: string, data: any) => void;
@@ -26,25 +28,23 @@ const CLAIM_STAGES = [
     "Booking Masuk"
 ];
 
-const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, settings, showNotification, openModal }) => {
+const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, vehicles, settings, showNotification, openModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isReEntryModalOpen, setIsReEntryModalOpen] = useState(false);
+  const [reEntrySearch, setReEntrySearch] = useState('');
 
-  // --- DATA PROCESSING: FIFO STOCK ALLOCATION ---
   const activeClaimJobs = useMemo(() => {
       const term = searchTerm.toUpperCase();
-      
-      // 1. Filter jobs in claim stages
       const filtered = jobs.filter(j => 
           !j.isClosed && 
           !j.isDeleted &&
+          j.namaAsuransi !== 'Umum / Pribadi' && 
           CLAIM_STAGES.includes(j.statusKendaraan) &&
           (j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term))
       );
 
-      // 2. Sort by creation (FIFO)
       filtered.sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
-      // 3. Virtual Stock Allocation to check "Ready Part" status
       const stockMap: Record<string, number> = {};
       inventoryItems.forEach(i => { stockMap[i.id] = i.stock; });
 
@@ -63,14 +63,12 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                   }
               });
           } else {
-              isPartReady = false; // No parts estimated yet
+              isPartReady = false;
           }
-
           return { ...job, isReadyToCall: isPartReady };
       });
   }, [jobs, inventoryItems, searchTerm]);
 
-  // Group by Stage
   const boardData = useMemo(() => {
       const columns: Record<string, any[]> = {};
       CLAIM_STAGES.forEach(s => columns[s] = []);
@@ -79,6 +77,62 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       });
       return columns;
   }, [activeClaimJobs]);
+
+  const filteredVehicles = useMemo(() => {
+      if (!reEntrySearch) return [];
+      const term = reEntrySearch.toUpperCase().replace(/\s/g, '');
+      return vehicles.filter(v => 
+          v.policeNumber.replace(/\s/g, '').includes(term) || 
+          v.customerName.toUpperCase().includes(term)
+      ).slice(0, 8);
+  }, [vehicles, reEntrySearch]);
+
+  const handleCreateNewClaim = async (vehicle: Vehicle) => {
+      if (vehicle.namaAsuransi === 'Umum / Pribadi') {
+          showNotification("Unit ini terdaftar sebagai Umum/Pribadi. Tidak masuk antrian klaim.", "error");
+          return;
+      }
+
+      const existingActive = jobs.find(j => j.unitId === vehicle.id && !j.isClosed && !j.isDeleted);
+      if (existingActive) {
+          showNotification(`Unit ini masih memiliki WO Aktif (${existingActive.woNumber || 'Tanpa WO'}).`, "error");
+          return;
+      }
+
+      if (!window.confirm(`Proses pendaftaran klaim baru untuk ${vehicle.policeNumber}?`)) return;
+
+      try {
+          const newJob: Partial<Job> = {
+              unitId: vehicle.id,
+              policeNumber: vehicle.policeNumber,
+              customerName: vehicle.customerName,
+              customerPhone: vehicle.customerPhone,
+              customerAddress: vehicle.customerAddress,
+              customerKota: vehicle.customerKota,
+              carBrand: vehicle.carBrand,
+              carModel: vehicle.carModel,
+              warnaMobil: vehicle.warnaMobil,
+              namaAsuransi: vehicle.namaAsuransi,
+              statusKendaraan: 'Tunggu Estimasi',
+              statusPekerjaan: 'Belum Mulai Perbaikan',
+              posisiKendaraan: 'Di Bengkel',
+              tanggalMasuk: new Date().toISOString().split('T')[0],
+              isClosed: false,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              hargaJasa: 0,
+              hargaPart: 0,
+              costData: { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 }
+          };
+
+          await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject(newJob));
+          showNotification("Berhasil didaftarkan.", "success");
+          setIsReEntryModalOpen(false);
+          setReEntrySearch('');
+      } catch (e) {
+          showNotification("Gagal memproses klaim.", "error");
+      }
+  };
 
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
       const currentIndex = CLAIM_STAGES.indexOf(job.statusKendaraan);
@@ -91,9 +145,9 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       try {
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
               statusKendaraan: newStage,
-              updatedAt: new Date()
+              updatedAt: serverTimestamp()
           });
-          showNotification(`Unit dipindahkan ke ${newStage}`, "success");
+          showNotification(`Pindah ke: ${newStage}`, "success");
       } catch (e) {
           showNotification("Gagal update status", "error");
       }
@@ -108,44 +162,54 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
   return (
     <div className="space-y-6 animate-fade-in h-[calc(100vh-120px)] flex flex-col">
         {/* HEADER */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm shrink-0">
             <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-600 rounded-xl shadow-sm text-white">
-                    <ShieldCheck size={24}/>
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <ShieldCheck size={28}/>
                 </div>
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Job Control Admin Claim</h1>
-                    <p className="text-sm text-gray-500 font-medium">Monitoring Pendaftaran Klaim, SPK & Persiapan Part</p>
+                    <h1 className="text-xl font-bold text-gray-900 tracking-tight">Admin Claim Control</h1>
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Jalur Administrasi Asuransi</p>
                 </div>
             </div>
             
-            <div className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+            <div className="relative group">
+                <Search className="absolute left-3 top-2.5 text-gray-300 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                 <input 
                     type="text" 
-                    placeholder="Cari Nopol / Nama..." 
+                    placeholder="Cari Nopol atau Nama..." 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="pl-10 p-2 border border-gray-300 rounded-lg text-sm w-64 focus:ring-2 ring-indigo-500"
+                    className="pl-10 p-2.5 border border-gray-200 rounded-xl text-sm w-72 focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
                 />
             </div>
         </div>
 
         {/* KANBAN BOARD */}
-        <div className="flex-grow overflow-x-auto pb-4">
-            <div className="flex gap-4 h-full min-w-max px-2">
+        <div className="flex-grow overflow-x-auto pb-4 scrollbar-thin">
+            <div className="flex gap-5 h-full min-w-max px-2">
                 {CLAIM_STAGES.map((stage) => {
                     const jobsInStage = boardData[stage] || [];
                     return (
-                        <div key={stage} className="w-72 flex flex-col h-full rounded-xl bg-gray-50 border border-gray-200 shadow-inner">
+                        <div key={stage} className="w-72 flex flex-col h-full rounded-2xl bg-gray-50/50 border border-gray-200 shadow-sm">
                             {/* Column Header */}
-                            <div className="p-3 border-b border-gray-200 bg-white rounded-t-xl flex justify-between items-center sticky top-0 z-10">
-                                <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider">{stage}</h3>
-                                <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">{jobsInStage.length}</span>
+                            <div className="p-4 flex justify-between items-center sticky top-0 z-10">
+                                <div className="flex flex-col">
+                                    <h3 className="font-bold text-gray-800 text-[11px] uppercase tracking-widest">{stage}</h3>
+                                    <span className="text-[10px] text-indigo-500 font-bold">{jobsInStage.length} Kendaraan</span>
+                                </div>
+                                {stage === 'Tunggu Estimasi' && (
+                                    <button 
+                                        onClick={() => setIsReEntryModalOpen(true)}
+                                        className="p-2 bg-white text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm border border-indigo-100"
+                                    >
+                                        <Plus size={16}/>
+                                    </button>
+                                )}
                             </div>
 
                             {/* Column Body */}
-                            <div className="p-2 flex-grow overflow-y-auto space-y-3 scrollbar-thin">
+                            <div className="p-3 flex-grow overflow-y-auto space-y-4 scrollbar-hide">
                                 {jobsInStage.map(job => {
                                     const aging = getAgingDays(job.updatedAt || job.createdAt);
                                     const isCritical = aging > 3;
@@ -154,58 +218,57 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                     return (
                                         <div 
                                             key={job.id} 
-                                            className={`bg-white p-3 rounded-lg shadow-sm border transition-all hover:shadow-md cursor-pointer group ${job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' ? 'border-green-500 ring-2 ring-green-100' : 'border-gray-100'}`}
+                                            className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
                                             onClick={() => openModal('create_estimation', job)}
                                         >
-                                            <div className="flex justify-between items-start mb-2">
-                                                <span className="font-black text-indigo-900 text-sm tracking-tight">{job.policeNumber}</span>
-                                                <div className="flex items-center gap-1">
-                                                    {hasNegotiation && <MessageSquare size={12} className="text-indigo-500"/>}
-                                                    {isCritical && <AlertTriangle size={12} className="text-red-500 animate-pulse"/>}
+                                            {/* Accent Line for Critical/Ready */}
+                                            {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div>}
+                                            {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>}
+
+                                            <div className="flex justify-between items-start mb-3">
+                                                <span className="font-bold text-gray-900 text-sm tracking-tight">{job.policeNumber}</span>
+                                                <div className="flex items-center gap-1.5">
+                                                    {hasNegotiation && <MessageSquare size={14} className="text-indigo-400"/>}
+                                                    {isCritical && <AlertTriangle size={14} className="text-red-400 animate-pulse"/>}
                                                 </div>
                                             </div>
                                             
-                                            <div className="space-y-1 mb-3">
-                                                <p className="text-[11px] font-bold text-gray-700 truncate">{job.carModel}</p>
-                                                <p className="text-[10px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
-                                                <div className="flex items-center justify-between pt-1">
-                                                    <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1">
-                                                        <User size={10}/> {job.namaSA || 'No SA'}
+                                            <div className="space-y-1.5 mb-4">
+                                                <p className="text-[12px] font-bold text-gray-700 truncate uppercase">{job.carModel}</p>
+                                                <p className="text-[11px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
+                                                <div className="flex items-center justify-between pt-2">
+                                                    <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1.5">
+                                                        <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[8px]">SA</div> 
+                                                        {job.namaSA || 'BELUM ADA'}
                                                     </span>
-                                                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${isCritical ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isCritical ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-gray-100 text-gray-500'}`}>
                                                         {aging} HARI
                                                     </span>
                                                 </div>
                                             </div>
 
-                                            {/* LOGIC BADGE: READY TO CALL */}
                                             {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && (
-                                                <div className="mb-3 p-1.5 bg-green-50 rounded border border-green-100 flex items-center gap-2 animate-pulse">
-                                                    <Zap size={12} className="text-green-600 fill-green-600"/>
-                                                    <span className="text-[10px] font-black text-green-700 uppercase">Part Lengkap (Siap Panggil)</span>
+                                                <div className="mb-4 py-1.5 px-2 bg-emerald-100/50 rounded-lg flex items-center gap-2 border border-emerald-200">
+                                                    <Zap size={14} className="text-emerald-600 fill-emerald-600"/>
+                                                    <span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">SIAP PRODUKSI</span>
                                                 </div>
                                             )}
 
-                                            {/* QUICK ACTION MOVE */}
-                                            <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+                                            <div className="flex justify-between items-center pt-3 border-t border-gray-50">
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); handleMoveStage(job, 'prev'); }}
                                                     disabled={stage === CLAIM_STAGES[0]}
                                                     className="p-1 text-gray-300 hover:text-indigo-600 disabled:opacity-0 transition-colors"
                                                 >
-                                                    <ChevronRight size={16} className="rotate-180"/>
+                                                    <ChevronRight size={18} className="rotate-180"/>
                                                 </button>
-                                                
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <span className="text-[8px] font-black text-indigo-300 uppercase tracking-tighter">Click to View</span>
-                                                </div>
-
+                                                <span className="text-[9px] font-bold text-gray-300 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); handleMoveStage(job, 'next'); }}
                                                     disabled={stage === CLAIM_STAGES[CLAIM_STAGES.length - 1]}
                                                     className="p-1 text-gray-300 hover:text-indigo-600 disabled:opacity-0 transition-colors"
                                                 >
-                                                    <ChevronRight size={16}/>
+                                                    <ChevronRight size={18}/>
                                                 </button>
                                             </div>
                                         </div>
@@ -213,8 +276,8 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                 })}
                                 {jobsInStage.length === 0 && (
                                     <div className="py-12 flex flex-col items-center justify-center opacity-20">
-                                        <ClipboardList size={32} className="text-gray-400 mb-2"/>
-                                        <p className="text-[10px] font-bold text-gray-500">Kosong</p>
+                                        <ClipboardList size={32} className="text-gray-300 mb-2"/>
+                                        <p className="text-[10px] font-bold text-gray-400 tracking-widest">KOSONG</p>
                                     </div>
                                 )}
                             </div>
@@ -224,20 +287,73 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
             </div>
         </div>
         
-        {/* FOOTER INFO */}
-        <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 flex items-center gap-4 shrink-0">
-             <div className="flex items-center gap-2 text-xs font-bold text-indigo-700">
-                <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
-                <span>Aging &gt; 3 Hari</span>
+        {/* FOOTER INFO - CLEANER VERSION */}
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-wrap items-center gap-8 shadow-sm shrink-0">
+             <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse"></div>
+                <span className="tracking-tight uppercase">Aging > 3 Hari</span>
              </div>
-             <div className="flex items-center gap-2 text-xs font-bold text-green-700">
-                <div className="w-3 h-3 rounded-full bg-green-500 shadow-sm"></div>
-                <span>Part Ready (FIFO)</span>
+             <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                <span className="tracking-tight uppercase">Part Ready (Gudang)</span>
              </div>
-             <div className="ml-auto text-[10px] text-indigo-400 font-medium italic">
-                * Urutan card berdasarkan prioritas FIFO (First In First Out)
+             <div className="ml-auto flex items-center gap-2 text-[11px] text-indigo-400 font-medium italic bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                <Info size={14}/>
+                * Unit "Umum / Pribadi" diproses langsung di modul WO.
              </div>
         </div>
+
+        {/* RE-ENTRY MODAL - CLEANER LIST */}
+        <Modal 
+            isOpen={isReEntryModalOpen} 
+            onClose={() => { setIsReEntryModalOpen(false); setReEntrySearch(''); }}
+            title="Pendaftaran Klaim Baru"
+        >
+            <div className="space-y-5">
+                <div className="relative">
+                    <Search className="absolute left-4 top-3.5 text-gray-400" size={20}/>
+                    <input 
+                        type="text" 
+                        placeholder="Masukkan Nopol atau Nama..." 
+                        value={reEntrySearch}
+                        onChange={e => setReEntrySearch(e.target.value)}
+                        className="w-full pl-12 p-4 border border-gray-200 rounded-2xl font-bold text-lg focus:ring-4 focus:ring-indigo-50 outline-none transition-all placeholder:text-gray-300"
+                        autoFocus
+                    />
+                </div>
+
+                <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+                    {filteredVehicles.map(v => (
+                        <div 
+                            key={v.id} 
+                            onClick={() => handleCreateNewClaim(v)}
+                            className="p-4 border border-gray-50 rounded-xl hover:bg-gray-50 hover:border-indigo-100 cursor-pointer flex justify-between items-center group transition-all"
+                        >
+                            <div>
+                                <h4 className="font-bold text-gray-900 text-base">{v.policeNumber}</h4>
+                                <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                                    <span className="font-bold">{v.customerName}</span>
+                                    <span>•</span>
+                                    <span className="uppercase">{v.carModel}</span>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-[10px] font-bold px-2 py-1 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 uppercase tracking-tighter">
+                                    {v.namaAsuransi}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                    {reEntrySearch && filteredVehicles.length === 0 && (
+                        <div className="text-center py-16">
+                            <Car size={40} className="mx-auto text-gray-100 mb-4" />
+                            <p className="text-gray-400 font-bold text-sm">DATA TIDAK DITEMUKAN</p>
+                            <p className="text-xs text-gray-300 mt-1">Daftarkan unit baru di menu Input Data Unit.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Modal>
     </div>
   );
 };

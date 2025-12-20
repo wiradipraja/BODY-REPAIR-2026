@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Job, EstimateData, Settings, InventoryItem, EstimateItem, ServiceMasterItem, InsuranceLog } from '../../types';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, History, Activity } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICES_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 
 interface EstimateEditorProps {
@@ -70,7 +70,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               insuranceNegotiationLog: arrayUnion(newLog)
           });
           setNewLogNote('');
-          // Local update for immediate feedback (though realtime will handle it eventually)
           if (!job.insuranceNegotiationLog) job.insuranceNegotiationLog = [];
           job.insuranceNegotiationLog.push(newLog);
       } catch (e) { console.error(e); }
@@ -81,12 +80,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setCurrentStatus(val);
       setIsSubmitting(true);
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: val });
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: val, updatedAt: serverTimestamp() });
       } catch (e) { console.error(e); }
       finally { setIsSubmitting(false); }
   };
 
-  // Handlers for Items
   const addItem = (type: 'jasa' | 'part') => {
     if (isLocked) return;
     const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '' };
@@ -170,6 +168,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
+          
+          // SMART LOGIC: If Insurance and SA is saving estimate, trigger Pre-Claims stage
+          if (job.namaAsuransi !== 'Umum / Pribadi' && saveType === 'estimate') {
+              // Automatic status update to next stage in lifecycle
+              await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+                  statusKendaraan: 'Tunggu SPK Asuransi',
+                  updatedAt: serverTimestamp() 
+              });
+          }
+
           await onSave(job.id, data, saveType);
       } catch (e) {
           console.error(e);
