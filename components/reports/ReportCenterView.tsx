@@ -16,13 +16,12 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Helper to filter data by date range
   const isInRange = (dateInput: any) => {
       if (!dateInput) return false;
       const d = typeof dateInput.toDate === 'function' ? dateInput.toDate() : new Date(dateInput);
       const start = new Date(startDate);
       const end = new Date(endDate);
-      end.setHours(23, 59, 59); // End of day
+      end.setHours(23, 59, 59);
       return d >= start && d <= end;
   };
 
@@ -32,7 +31,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
 
       switch (type) {
           case 'UNIT_FLOW':
-              // Laporan Unit Masuk & Keluar
               data = jobs.filter(j => isInRange(j.createdAt) || isInRange(j.closedAt)).map(j => ({
                   'Tanggal Masuk': formatDateIndo(j.tanggalMasuk),
                   'No. WO': j.woNumber || '-',
@@ -48,24 +46,8 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               }));
               break;
 
-          case 'CASHIER':
-              // Laporan Kasir
-              data = transactions.filter(t => isInRange(t.date)).map(t => ({
-                  'Tanggal': formatDateIndo(t.date),
-                  'No. Ref': t.refNumber || '-',
-                  'Tipe': t.type === 'IN' ? 'Pemasukan' : 'Pengeluaran',
-                  'Kategori': t.category,
-                  'Keterangan': t.description,
-                  'Customer/Pihak': t.customerName,
-                  'Metode Bayar': t.paymentMethod,
-                  'Bank': t.bankName || '-',
-                  'Nominal': t.amount,
-                  'PIC': t.createdBy
-              }));
-              break;
-
           case 'PROFIT_LOSS_UNIT':
-              // Laporan Laba Rugi per Unit (Closed Jobs Only in range)
+              // EXCLUDE RAWAT JALAN: Only count fully closed (isClosed = true)
               data = jobs.filter(j => j.isClosed && isInRange(j.closedAt)).map(j => {
                   const revJasa = j.hargaJasa || 0;
                   const revPart = j.hargaPart || 0;
@@ -91,8 +73,22 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               });
               break;
 
+          case 'CASHIER':
+              data = transactions.filter(t => isInRange(t.date)).map(t => ({
+                  'Tanggal': formatDateIndo(t.date),
+                  'No. Ref': t.refNumber || '-',
+                  'Tipe': t.type === 'IN' ? 'Pemasukan' : 'Pengeluaran',
+                  'Kategori': t.category,
+                  'Keterangan': t.description,
+                  'Customer/Pihak': t.customerName,
+                  'Metode Bayar': t.paymentMethod,
+                  'Bank': t.bankName || '-',
+                  'Nominal': t.amount,
+                  'PIC': t.createdBy
+              }));
+              break;
+
           case 'PURCHASING':
-              // Laporan Pembelian PO
               data = purchaseOrders.filter(po => isInRange(po.createdAt)).map(po => ({
                   'Tanggal PO': formatDateIndo(po.createdAt),
                   'No. PO': po.poNumber,
@@ -106,7 +102,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               break;
 
           case 'INVENTORY_STOCK':
-              // Snapshot Stok (Semua Item)
               filename = `Report_Inventory_Stock_${new Date().toISOString().split('T')[0]}.xlsx`;
               data = inventoryItems.map(i => ({
                   'Kode': i.code,
@@ -123,7 +118,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               break;
             
           case 'MECHANIC_PROD':
-              // Produktivitas Mekanik
               const mechStats: any = {};
               jobs.filter(j => j.isClosed && isInRange(j.closedAt)).forEach(j => {
                   if (j.mechanicName) {
@@ -171,8 +165,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            
-            {/* CARD 1: UNIT & PRODUKSI */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Activity size={20}/></div>
@@ -184,7 +176,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* CARD 2: KEUANGAN KASIR */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><DollarSign size={20}/></div>
@@ -196,7 +187,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* CARD 3: LABA RUGI UNIT */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><BarChart3 size={20}/></div>
@@ -208,7 +198,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* CARD 4: PEMBELIAN PO */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><ShoppingCart size={20}/></div>
@@ -220,7 +209,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* CARD 5: STOK GUDANG */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-cyan-100 text-cyan-600 rounded-lg"><Package size={20}/></div>
@@ -232,7 +220,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* CARD 6: PRODUKTIVITAS */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-purple-100 text-purple-600 rounded-lg"><User size={20}/></div>
@@ -243,7 +230,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     <Download size={16}/> Download .xlsx
                 </button>
             </div>
-
         </div>
     </div>
   );

@@ -69,6 +69,12 @@ export interface EstimateItem {
   indentETA?: string;
 }
 
+export interface InsuranceLog {
+  date: string;
+  user: string;
+  note: string;
+}
+
 export interface EstimateData {
   estimationNumber?: string;
   grandTotal: number;
@@ -161,6 +167,9 @@ export interface Job {
   costData?: CostData;
   usageLog?: UsageLogItem[];
   spklItems?: SpklItem[];
+  
+  // Negotiation History
+  insuranceNegotiationLog?: InsuranceLog[];
   
   isClosed: boolean;
   closedAt?: any; // Timestamp

@@ -2,14 +2,14 @@
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
-import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw } from 'lucide-react';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw, ShieldAlert, Clock, UserCheck, Stethoscope } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
   openModal: (type: string, data?: any) => void;
   onDelete: (job: Job) => Promise<void>;
   onCloseJob: (job: Job) => Promise<void>; 
-  onReopenJob: (job: Job) => Promise<void>; // New Prop
+  onReopenJob: (job: Job) => Promise<void>; 
   userPermissions: UserPermissions;
   showNotification: (msg: string, type?: string) => void;
   searchQuery: string;
@@ -31,14 +31,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleExportGeneralData = () => {
       const dataToExport = allData.map(job => {
-           // Export with same simulation logic for consistency
            const revenueJasa = job.hargaJasa || 0;
            const revenuePart = job.hargaPart || 0;
            const simBahan = revenueJasa * 0.15;
            const simBeliPart = revenuePart * 0.80;
            const grossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
-           
-           // Calculate total panel value
            const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
 
           return {
@@ -58,13 +55,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
       exportToCsv('Laporan_Data_Unit.csv', dataToExport);
   };
 
-  const getStatusColor = (status: string) => {
-      if (!status) return 'bg-gray-100 text-gray-800';
-      if (status.includes('Selesai') || status.includes('Di ambil')) return 'bg-green-100 text-green-800 border-green-200';
-      if (status.includes('Booking')) return 'bg-blue-100 text-blue-800 border-blue-200';
-      if (status.includes('Tunggu')) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      if (status.includes('Banding')) return 'bg-orange-100 text-orange-800 border-orange-200';
-      return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  const getStatusConfig = (status: string) => {
+      if (!status) return { color: 'bg-gray-100 text-gray-800', icon: AlertCircle };
+      if (status.includes('Banding')) return { color: 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-100', icon: ShieldAlert, ribbon: 'BOTTLE-NECK' };
+      if (status.includes('Asuransi')) return { color: 'bg-orange-100 text-orange-700 border-orange-200', icon: Clock, ribbon: 'PENDING' };
+      if (status.includes('Tunggu Estimasi')) return { color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Edit };
+      if (status.includes('Tunggu Part')) return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock, ribbon: 'OUT-GUEST' };
+      if (status.includes('Rawat Jalan')) return { color: 'bg-indigo-100 text-indigo-700 border-indigo-200 ring-1 ring-indigo-200', icon: Stethoscope, ribbon: 'ACTIVE-OUT' };
+      if (status.includes('Booking')) return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: UserCheck };
+      if (status.includes('Selesai')) return { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle };
+      return { color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: RotateCcw };
   };
 
   const handleDelete = (job: Job) => {
@@ -77,7 +77,6 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
     <div className="animate-fade-in space-y-6">
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-            {/* Filters */}
             <div className="flex-grow w-full lg:w-auto">
                 <div className="flex flex-wrap gap-3 items-center">
                     <div className="relative flex-grow max-w-md">
@@ -87,17 +86,17 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                             placeholder="Cari No. Polisi, Pelanggan..." 
                             value={searchQuery} 
                             onChange={e => setSearchQuery(e.target.value.toUpperCase())} 
-                            className="pl-10 p-2.5 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                            className="pl-10 p-2.5 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-indigo-500 transition-all"
                         />
                     </div>
                     
                     <div className="flex items-center gap-2">
                         <Filter size={18} className="text-gray-400" />
-                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm">
                             <option value="">Status Kendaraan</option>
                             {(settings.statusKendaraanOptions || []).map(opt => <option key={opt}>{opt}</option>)}
                         </select>
-                        <select value={filterWorkStatus} onChange={e => setFilterWorkStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-indigo-500">
+                        <select value={filterWorkStatus} onChange={e => setFilterWorkStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm">
                             <option value="">Status Pekerjaan</option>
                             {(settings.statusPekerjaanOptions || []).map(opt => <option key={opt}>{opt}</option>)}
                         </select>
@@ -116,159 +115,78 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                 </div>
             </div>
 
-            {/* Actions */}
             <div className="flex items-center gap-3 w-full lg:w-auto">
-                <button onClick={handleExportGeneralData} className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white font-semibold py-2.5 px-5 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
+                <button onClick={handleExportGeneralData} className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white font-semibold py-2.5 px-5 rounded-lg hover:bg-emerald-700 shadow-sm">
                     <Download size={18} /> <span className="hidden sm:inline">Export CSV</span>
                 </button>
             </div>
         </div>
       </div>
 
-      {(!allData || allData.length === 0) ? (
-          <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl border border-dashed border-gray-300">
-              <div className="bg-gray-50 p-4 rounded-full mb-3">
-                 <Search size={32} className="text-gray-400" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {allData.map((job) => {
+           const config = getStatusConfig(job.statusKendaraan);
+           const Icon = config.icon;
+           const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
+           
+           return (
+              <div key={job.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all group flex flex-col">
+                  {/* Status Ribbon */}
+                  {config.ribbon && (
+                      <div className={`text-[9px] font-black tracking-widest text-center py-0.5 ${config.color} border-b`}>
+                          {config.ribbon}
+                      </div>
+                  )}
+                  
+                  <div className="p-5 flex-grow">
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <h3 className="text-xl font-black text-indigo-900">{job.policeNumber}</h3>
+                              <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter">{job.carModel} • {job.warnaMobil}</p>
+                          </div>
+                          <div className={`p-2 rounded-xl ${config.color}`}>
+                              <Icon size={20}/>
+                          </div>
+                      </div>
+
+                      <div className="space-y-2 mb-4">
+                          <div className="flex items-center gap-2 text-sm">
+                              <span className="font-bold text-gray-800">{job.customerName}</span>
+                              <span className="text-xs text-gray-400 font-medium truncate">| {job.namaAsuransi}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                              <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-600 font-bold">SA: {job.namaSA || '-'}</span>
+                              <span className="font-black text-indigo-600">{totalPanelValue.toFixed(1)} PANEL</span>
+                          </div>
+                      </div>
+
+                      <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                          <div className="flex justify-between items-center mb-1">
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">Status Kontrol</span>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">Pekerjaan</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <span className={`text-[11px] font-black ${config.color.split(' ')[1]} uppercase`}>{job.statusKendaraan}</span>
+                              <span className="text-[11px] font-bold text-gray-700">{job.statusPekerjaan}</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-3 border-t border-gray-100 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                          <button onClick={() => openModal('create_estimation', job)} className="p-2 bg-white rounded-lg border border-gray-200 text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm"><FileText size={18}/></button>
+                          {userPermissions.role === 'Manager' && <button onClick={() => handleDelete(job)} className="p-2 bg-white rounded-lg border border-gray-200 text-red-400 hover:bg-red-50 transition-colors shadow-sm"><Trash2 size={18}/></button>}
+                      </div>
+                      <div className="text-right">
+                          <div className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">Total Bill</div>
+                          <div className="text-sm font-black text-gray-900">{formatCurrency(job.estimateData?.grandTotal || 0)}</div>
+                      </div>
+                  </div>
               </div>
-              <p className="text-gray-500 font-medium">Tidak ada data ditemukan.</p>
-              <p className="text-sm text-gray-400 mt-1">Coba ubah filter atau tambah data baru di menu Input Data.</p>
-          </div>
-      ) : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tgl Masuk</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">No. Polisi</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Kendaraan</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">SA & Asuransi</th>
-                    <th scope="col" className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Panel</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status Unit</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status WO</th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Est. Profit</th>
-                    <th scope="col" className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {allData.map((job) => {
-                     // 1. UPDATE: Panel Count from Estimate (Sum of Panel Values)
-                     // If panelCount is undefined (old data), fallback to 0. 
-                     const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
-
-                     // 2. UPDATE: Simulated Profit Calculation
-                     // Revenue
-                     const revenueJasa = job.hargaJasa || 0;
-                     const revenuePart = job.hargaPart || 0;
-                     
-                     // Simulated Cost (Asumsi Dasar)
-                     const simBahan = revenueJasa * 0.15; // 15% dari Jasa
-                     const simBeliPart = revenuePart * 0.80; // 80% dari Part
-                     
-                     // Profit = Revenue - Simulated Costs
-                     const calculatedGrossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
-                     
-                     return (
-                        <tr key={job.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                             {formatDateIndo(job.tanggalMasuk)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                             <div className="text-sm font-extrabold text-indigo-700">{job.policeNumber}</div>
-                             <div className="text-xs text-gray-500">{job.customerName?.split(' ')[0]}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                             <div className="text-sm font-medium text-gray-900">{job.carModel}</div>
-                             <div className="text-xs text-gray-500">{job.warnaMobil}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                             <div className="text-sm text-gray-900">{job.namaSA || '-'}</div>
-                             <div className="text-xs text-gray-500">{job.namaAsuransi}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                             <span className="px-2 py-1 text-xs font-bold bg-gray-100 rounded-full">{totalPanelValue.toFixed(1)}</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                             <span className={`px-2 py-1 text-xs leading-5 font-semibold rounded-full border ${getStatusColor(job.statusKendaraan)}`}>
-                               {job.statusKendaraan}
-                             </span>
-                             <div className="text-xs text-gray-500 mt-1">{job.statusPekerjaan}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                             {job.woNumber ? (
-                                <div>
-                                   <div className="text-sm font-mono text-gray-700">{job.woNumber}</div>
-                                   <span className={`text-[10px] uppercase font-bold ${job.isClosed ? 'text-red-600' : 'text-green-600'}`}>
-                                      {job.isClosed ? 'Closed' : 'Open'}
-                                   </span>
-                                </div>
-                             ) : (
-                                <span className="text-xs text-gray-400 italic">Draft</span>
-                             )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right">
-                             <div className="text-sm font-bold text-emerald-600">{formatCurrency(calculatedGrossProfit)}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                             <div className="flex items-center justify-center gap-2">
-                                <button 
-                                  onClick={() => openModal('create_estimation', job)} 
-                                  className="text-indigo-400 hover:text-indigo-700 transition-colors"
-                                  title="Buka Estimasi / WO"
-                                >
-                                  <FileText size={18}/>
-                                </button>
-
-                                {/* CLOSE / RE-OPEN ACTIONS */}
-                                {job.woNumber && (
-                                    !job.isClosed ? (
-                                        <button 
-                                            onClick={() => onCloseJob(job)} 
-                                            className="text-green-500 hover:text-green-700 transition-colors"
-                                            title="Close WO (Selesai)"
-                                        >
-                                            <CheckCircle size={18}/>
-                                        </button>
-                                    ) : (
-                                        // RE-OPEN BUTTON (Manager Only)
-                                        userPermissions.role.includes('Manager') && (
-                                            <button 
-                                                onClick={() => onReopenJob(job)}
-                                                className="text-orange-500 hover:text-orange-700 transition-colors"
-                                                title="Buka Kembali WO (Manager)"
-                                            >
-                                                <RotateCcw size={18}/>
-                                            </button>
-                                        )
-                                    )
-                                )}
-
-                                {userPermissions.role === 'Manager' && (
-                                  <button 
-                                    onClick={() => handleDelete(job)} 
-                                    className="text-red-300 hover:text-red-600 transition-colors"
-                                    title="Hapus Data"
-                                  >
-                                    <Trash2 size={18}/>
-                                  </button>
-                                )}
-                             </div>
-                          </td>
-                        </tr>
-                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
-               <span>Menampilkan {allData.length} data pekerjaan</span>
-               <div className="flex gap-2 items-center">
-                  <AlertCircle size={14}/>
-                  <span>Est. Profit = (Jasa + Part) - (15% Jasa + 80% Part)</span>
-               </div>
-            </div>
-          </div>
-      )}
+           );
+        })}
+        {allData.length === 0 && <div className="col-span-full py-20 text-center text-gray-400 italic">Data tidak ditemukan.</div>}
+      </div>
     </div>
   );
 };

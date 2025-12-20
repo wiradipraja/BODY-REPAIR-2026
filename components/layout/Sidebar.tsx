@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet, ShieldCheck } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -23,13 +23,14 @@ const Sidebar: React.FC<SidebarProps> = ({
       { id: 'overview', label: 'Overview', icon: LayoutDashboard },
       { id: 'input_data', label: 'Input Data Unit', icon: PlusCircle },
       
-      // RESTRUCTURED: Estimasi & WO now contains List and SPKL
+      // RESTRUCTURED: Estimasi & WO
       { 
           id: 'estimation_root', 
           label: 'Estimasi & WO', 
           icon: FileText,
           children: [
               { id: 'estimation_create', label: 'Buat Estimasi Baru', icon: PlusCircle },
+              { id: 'claims_control', label: 'Admin Control Claim', icon: ShieldCheck }, // NEW
               { id: 'entry_data', label: 'Daftar Pekerjaan (List)', icon: List },
               { id: 'production_spkl', label: 'SPKL (Jasa Luar)', icon: ExternalLink },
           ]
@@ -37,14 +38,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       { id: 'crc_dashboard', label: 'CRC / Customer Care', icon: MessageSquare },
       
-      // NEW MODULE: Job Control for Production
       { 
           id: 'production_root', 
           label: 'Produksi & Bengkel', 
-          icon: Hammer, // Changed Icon
+          icon: Hammer,
           children: [
               { id: 'job_control', label: 'Job Control (Kanban)', icon: LayoutDashboard },
-              // We can add QC Checklist here later
           ]
       },
       
@@ -77,7 +76,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             ]
         });
         
-        // NEW REPORT MENU FOR MANAGERS
         items.push({ id: 'report_center', label: 'Pusat Laporan', icon: FileSpreadsheet });
     }
     return items;

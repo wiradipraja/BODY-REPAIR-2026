@@ -30,7 +30,8 @@ import SpklManagementView from './components/production/SpklManagementView';
 import AssetManagementView from './components/general/AssetManagementView';
 import CrcDashboardView from './components/crc/CrcDashboardView'; 
 import JobControlView from './components/production/JobControlView';
-import ReportCenterView from './components/reports/ReportCenterView'; // NEW IMPORT
+import ClaimsControlView from './components/admin/ClaimsControlView'; // NEW IMPORT
+import ReportCenterView from './components/reports/ReportCenterView';
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -54,93 +55,44 @@ const AppContent: React.FC = () => {
   // CENTRALIZED REALTIME LISTENERS
   useEffect(() => {
     if (!user) return;
-    
     setLoadingData(true);
-    
-    // Helper for error handling
-    const handleError = (context: string) => (error: any) => {
-        console.error(`Error in ${context} listener:`, error);
-        // Silently fail or show toast if needed, but prevent crash
-    };
+    const handleError = (context: string) => (error: any) => console.error(`Error in ${context} listener:`, error);
 
-    // 1. Vehicles
-    const unsubVehicles = onSnapshot(
-        query(collection(db, UNITS_MASTER_COLLECTION)), 
-        (snap) => {
-            setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
-        }, 
-        handleError("Vehicles")
-    );
+    const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION)), (snap) => {
+        setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
+    }, handleError("Vehicles"));
 
-    // 2. Service Jobs
-    const unsubJobs = onSnapshot(
-        query(collection(db, SERVICE_JOBS_COLLECTION)), 
-        (snap) => {
-            setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
-        },
-        handleError("Jobs")
-    );
+    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION)), (snap) => {
+        setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
+    }, handleError("Jobs"));
 
-    // 3. Inventory
-    const unsubInventory = onSnapshot(
-        query(collection(db, SPAREPART_COLLECTION)), 
-        (snap) => {
-            setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
-        },
-        handleError("Inventory")
-    );
+    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION)), (snap) => {
+        setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+    }, handleError("Inventory"));
 
-    // 4. Suppliers
-    const unsubSuppliers = onSnapshot(
-        query(collection(db, SUPPLIERS_COLLECTION)), 
-        (snap) => {
-            setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
-        },
-        handleError("Suppliers")
-    );
+    const unsubSuppliers = onSnapshot(query(collection(db, SUPPLIERS_COLLECTION)), (snap) => {
+        setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
+    }, handleError("Suppliers"));
 
-    // 5. Cashier Transactions (New Real-time)
-    const unsubTransactions = onSnapshot(
-        query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc')), 
-        (snap) => {
-            setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
-        },
-        handleError("Transactions")
-    );
+    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
+        setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
+    }, handleError("Transactions"));
 
-    // 6. Purchase Orders (New Real-time)
-    const unsubPOs = onSnapshot(
-        query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc')), 
-        (snap) => {
-            setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
-        },
-        handleError("PurchaseOrders")
-    );
+    const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
+        setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
+    }, handleError("PurchaseOrders"));
 
-    // 7. Assets (New Real-time)
-    const unsubAssets = onSnapshot(
-        query(collection(db, ASSETS_COLLECTION)), 
-        (snap) => {
-            setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
-        },
-        handleError("Assets")
-    );
+    const unsubAssets = onSnapshot(query(collection(db, ASSETS_COLLECTION)), (snap) => {
+        setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
+    }, handleError("Assets"));
 
     setLoadingData(false);
-    
-    // Cleanup listeners on unmount/logout
     return () => { 
-        unsubVehicles(); 
-        unsubJobs(); 
-        unsubInventory();
-        unsubSuppliers();
-        unsubTransactions();
-        unsubPOs();
-        unsubAssets();
+        unsubVehicles(); unsubJobs(); unsubInventory();
+        unsubSuppliers(); unsubTransactions(); unsubPOs(); unsubAssets();
     };
   }, [user]);
 
-  // Fetch Settings once
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
@@ -148,9 +100,7 @@ const AppContent: React.FC = () => {
       } catch (e) { console.error(e); }
   };
 
-  useEffect(() => {
-    if (user) refreshSettings();
-  }, [user]);
+  useEffect(() => { if (user) refreshSettings(); }, [user]);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -186,10 +136,7 @@ const AppContent: React.FC = () => {
               showNotification("Unit baru berhasil didaftarkan.", "success");
           }
           closeModal();
-      } catch (e) { 
-          console.error(e);
-          showNotification("Gagal menyimpan unit.", "error"); 
-      }
+      } catch (e) { console.error(e); showNotification("Gagal menyimpan unit.", "error"); }
   };
 
   const handleCreateTransaction = (vehicle: Vehicle) => {
@@ -208,7 +155,7 @@ const AppContent: React.FC = () => {
           nomorRangka: vehicle.nomorRangka,
           nomorMesin: vehicle.nomorMesin,
           tahunPembuatan: vehicle.tahunPembuatan,
-          statusKendaraan: 'Booking Masuk',
+          statusKendaraan: 'Tunggu Estimasi',
           statusPekerjaan: 'Belum Mulai Perbaikan',
           posisiKendaraan: 'Di Bengkel',
           tanggalMasuk: new Date().toISOString().split('T')[0],
@@ -262,62 +209,33 @@ const AppContent: React.FC = () => {
               namaSA: estimateData.estimatorName || userData.displayName
           };
           delete basePayload.id;
-
-          if (woNumber) {
-              basePayload.woNumber = woNumber;
-              basePayload.statusKendaraan = 'Work In Progress';
-          }
+          if (woNumber) { basePayload.woNumber = woNumber; basePayload.statusKendaraan = 'Work In Progress'; }
 
           if (isNew) {
-              await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({
-                  ...basePayload,
-                  createdAt: serverTimestamp(),
-                  isClosed: false
-              }));
+              await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));
           } else {
               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
           }
           
           showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi Tersimpan`, "success");
           closeModal();
-          setCurrentView('entry_data'); // Go to job list
+          setCurrentView('entry_data'); 
           return saveType === 'wo' ? woNumber! : estimationNumber!;
-      } catch (e) {
-          console.error(e);
-          showNotification("Gagal menyimpan transaksi.", "error");
-          throw e;
-      }
+      } catch (e) { console.error(e); showNotification("Gagal menyimpan transaksi.", "error"); throw e; }
   };
 
   const handleCloseJob = async (job: Job) => {
-      // 1. Validate Sparepart Issuance
       const partItems = job.estimateData?.partItems || [];
       const hasUnissuedParts = partItems.some(p => !p.hasArrived);
-      if (hasUnissuedParts) {
-          alert("Gagal Tutup WO: Terdapat item Sparepart yang belum dikeluarkan (Issued) dari Gudang.");
-          return;
-      }
-
-      // 2. Validate Material Issuance
+      if (hasUnissuedParts) { alert("Gagal Tutup WO: Terdapat item Sparepart yang belum dikeluarkan (Issued) dari Gudang."); return; }
       const hasMaterials = job.usageLog?.some(l => l.category === 'material');
-      if (!hasMaterials) {
-          alert("Gagal Tutup WO: Belum ada record pembebanan Bahan Baku (Material). Pastikan Bahan sudah dialokasikan.");
-          return;
-      }
-
+      if (!hasMaterials) { alert("Gagal Tutup WO: Belum ada record pembebanan Bahan Baku (Material). Pastikan Bahan sudah dialokasikan."); return; }
       if (!window.confirm(`Yakin ingin menutup WO ${job.woNumber}? Data pembebanan sudah divalidasi.`)) return;
 
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
-              isClosed: true, 
-              closedAt: serverTimestamp(),
-              statusKendaraan: 'Selesai',
-              statusPekerjaan: 'Selesai'
-          }); 
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { isClosed: true, closedAt: serverTimestamp(), statusKendaraan: 'Selesai', statusPekerjaan: 'Selesai' }); 
           showNotification("WO Berhasil Ditutup.", "success");
-      } catch (e) {
-          showNotification("Gagal menutup WO.", "error");
-      }
+      } catch (e) { showNotification("Gagal menutup WO.", "error"); }
   };
 
   const filteredJobs = useMemo(() => {
@@ -334,26 +252,12 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar 
-        isOpen={sidebarOpen} 
-        setIsOpen={setSidebarOpen} 
-        currentView={currentView} 
-        setCurrentView={setCurrentView}
-        userData={userData}
-        userPermissions={userPermissions}
-        onLogout={logout}
-      />
+      <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} />
 
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
-        {notification.show && (
-            <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>
-                {notification.message}
-            </div>
-        )}
+        {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
 
-        {currentView === 'overview' && (
-            <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} />
-        )}
+        {currentView === 'overview' && ( <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} /> )}
         
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -364,124 +268,43 @@ const AppContent: React.FC = () => {
              </div>
         )}
 
-        {/* Updated: 'estimation_create' is the ID for creating/finding jobs now */}
         {currentView === 'estimation_create' && (
             <div className="max-w-4xl mx-auto">
-                <EstimationForm 
-                    allVehicles={vehicles} 
-                    allJobs={jobs}
-                    onNavigate={setCurrentView} 
-                    openModal={openModal}
-                    onCreateTransaction={handleCreateTransaction} 
-                />
+                <EstimationForm allVehicles={vehicles} allJobs={jobs} onNavigate={setCurrentView} openModal={openModal} onCreateTransaction={handleCreateTransaction} />
             </div>
+        )}
+
+        {/* NEW ADMIN CONTROL VIEW */}
+        {currentView === 'claims_control' && (
+            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} openModal={openModal} />
         )}
 
         {currentView === 'entry_data' && (
             <div className="space-y-4">
                 <h1 className="text-3xl font-bold text-gray-900">Daftar Pekerjaan</h1>
-                <MainDashboard 
-                    allData={filteredJobs}
-                    openModal={openModal}
-                    onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }}
-                    onCloseJob={handleCloseJob} 
-                    onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }}
-                    userPermissions={userPermissions}
-                    showNotification={showNotification}
-                    searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-                    filterStatus={filterStatus} setFilterStatus={setFilterStatus}
-                    filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus}
-                    showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs}
-                    settings={appSettings}
-                />
+                <MainDashboard allData={filteredJobs} openModal={openModal} onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }} onCloseJob={handleCloseJob} onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }} userPermissions={userPermissions} showNotification={showNotification} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterStatus={filterStatus} setFilterStatus={setFilterStatus} filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus} showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs} settings={appSettings} />
             </div>
         )}
 
-        {currentView === 'production_spkl' && (
-            <SpklManagementView 
-                jobs={jobs} 
-                suppliers={suppliers} 
-                userPermissions={userPermissions} 
-                showNotification={showNotification} 
-            />
-        )}
-
-        {/* NEW PRODUCTION VIEW */}
-        {currentView === 'job_control' && (
-            <JobControlView 
-                jobs={jobs}
-                settings={appSettings}
-                showNotification={showNotification}
-                userPermissions={userPermissions}
-            />
-        )}
-
-        {currentView === 'general_affairs' && (
-            <AssetManagementView 
-                assets={assets}
-                userPermissions={userPermissions}
-                showNotification={showNotification}
-            />
-        )}
-
-        {currentView === 'crc_dashboard' && (
-            <CrcDashboardView 
-                jobs={jobs} 
-                inventoryItems={inventoryItems}
-                settings={appSettings} 
-                showNotification={showNotification} 
-            />
-        )}
-
+        {currentView === 'production_spkl' && ( <SpklManagementView jobs={jobs} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} /> )}
+        {currentView === 'job_control' && ( <JobControlView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
+        {currentView === 'general_affairs' && ( <AssetManagementView assets={assets} userPermissions={userPermissions} showNotification={showNotification} /> )}
+        {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} /> )}
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} />}
         {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
-        
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} realTimePOs={purchaseOrders} />}
-        
         {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}
         {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" />}
-
-        {/* FINANCE - FULLY REAL-TIME PROPS */}
         {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
         {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} suppliers={suppliers} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
         {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} assets={assets} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
+        {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} /> )}
 
-        {currentView === 'settings' && (
-            <div className="max-w-5xl mx-auto">
-                <SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} />
-            </div>
-        )}
-
-        {/* NEW REPORT CENTER VIEW */}
-        {currentView === 'report_center' && (
-            <ReportCenterView 
-                jobs={jobs} 
-                transactions={transactions} 
-                purchaseOrders={purchaseOrders} 
-                inventoryItems={inventoryItems} 
-            />
-        )}
-
-        <Modal 
-            isOpen={modalState.isOpen} 
-            onClose={closeModal} 
-            title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'}
-            maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'}
-        >
-            {modalState.type === 'create_estimation' && modalState.data && (
-                <EstimateEditor
-                    job={modalState.data}
-                    ppnPercentage={appSettings.ppnPercentage}
-                    insuranceOptions={appSettings.insuranceOptions} 
-                    onSave={handleSaveEstimate}
-                    onCancel={closeModal}
-                    settings={appSettings} 
-                    creatorName={userData.displayName || 'Admin'}
-                    inventoryItems={inventoryItems} 
-                />
-            )}
+        <Modal isOpen={modalState.isOpen} onClose={closeModal} title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
+            {modalState.type === 'create_estimation' && modalState.data && ( <EstimateEditor job={modalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} /> )}
             {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>
@@ -490,11 +313,7 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
+  return ( <AuthProvider> <AppContent /> </AuthProvider> );
 };
 
 export default App;
