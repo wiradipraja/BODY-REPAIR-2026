@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Job, EstimateData, Settings, InventoryItem, EstimateItem, ServiceMasterItem, InsuranceLog } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
-import { Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, History, Activity } from 'lucide-react';
+import { Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, History, Activity, Palette } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
 import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICES_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -29,6 +29,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serviceMasterList, setServiceMasterList] = useState<ServiceMasterItem[]>([]);
+
+  // Detect special color surcharge
+  const specialColorRate = useMemo(() => {
+      return (settings.specialColorRates || []).find(r => r.colorName === job.warnaMobil);
+  }, [job.warnaMobil, settings.specialColorRates]);
 
   // Banding SPK / Insurance Negotiation State
   const [newLogNote, setNewLogNote] = useState('');
@@ -92,6 +97,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
     else setPartItems([...partItems, newItem]);
   };
 
+  const calculateFinalServicePrice = (basePrice: number, panelValue: number) => {
+      if (!specialColorRate) return basePrice;
+      const surcharge = Math.round(panelValue * specialColorRate.surchargePerPanel);
+      return basePrice + surcharge;
+  };
+
   const updateItem = (type: 'jasa' | 'part', index: number, field: keyof EstimateItem, value: any) => {
     if (isLocked) return;
     const items = type === 'jasa' ? [...jasaItems] : [...partItems];
@@ -103,9 +114,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
         const foundService = serviceMasterList.find(s => s.serviceCode === inputCode);
         if (foundService) {
             newItem.name = foundService.serviceName;
-            if (!newItem.price) newItem.price = foundService.basePrice;
             newItem.panelCount = foundService.panelValue;
             newItem.workType = foundService.workType;
+            // Apply Special Color Logic
+            newItem.price = calculateFinalServicePrice(foundService.basePrice, foundService.panelValue);
         }
     }
     
@@ -115,9 +127,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
         const foundService = serviceMasterList.find(s => s.serviceName === inputName);
         if (foundService) {
             if (foundService.serviceCode) newItem.number = foundService.serviceCode;
-            if (!newItem.price) newItem.price = foundService.basePrice;
             newItem.panelCount = foundService.panelValue;
             newItem.workType = foundService.workType;
+            // Apply Special Color Logic
+            newItem.price = calculateFinalServicePrice(foundService.basePrice, foundService.panelValue);
         }
     }
 
@@ -169,9 +182,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       try {
           const data = prepareEstimateData();
           
-          // SMART LOGIC: If Insurance and SA is saving estimate, trigger Pre-Claims stage
           if (job.namaAsuransi !== 'Umum / Pribadi' && saveType === 'estimate') {
-              // Automatic status update to next stage in lifecycle
               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
                   statusKendaraan: 'Tunggu SPK Asuransi',
                   updatedAt: serverTimestamp() 
@@ -196,33 +207,47 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       <datalist id="service-name-list">{serviceMasterList.map(item => (<option key={item.id} value={item.serviceName}>{item.serviceCode ? `[${item.serviceCode}] ` : ''} Panel: {item.panelValue}</option>))}</datalist>
 
       {/* HEADER CONTROL AREA */}
-      <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-600 text-white rounded-lg"><Activity size={20}/></div>
-              <div>
-                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Update Control Status</p>
-                  <select 
-                    value={currentStatus} 
-                    onChange={e => handleStatusChange(e.target.value)}
-                    className="bg-transparent font-black text-indigo-900 border-none focus:ring-0 cursor-pointer p-0"
-                  >
-                      {settings.statusKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
+      <div className="flex flex-col md:flex-row gap-4 items-stretch">
+          <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex-grow flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-600 text-white rounded-lg"><Activity size={20}/></div>
+                  <div>
+                      <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Update Control Status</p>
+                      <select 
+                        value={currentStatus} 
+                        onChange={e => handleStatusChange(e.target.value)}
+                        className="bg-transparent font-black text-indigo-900 border-none focus:ring-0 cursor-pointer p-0"
+                      >
+                          {settings.statusKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                  </div>
               </div>
+              {job.namaAsuransi !== 'Umum / Pribadi' && (
+                  <div className="flex-1 max-w-md">
+                      <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={newLogNote} 
+                            onChange={e => setNewLogNote(e.target.value)}
+                            placeholder="Log Negosiasi / Banding SPK..." 
+                            className="flex-grow p-2 text-xs border rounded-lg"
+                          />
+                          <button onClick={handleAddLog} disabled={isSubmitting} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1">
+                              <MessageSquare size={14}/> Log
+                          </button>
+                      </div>
+                  </div>
+              )}
           </div>
-          {job.namaAsuransi !== 'Umum / Pribadi' && (
-              <div className="flex-1 max-w-md">
-                  <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        value={newLogNote} 
-                        onChange={e => setNewLogNote(e.target.value)}
-                        placeholder="Log Negosiasi / Banding SPK..." 
-                        className="flex-grow p-2 text-xs border rounded-lg"
-                      />
-                      <button onClick={handleAddLog} disabled={isSubmitting} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1">
-                          <MessageSquare size={14}/> Log
-                      </button>
+
+          {/* SPECIAL COLOR INDICATOR */}
+          {specialColorRate && (
+              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center gap-4 animate-fade-in shadow-sm">
+                  <div className="p-2 bg-rose-600 text-white rounded-lg animate-pulse"><Palette size={20}/></div>
+                  <div>
+                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">WARNA SPESIAL TERDETEKSI</p>
+                      <p className="font-black text-rose-900 text-sm">{job.warnaMobil}</p>
+                      <p className="text-[9px] text-rose-500 font-bold uppercase tracking-tight">Surcharge: +{formatCurrency(specialColorRate.surchargePerPanel)} / Panel</p>
                   </div>
               </div>
           )}
@@ -251,12 +276,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       {/* JASA SECTION */}
       <div className="bg-white p-4 rounded-xl border border-gray-200">
           <div className="flex justify-between items-center mb-4">
-              <h4 className="font-bold text-gray-800">A. Jasa Perbaikan</h4>
+              <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-gray-800">A. Jasa Perbaikan</h4>
+                  {specialColorRate && <span className="text-[9px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-black border border-rose-200">INCL. PREMIUM COLOR RATE</span>}
+              </div>
               <button onClick={() => addItem('jasa')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded font-bold hover:bg-blue-100 disabled:opacity-50"><Plus size={16}/> Tambah Jasa</button>
           </div>
           <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left">
-                  <tr><th className="p-2 w-10">No</th><th className="p-2 w-32">Kode</th><th className="p-2">Nama Pekerjaan</th><th className="p-2 w-40 text-right">Biaya (Rp)</th><th className="p-2 w-10"></th></tr>
+                  <tr><th className="p-2 w-10">No</th><th className="p-2 w-32">Kode</th><th className="p-2">Nama Pekerjaan</th><th className="p-2 w-20 text-center">Panel</th><th className="p-2 w-40 text-right">Biaya (Rp)</th><th className="p-2 w-10"></th></tr>
               </thead>
               <tbody>
                   {jasaItems.map((item, i) => (
@@ -264,7 +292,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                           <td className="p-2 text-center text-gray-500">{i+1}</td>
                           <td className="p-2"><input list="service-code-list" type="text" value={item.number || ''} onChange={e => updateItem('jasa', i, 'number', e.target.value)} className="w-full p-1.5 border rounded uppercase font-mono text-xs" placeholder="Kode..." disabled={isLocked}/></td>
                           <td className="p-2"><input list="service-name-list" type="text" value={item.name} onChange={e => updateItem('jasa', i, 'name', e.target.value)} className="w-full p-1.5 border rounded" placeholder="Nama Jasa..." disabled={isLocked}/></td>
-                          <td className="p-2"><input type="number" value={item.price} onChange={e => updateItem('jasa', i, 'price', Number(e.target.value))} className="w-full p-1.5 border rounded text-right" disabled={isLocked}/></td>
+                          <td className="p-2"><input type="number" step="0.1" value={item.panelCount || 0} onChange={e => updateItem('jasa', i, 'panelCount', Number(e.target.value))} className="w-full p-1.5 border rounded text-center font-bold text-gray-500 bg-gray-50" disabled={true}/></td>
+                          <td className="p-2"><input type="number" value={item.price} onChange={e => updateItem('jasa', i, 'price', Number(e.target.value))} className={`w-full p-1.5 border rounded text-right font-bold ${specialColorRate ? 'text-rose-600' : ''}`} disabled={isLocked}/></td>
                           <td className="p-2 text-center"><button onClick={() => removeItem('jasa', i)} disabled={isLocked} className="text-red-400 hover:text-red-600 disabled:opacity-30"><Trash2 size={16}/></button></td>
                       </tr>
                   ))}

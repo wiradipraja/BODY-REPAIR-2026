@@ -25,6 +25,10 @@ export const initialSettingsState: Settings = {
         { name: "BCA Insurance", jasa: 10, part: 5 }, { name: "Garda Oto Ins", jasa: 10, part: 5 },
         { name: "Umum / Pribadi", jasa: 10, part: 5 }, { name: "Lainnya", jasa: 10, part: 5 }
     ],
+    specialColorRates: [
+        { colorName: "Soul Red Crystal Metallic", surchargePerPanel: 1500000 },
+        { colorName: "Machine Gray Metallic", surchargePerPanel: 1000000 }
+    ],
     // UPDATED FOR CONTROL LOGIC
     statusKendaraanOptions: [
         "Tunggu Estimasi", 

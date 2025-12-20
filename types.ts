@@ -14,6 +14,7 @@ export interface Settings {
   mechanicNames: string[];
   serviceAdvisors: string[];
   insuranceOptions: { name: string; jasa: number; part: number }[];
+  specialColorRates: { colorName: string; surchargePerPanel: number }[]; // NEW
   statusKendaraanOptions: string[];
   statusPekerjaanOptions: string[];
   userRoles: Record<string, string>;
