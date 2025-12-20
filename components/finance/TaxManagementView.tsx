@@ -68,7 +68,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
           j.hasInvoice && 
           j.woNumber && 
           !settledTaxRefs.has(j.woNumber)
-      ).sort((a,b) => (b.closedAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      ).sort((a,b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0));
   }, [jobs, settledTaxRefs]);
 
   const pendingPPhSublets = useMemo(() => {
@@ -79,7 +79,8 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               supplier?.category === 'Jasa Luar' &&
               !settledTaxRefs.has(po.poNumber)
           );
-      }).sort((a,b) => (b.closedAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      // Sort based on createdAt as closedAt is not available for PurchaseOrders
+      }).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [purchaseOrders, suppliers, settledTaxRefs]);
 
   const monthlyRevenue = useMemo(() => {
