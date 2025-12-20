@@ -5,7 +5,7 @@ import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTI
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2 } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -177,6 +177,44 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         setSelectedPO(null);
     } catch (e: any) {
         showNotification("Gagal menolak PO.", "error");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleCancelPO = async (po: PurchaseOrder) => {
+    if (!isManager) return;
+    if (!window.confirm(`Yakin ingin membatalkan PO ${po.poNumber}? Link pemesanan part ke WO akan dilepas.`)) return;
+
+    setIsProcessing(true);
+    try {
+        // 1. Update PO Status
+        await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id), {
+            status: 'Cancelled',
+            lastModified: serverTimestamp()
+        });
+
+        // 2. Revert isOrdered flag in linked Jobs
+        for (const item of po.items) {
+            if (item.refJobId && item.refPartIndex !== undefined) {
+                const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
+                const jobSnap = await getDoc(jobRef);
+                if (jobSnap.exists()) {
+                    const currentParts = jobSnap.data().estimateData?.partItems || [];
+                    if (currentParts[item.refPartIndex]) {
+                        currentParts[item.refPartIndex] = { ...currentParts[item.refPartIndex], isOrdered: false };
+                        await updateDoc(jobRef, { 'estimateData.partItems': currentParts });
+                    }
+                }
+            }
+        }
+
+        showNotification(`PO ${po.poNumber} telah dibatalkan.`, "success");
+        setViewMode('list');
+        setSelectedPO(null);
+    } catch (e: any) {
+        console.error(e);
+        showNotification("Gagal membatalkan PO.", "error");
     } finally {
         setIsProcessing(false);
     }
@@ -620,6 +658,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                   </div>
                   <div className="flex gap-2">
+                      {isManager && selectedPO.status !== 'Cancelled' && selectedPO.status !== 'Received' && (
+                          <button 
+                              onClick={() => handleCancelPO(selectedPO)} 
+                              disabled={isProcessing} 
+                              className="px-4 py-2 bg-red-100 text-red-700 rounded border border-red-200 font-bold hover:bg-red-200 transition-all flex items-center gap-1 disabled:opacity-50"
+                          >
+                              <XCircle size={18}/> Batalkan PO
+                          </button>
+                      )}
                       {showApprovalActions && (
                           <>
                             <button 
@@ -704,8 +751,17 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                     <td className="px-6 py-4 text-right font-black text-indigo-900">{formatCurrency(order.totalAmount)}</td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex justify-center gap-2">
-                                            <button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors"><Eye size={18}/></button>
-                                            {['Ordered', 'Partial', 'Received'].includes(order.status) && <button onClick={() => handlePrintPO(order)} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors"><Printer size={18}/></button>}
+                                            <button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors" title="Lihat Detail"><Eye size={18}/></button>
+                                            {['Ordered', 'Partial', 'Received'].includes(order.status) && <button onClick={() => handlePrintPO(order)} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors" title="Print PO"><Printer size={18}/></button>}
+                                            {isManager && order.status !== 'Cancelled' && order.status !== 'Received' && (
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); handleCancelPO(order); }} 
+                                                    className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full transition-colors"
+                                                    title="Batalkan PO"
+                                                >
+                                                    <X size={18}/>
+                                                </button>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
