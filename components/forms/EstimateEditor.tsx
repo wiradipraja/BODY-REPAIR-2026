@@ -1,8 +1,12 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Job, EstimateData, Settings, InventoryItem, EstimateItem, ServiceMasterItem, InsuranceLog } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
-// Added CheckCircle2 to the imports from lucide-react
-import { Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, History, Activity, Palette, Search, Package, Box, Tag, ChevronRight, AlertCircle, Wrench, CheckCircle2 } from 'lucide-react';
+import { 
+    Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, 
+    Activity, Palette, Search, Package, Box, Tag, AlertCircle, 
+    CheckCircle2, ChevronRight, Hash, Layers
+} from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
 import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICES_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -16,11 +20,9 @@ interface EstimateEditorProps {
   settings: Settings;
   creatorName: string;
   inventoryItems: InventoryItem[];
-  // Added showNotification function to props to fix missing name error
   showNotification: (msg: string, type: string) => void;
 }
 
-// Added showNotification to destructured parameters
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ 
   job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, inventoryItems, showNotification 
 }) => {
@@ -34,7 +36,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   const [serviceMasterList, setServiceMasterList] = useState<ServiceMasterItem[]>([]);
 
   // Search Picker State
-  const [activeSearch, setActiveSearch] = useState<{ type: 'jasa' | 'part', index: number, field: string } | null>(null);
+  const [activeSearch, setActiveSearch] = useState<{ type: 'jasa' | 'part', index: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -59,7 +61,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       loadServices();
   }, [job.namaAsuransi, insuranceOptions, job.estimateData]);
 
-  // Click outside search results to close
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
           if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -75,9 +76,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           const q = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
           const snap = await getDocs(q);
           setServiceMasterList(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
-      } catch (e) {
-          console.error(e);
-      }
+      } catch (e) { console.error(e); }
   };
 
   const calculateFinalServicePrice = (basePrice: number, panelValue: number) => {
@@ -164,19 +163,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
       return {
           estimationNumber: estimationNumber || job.estimateData?.estimationNumber,
-          grandTotal,
-          jasaItems,
-          partItems,
-          discountJasa,
-          discountPart,
-          discountJasaAmount,
-          discountPartAmount,
-          ppnAmount,
-          subtotalJasa,
-          subtotalPart,
-          estimatorName: creatorName
+          grandTotal, jasaItems, partItems,
+          discountJasa, discountPart, discountJasaAmount, discountPartAmount,
+          ppnAmount, subtotalJasa, subtotalPart, estimatorName: creatorName
       };
   };
+
+  const totals = prepareEstimateData();
 
   const handleSaveAction = async (saveType: 'estimate' | 'wo') => {
       setIsSubmitting(true);
@@ -188,8 +181,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           await onSave(job.id, data, saveType);
       } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
-
-  const totals = prepareEstimateData();
 
   return (
     <div className="space-y-6">
@@ -261,15 +252,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               <button onClick={() => addItem('jasa')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> TAMBAH JASA</button>
           </div>
           
-          <div className="overflow-x-auto relative min-h-[100px]">
+          <div className="overflow-x-visible">
               <table className="w-full text-sm text-left border-separate border-spacing-y-2">
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           <th className="px-4 py-2 w-10 text-center">No</th>
-                          <th className="px-4 py-2 w-40">Kode Pekerjaan</th>
-                          <th className="px-4 py-2">Deskripsi Pekerjaan</th>
-                          <th className="px-4 py-2 w-24 text-center">Panel</th>
-                          <th className="px-4 py-2 w-48 text-right">Biaya (Final)</th>
+                          <th className="px-4 py-2 w-44">Kode</th>
+                          <th className="px-4 py-2">Nama Pekerjaan</th>
+                          <th className="px-4 py-2 w-20 text-center">Panel</th>
+                          <th className="px-4 py-2 w-44 text-right">Biaya (Final)</th>
                           <th className="px-4 py-2 w-10"></th>
                       </tr>
                   </thead>
@@ -278,63 +269,70 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                           <tr key={i} className="group hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
                               <td className="px-4 py-3 relative border-y border-gray-100">
-                                  <input 
-                                    type="text" 
-                                    value={item.number || ''} 
-                                    onFocus={() => { setActiveSearch({ type: 'jasa', index: i, field: 'number' }); setSearchQuery(item.number || ''); }}
-                                    onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }}
-                                    className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all" 
-                                    placeholder="CARI KODE..." 
-                                    disabled={isLocked}
-                                  />
+                                  <div className="relative group/input">
+                                      <input 
+                                        type="text" 
+                                        value={item.number || ''} 
+                                        onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.number || ''); }}
+                                        onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }}
+                                        className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all" 
+                                        placeholder="CARI KODE..." 
+                                        disabled={isLocked}
+                                      />
+                                  </div>
                               </td>
                               <td className="px-4 py-3 relative border-y border-gray-100">
-                                  <input 
-                                    type="text" 
-                                    value={item.name} 
-                                    onFocus={() => { setActiveSearch({ type: 'jasa', index: i, field: 'name' }); setSearchQuery(item.name); }}
-                                    onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }}
-                                    className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all" 
-                                    placeholder="KETIK NAMA PEKERJAAN..." 
-                                    disabled={isLocked}
-                                  />
-                                  {/* FLOATING SEARCH PICKER (JASA) */}
-                                  {activeSearch?.type === 'jasa' && activeSearch.index === i && (
-                                      <div ref={searchRef} className="absolute left-0 top-full mt-1 w-full bg-white rounded-xl shadow-2xl border border-gray-200 z-[100] max-h-[350px] overflow-y-auto animate-fade-in overflow-x-hidden">
-                                          <div className="p-2 bg-gray-50 border-b flex items-center gap-2 sticky top-0">
-                                              <Search size={14} className="text-gray-400"/>
-                                              <span className="text-[10px] font-black text-gray-500 uppercase tracking-tighter">Hasil Pencarian Master Jasa</span>
-                                          </div>
-                                          {filteredServices.length > 0 ? filteredServices.map(s => (
-                                              <div 
-                                                key={s.id} 
-                                                onClick={() => selectService(i, s)}
-                                                className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-gray-50 transition-colors flex items-center justify-between group/item"
-                                              >
-                                                  <div className="flex flex-col gap-0.5">
-                                                      <div className="flex items-center gap-2">
-                                                          <span className="font-black text-xs text-indigo-600 font-mono tracking-tighter">{s.serviceCode || 'NO-CODE'}</span>
-                                                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black border ${s.workType === 'KC' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{s.workType}</span>
-                                                      </div>
-                                                      <span className="text-sm font-bold text-gray-800 uppercase tracking-tight group-hover/item:text-indigo-700">{s.serviceName}</span>
-                                                  </div>
-                                                  <div className="text-right flex flex-col items-end">
-                                                      <div className="flex items-center gap-1 text-[10px] font-black text-gray-400">
-                                                          <Box size={10}/> {s.panelValue} PANEL
-                                                      </div>
-                                                      <div className="text-xs font-black text-emerald-600">
-                                                          {formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}
-                                                      </div>
-                                                  </div>
+                                  <div className="relative">
+                                      <input 
+                                        type="text" 
+                                        value={item.name} 
+                                        onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.name); }}
+                                        onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }}
+                                        className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all" 
+                                        placeholder="KETIK NAMA PEKERJAAN..." 
+                                        disabled={isLocked}
+                                      />
+                                      {/* OVERLAY SEARCH PICKER (JASA) */}
+                                      {activeSearch?.type === 'jasa' && activeSearch.index === i && (
+                                          <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[450px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
+                                              <div className="p-3 bg-indigo-900 text-white flex items-center gap-2 sticky top-0 z-10">
+                                                  <Layers size={14}/>
+                                                  <span className="text-[10px] font-black uppercase tracking-widest">Master Katalog Jasa</span>
                                               </div>
-                                          )) : (
-                                              <div className="p-6 text-center text-gray-400 text-xs italic">Data tidak ditemukan dalam Master Jasa.</div>
-                                          )}
-                                      </div>
-                                  )}
+                                              {filteredServices.length > 0 ? filteredServices.map(s => (
+                                                  <div 
+                                                    key={s.id} 
+                                                    onClick={() => selectService(i, s)}
+                                                    className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 transition-colors flex items-center justify-between group/item"
+                                                  >
+                                                      <div className="flex flex-col gap-1">
+                                                          <div className="flex items-center gap-2">
+                                                              <span className="font-black text-xs text-indigo-600 font-mono tracking-tighter bg-indigo-50 px-1.5 py-0.5 rounded">{s.serviceCode || 'NO-CODE'}</span>
+                                                              <span className={`px-2 py-0.5 rounded-[4px] text-[9px] font-black border ${s.workType === 'KC' ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>{s.workType}</span>
+                                                          </div>
+                                                          <span className="text-sm font-bold text-gray-800 uppercase leading-tight group-hover/item:text-indigo-700">{s.serviceName}</span>
+                                                      </div>
+                                                      <div className="text-right flex flex-col items-end">
+                                                          <div className="flex items-center gap-1 text-[10px] font-black text-gray-400 mb-1">
+                                                              <Hash size={10}/> {s.panelValue} PANEL
+                                                          </div>
+                                                          <div className="text-sm font-black text-emerald-600">
+                                                              {formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}
+                                                          </div>
+                                                      </div>
+                                                  </div>
+                                              )) : (
+                                                  <div className="p-10 text-center flex flex-col items-center gap-3">
+                                                      <Search size={32} className="text-gray-200"/>
+                                                      <p className="text-gray-400 text-xs italic font-medium">Data tidak ditemukan dalam database.</p>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      )}
+                                  </div>
                               </td>
                               <td className="px-4 py-3 text-center border-y border-gray-100">
-                                  <div className="bg-white border-2 border-gray-100 rounded-lg py-1 px-2 font-black text-gray-900 text-xs inline-block">
+                                  <div className="bg-white border-2 border-gray-100 rounded-lg py-1 px-3 font-black text-gray-900 text-xs inline-block">
                                       {item.panelCount || 0}
                                   </div>
                               </td>
@@ -375,7 +373,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               <button onClick={() => addItem('part')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-4 py-1.5 rounded-xl font-black hover:bg-orange-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> TAMBAH PART</button>
           </div>
           
-          <div className="overflow-x-auto relative">
+          <div className="overflow-x-visible relative">
               <table className="w-full text-sm text-left border-separate border-spacing-y-2">
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -396,7 +394,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   <input 
                                     type="text" 
                                     value={item.number} 
-                                    onFocus={() => { setActiveSearch({ type: 'part', index: i, field: 'number' }); setSearchQuery(item.number || ''); }}
+                                    onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }}
                                     onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }}
                                     className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" 
                                     placeholder="CARI KODE PART..." 
@@ -404,51 +402,59 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   />
                               </td>
                               <td className="px-4 py-3 relative border-y border-gray-100">
-                                  <input 
-                                    type="text" 
-                                    value={item.name} 
-                                    onFocus={() => { setActiveSearch({ type: 'part', index: i, field: 'name' }); setSearchQuery(item.name); }}
-                                    onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }}
-                                    className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" 
-                                    placeholder="KETIK NAMA BARANG..." 
-                                    disabled={isLocked}
-                                  />
-                                  {/* FLOATING SEARCH PICKER (PART) */}
-                                  {activeSearch?.type === 'part' && activeSearch.index === i && (
-                                      <div ref={searchRef} className="absolute left-0 top-full mt-1 w-full bg-white rounded-xl shadow-2xl border border-gray-200 z-[100] max-h-[350px] overflow-y-auto animate-fade-in overflow-x-hidden">
-                                          <div className="p-2 bg-gray-50 border-b flex items-center gap-2 sticky top-0">
-                                              <Package size={14} className="text-gray-400"/>
-                                              <span className="text-[10px] font-black text-gray-500 uppercase tracking-tighter">Katalog Sparepart & Bahan</span>
-                                          </div>
-                                          {filteredParts.length > 0 ? filteredParts.map(p => (
-                                              <div 
-                                                key={p.id} 
-                                                onClick={() => selectPart(i, p)}
-                                                className="p-3 hover:bg-orange-50 cursor-pointer border-b border-gray-50 transition-colors flex items-center justify-between group/item"
-                                              >
-                                                  <div className="flex flex-col gap-0.5">
-                                                      <div className="flex items-center gap-2">
-                                                          <span className="font-black text-xs text-orange-600 font-mono tracking-tighter">{p.code || 'NO-CODE'}</span>
-                                                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black border bg-white ${p.category === 'sparepart' ? 'text-indigo-600 border-indigo-200' : 'text-orange-600 border-orange-200'}`}>{p.category.toUpperCase()}</span>
-                                                      </div>
-                                                      <span className="text-sm font-bold text-gray-800 uppercase tracking-tight group-hover/item:text-orange-700">{p.name}</span>
-                                                      {p.location && <div className="text-[10px] text-gray-400 flex items-center gap-1 font-medium"><Tag size={10}/> RAK: {p.location}</div>}
-                                                  </div>
-                                                  <div className="text-right flex flex-col items-end">
-                                                      <div className={`flex items-center gap-1 text-[10px] font-black px-1.5 py-0.5 rounded ${p.stock > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                                                          {p.stock > 0 ? <CheckCircle2 size={10}/> : <AlertCircle size={10}/>}
-                                                          {p.stock} {p.unit}
-                                                      </div>
-                                                      <div className="text-xs font-black text-emerald-600 mt-1">
-                                                          {formatCurrency(p.sellPrice)}
-                                                      </div>
-                                                  </div>
+                                  <div className="relative">
+                                      <input 
+                                        type="text" 
+                                        value={item.name} 
+                                        onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }}
+                                        onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }}
+                                        className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" 
+                                        placeholder="KETIK NAMA BARANG..." 
+                                        disabled={isLocked}
+                                      />
+                                      {/* OVERLAY SEARCH PICKER (PART) */}
+                                      {activeSearch?.type === 'part' && activeSearch.index === i && (
+                                          <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[550px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
+                                              <div className="p-3 bg-orange-600 text-white flex items-center gap-2 sticky top-0 z-10 shadow-sm">
+                                                  <Package size={14}/>
+                                                  <span className="text-[10px] font-black uppercase tracking-widest">Katalog Sparepart & Bahan Produksi</span>
                                               </div>
-                                          )) : (
-                                              <div className="p-6 text-center text-gray-400 text-xs italic">Barang tidak terdaftar di Master Stok.</div>
-                                          )}
-                                      </div>
-                                  )}
+                                              {filteredParts.length > 0 ? filteredParts.map(p => (
+                                                  <div 
+                                                    key={p.id} 
+                                                    onClick={() => selectPart(i, p)}
+                                                    className="p-4 hover:bg-orange-50 cursor-pointer border-b border-gray-100 transition-colors flex items-center justify-between group/item"
+                                                  >
+                                                      <div className="flex flex-col gap-1 flex-1">
+                                                          <div className="flex items-center gap-2">
+                                                              <span className="font-black text-xs text-orange-600 font-mono tracking-tighter bg-orange-50 px-1.5 py-0.5 rounded">{p.code || 'NO-CODE'}</span>
+                                                              <span className={`px-2 py-0.5 rounded-[4px] text-[8px] font-black border bg-white ${p.category === 'sparepart' ? 'text-indigo-600 border-indigo-200' : 'text-orange-600 border-orange-200'}`}>{p.category.toUpperCase()}</span>
+                                                          </div>
+                                                          <span className="text-sm font-bold text-gray-800 uppercase tracking-tight group-hover/item:text-orange-700 leading-tight">{p.name}</span>
+                                                          <div className="flex items-center gap-3">
+                                                              {p.location && <div className="text-[10px] text-gray-400 flex items-center gap-1 font-medium"><Tag size={10}/> RAK: {p.location}</div>}
+                                                              {p.brand && <div className="text-[10px] text-gray-400 flex items-center gap-1 font-medium"><Box size={10}/> {p.brand}</div>}
+                                                          </div>
+                                                      </div>
+                                                      <div className="text-right flex flex-col items-end gap-1.5">
+                                                          <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${p.stock > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                                                              {p.stock > 0 ? <CheckCircle2 size={10}/> : <AlertCircle size={10}/>}
+                                                              {p.stock} {p.unit}
+                                                          </div>
+                                                          <div className="text-sm font-black text-indigo-900">
+                                                              {formatCurrency(p.sellPrice)}
+                                                          </div>
+                                                      </div>
+                                                  </div>
+                                              )) : (
+                                                  <div className="p-10 text-center flex flex-col items-center gap-3">
+                                                      <Package size={32} className="text-gray-200"/>
+                                                      <p className="text-gray-400 text-xs italic font-medium">Barang tidak terdaftar di Master Stok.</p>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      )}
+                                  </div>
                               </td>
                               <td className="px-4 py-3 text-center border-y border-gray-100">
                                   <input 
@@ -520,6 +526,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               </>
           )}
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes pop-in {
+          0% { transform: scale(0.95); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop-in {
+          animation: pop-in 0.2s ease-out forwards;
+        }
+      ` }} />
     </div>
   );
 };
