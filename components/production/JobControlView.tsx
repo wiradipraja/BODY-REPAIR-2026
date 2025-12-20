@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -235,7 +234,12 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                         <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isBottleneck ? 'border-l-red-500 ring-1 ring-red-200' : 'border-l-blue-500'}`}>
                                             <div className="flex justify-between items-start mb-2">
                                                 <span className="font-black text-gray-800 text-sm">{job.policeNumber}</span>
-                                                {isBottleneck && <AlertTriangle size={14} className="text-red-500 animate-pulse" title="Unit diam > 3 hari"/>}
+                                                {/* Removed title prop from AlertTriangle and wrapped it in a span with title to fix TS error */}
+                                                {isBottleneck && (
+                                                    <span title="Unit diam > 3 hari">
+                                                        <AlertTriangle size={14} className="text-red-500 animate-pulse" />
+                                                    </span>
+                                                )}
                                             </div>
                                             
                                             <p className="text-xs text-gray-500 font-medium mb-1 truncate">{job.carModel}</p>
