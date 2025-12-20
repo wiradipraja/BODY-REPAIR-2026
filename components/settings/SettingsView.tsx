@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { db, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
-import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette } from 'lucide-react';
+import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { db, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
+import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { mazdaColors } from '../../utils/constants';
 
@@ -61,7 +61,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     setLocalSettings(prev => ({ ...prev, [field]: value }));
   };
 
-  // FIXED: Added safety fallback to prevent "not iterable" error
   const handleArrayChange = (field: keyof Settings, index: number, value: any) => {
     const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
     const arr = [...currentArray];
@@ -103,6 +102,98 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // --- DATA DOCTOR: SYSTEM SYNC LOGIC ---
+  const handleSyncSystemData = async () => {
+      if (!isManager) return;
+      if (!window.confirm("Gunakan Fitur ini untuk merapikan data lama agar sinkron dengan logika baru (Admin Control & Logistik). Proses ini akan memindai seluruh WO Aktif. Lanjutkan?")) return;
+
+      setIsLoading(true);
+      try {
+          // 1. Fetch All Active Data
+          const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION));
+          const poSnap = await getDocs(collection(db, PURCHASE_ORDERS_COLLECTION));
+          
+          const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isClosed && !j.isDeleted);
+          const allPOs = poSnap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder));
+
+          const batch = writeBatch(db);
+          let updatedCount = 0;
+
+          allJobs.forEach(job => {
+              let hasChanged = false;
+              const currentJobData = { ...job };
+              
+              // A. REPAIR CLAIM WORKFLOW
+              // Rule: Jika asuransi, sudah ada nomor estimasi, tapi status masih "Tunggu Estimasi" -> Pindah ke "Tunggu SPK"
+              if (currentJobData.namaAsuransi !== 'Umum / Pribadi' && 
+                  currentJobData.estimateData?.estimationNumber && 
+                  currentJobData.statusKendaraan === 'Tunggu Estimasi') {
+                  currentJobData.statusKendaraan = 'Tunggu SPK Asuransi';
+                  hasChanged = true;
+              }
+
+              // B. REPAIR PART ORDER SYNC
+              // Rule: Scan POs to see if parts in this job have been ordered
+              const parts = [...(currentJobData.estimateData?.partItems || [])];
+              let jobHasParts = parts.length > 0;
+              let anyPartUpdated = false;
+
+              if (jobHasParts) {
+                  parts.forEach((part, idx) => {
+                      // Check if this part exists in any approved PO
+                      const isOrderedInPO = allPOs.some(po => 
+                          (po.status !== 'Draft' && po.status !== 'Rejected') && 
+                          po.items.some(item => item.refJobId === job.id && item.refPartIndex === idx)
+                      );
+
+                      if (isOrderedInPO && !part.isOrdered) {
+                          parts[idx] = { ...part, isOrdered: true };
+                          anyPartUpdated = true;
+                          hasChanged = true;
+                      }
+                  });
+              }
+
+              // C. REPAIR LOGISTICS STATUS
+              // Rule: Jika semua part sudah di-order, unit masih di pemilik, tapi status belum "Tunggu Part" -> Update
+              if (jobHasParts) {
+                  const allOrdered = parts.every(p => p.isOrdered);
+                  if (allOrdered && 
+                      currentJobData.posisiKendaraan === 'Di Pemilik' && 
+                      currentJobData.statusKendaraan !== 'Unit di Pemilik (Tunggu Part)') {
+                      currentJobData.statusKendaraan = 'Unit di Pemilik (Tunggu Part)';
+                      hasChanged = true;
+                  }
+              }
+
+              if (hasChanged) {
+                  const jobRef = doc(db, SERVICE_JOBS_COLLECTION, job.id);
+                  const updatePayload: any = {
+                      statusKendaraan: currentJobData.statusKendaraan,
+                      updatedAt: serverTimestamp()
+                  };
+                  if (anyPartUpdated) {
+                      updatePayload['estimateData.partItems'] = parts;
+                  }
+                  batch.update(jobRef, updatePayload);
+                  updatedCount++;
+              }
+          });
+
+          if (updatedCount > 0) {
+              await batch.commit();
+              showNotification(`Berhasil merapikan ${updatedCount} data unit.`, "success");
+          } else {
+              showNotification("Seluruh data sudah rapi & sinkron.", "success");
+          }
+      } catch (e: any) {
+          console.error(e);
+          showNotification("Gagal sinkronisasi: " + e.message, "error");
+      } finally {
+          setIsLoading(false);
+      }
   };
 
   const handleCleanupDuplicates = async () => {
@@ -261,14 +352,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       };
 
                       if (existing) {
-                          // UPDATE LOGIC (Upsert)
                           await updateDoc(doc(db, SERVICES_MASTER_COLLECTION, existing.id), {
                               ...itemData,
                               updatedAt: serverTimestamp()
                           });
                           updateCount++;
                       } else {
-                          // INSERT LOGIC
                           await addDoc(collection(db, SERVICES_MASTER_COLLECTION), {
                               ...itemData,
                               createdAt: serverTimestamp()
@@ -311,14 +400,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gray-900">Pengaturan Sistem</h1>
-          <button 
-            onClick={saveSettings} 
-            disabled={isLoading || !isManager}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-lg hover:bg-indigo-700 shadow-lg font-bold disabled:opacity-50"
-          >
-            {isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>}
-            Simpan Perubahan
-          </button>
+          <div className="flex gap-3">
+              {isManager && (
+                  <button 
+                    onClick={handleSyncSystemData} 
+                    disabled={isLoading}
+                    className="flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2.5 rounded-lg hover:bg-amber-100 border border-amber-200 font-bold disabled:opacity-50 transition-all"
+                    title="Rapikan data lama agar sesuai logika baru"
+                  >
+                    {isLoading ? <Loader2 className="animate-spin" size={18}/> : <RefreshCw size={18}/>}
+                    Data Doctor (Sync)
+                  </button>
+              )}
+              <button 
+                onClick={saveSettings} 
+                disabled={isLoading || !isManager}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-lg hover:bg-indigo-700 shadow-lg font-bold disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>}
+                Simpan Perubahan
+              </button>
+          </div>
       </div>
 
       {/* Tabs */}
@@ -339,7 +441,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
       <div className="bg-white p-6 rounded-b-xl border border-t-0 border-gray-200 shadow-sm relative min-h-[500px]">
           
-          {/* MASTER SERVICES TAB */}
+          {/* TAB SERVICES */}
           {activeTab === 'services' && (
               <div className="space-y-8 animate-fade-in">
                   <div className={`grid grid-cols-1 lg:grid-cols-3 gap-8 ${restrictedClass}`}>
@@ -369,7 +471,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                             </div>
                         </div>
 
-                        {/* SEARCH BAR */}
                         <div className="mb-4 relative group">
                             <Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                             <input 
@@ -474,7 +575,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                     </div>
                   </div>
 
-                  {/* SPECIAL COLOR RATES MANAGEMENT */}
                   <div className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 ${restrictedClass}`}>
                       <RestrictedOverlay />
                       <div className="flex items-center gap-3 mb-6 border-b pb-4">
@@ -494,7 +594,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {(localSettings.specialColorRates || []).map((rate, idx) => {
                               const isCustom = rate.colorName && !mazdaColors.includes(rate.colorName) && rate.colorName !== '';
-                              
                               return (
                               <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group transition-all hover:border-rose-300 hover:bg-rose-50/30">
                                   <div className="space-y-4">
@@ -505,7 +604,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                               onChange={e => {
                                                   const val = e.target.value;
                                                   const newRates = [...(localSettings.specialColorRates || [])];
-                                                  // If choosing custom, initialize with current name or empty
                                                   newRates[idx] = { ...rate, colorName: val === 'Custom' ? (isCustom ? rate.colorName : '') : val };
                                                   setLocalSettings(prev => ({ ...prev, specialColorRates: newRates }));
                                               }}
@@ -572,6 +670,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               <div className={`space-y-8 ${restrictedClass}`}>
                   <RestrictedOverlay/>
                   
+                  <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-4 mb-6">
+                      <div className="p-2 bg-amber-600 text-white rounded-lg"><Activity size={24}/></div>
+                      <div className="flex-grow">
+                          <h4 className="font-bold text-amber-900">Pusat Sinkronisasi Data (Data Doctor)</h4>
+                          <p className="text-xs text-amber-800 leading-relaxed mt-1">
+                              Jika ada data unit lama (Insurance) yang sudah memiliki estimasi namun masih di status "Tunggu Estimasi", atau unit di pemilik yang partnya sudah siap namun belum berstatus "Tunggu Part", klik tombol <strong>Data Doctor</strong> di pojok kanan atas untuk memperbaiki otomatis.
+                          </p>
+                      </div>
+                  </div>
+
                   <section>
                       <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Building className="text-indigo-500"/> Informasi Bengkel</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -620,8 +728,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'database' && (
               <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${restrictedClass}`}>
                   <RestrictedOverlay/>
-                  
-                  {/* MEKANIK LIST */}
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                       <div className="flex justify-between items-center mb-3">
                           <h4 className="font-bold text-gray-700 flex items-center gap-2"><User size={16}/> Daftar Mekanik</h4>
@@ -637,7 +743,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       </div>
                   </div>
 
-                  {/* SA LIST */}
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                       <div className="flex justify-between items-center mb-3">
                           <h4 className="font-bold text-gray-700 flex items-center gap-2"><User size={16}/> Service Advisor (SA)</h4>
@@ -653,7 +758,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       </div>
                   </div>
 
-                  {/* INSURANCE LIST */}
                   <div className="lg:col-span-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
                       <div className="flex justify-between items-center mb-3">
                           <h4 className="font-bold text-gray-700 flex items-center gap-2"><Shield size={16}/> Rekanan Asuransi & Diskon Default</h4>
@@ -696,10 +800,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'whatsapp' && (
               <div className={`space-y-6 ${restrictedClass}`}>
                   <RestrictedOverlay/>
-                  
                   <div className="bg-green-50 p-4 rounded-xl border border-green-200">
                       <h3 className="font-bold text-green-800 mb-4 flex items-center gap-2"><MessageSquare size={18}/> Konfigurasi Pesan</h3>
-                      
                       <div className="space-y-4">
                           <div>
                               <label className="block text-sm font-bold text-gray-700 mb-1">Template: Reminder Booking</label>
