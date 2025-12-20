@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw } from 'lucide-react';
+// Fixed: Added missing 'Info' icon to lucide-react imports
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface SettingsViewProps {
@@ -89,12 +90,73 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
-  // SERVICE MASTER HANDLERS
+  // --- SERVICE MASTER HANDLERS ---
+  
+  // 1. DEDUPLICATION SCREENING TOOL
+  const handleCleanupDuplicates = async () => {
+      if (!isManager) return;
+      setIsLoading(true);
+      try {
+          const seen = new Set<string>();
+          const toDelete: string[] = [];
+          
+          // Urutkan berdasarkan waktu buat agar kita mempertahankan data yang paling pertama diinput
+          const sorted = [...services].sort((a, b) => {
+              const tA = a.createdAt?.seconds || 0;
+              const tB = b.createdAt?.seconds || 0;
+              return tA - tB;
+          });
+
+          for (const s of sorted) {
+              // Key unik: Nama Pekerjaan + Jenis Pekerjaan (lowercase)
+              const key = `${s.serviceName.trim().toLowerCase()}_${s.workType}`;
+              if (seen.has(key)) {
+                  toDelete.push(s.id);
+              } else {
+                  seen.add(key);
+              }
+          }
+
+          if (toDelete.length === 0) {
+              showNotification("Screening Selesai: Tidak ditemukan data duplikat.", "success");
+              return;
+          }
+
+          if (window.confirm(`Ditemukan ${toDelete.length} data duplikat (Nama & Jenis sama). Hapus data duplikat tersebut?`)) {
+              for (const id of toDelete) {
+                  await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
+              }
+              showNotification(`Pembersihan Berhasil: ${toDelete.length} data duplikat telah dihapus.`, "success");
+              loadServices();
+          }
+      } catch (e: any) {
+          showNotification("Gagal melakukan screening: " + e.message, "error");
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
   const handleSaveService = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!isManager) return;
-      if (!serviceForm.serviceName || !serviceForm.panelValue) {
+      
+      const serviceName = serviceForm.serviceName?.trim() || '';
+      const workType = serviceForm.workType || 'KC';
+
+      if (!serviceName || !serviceForm.panelValue) {
           showNotification("Nama dan Nilai Panel wajib diisi.", "error");
+          return;
+      }
+
+      // 2. REAL-TIME DUPLICATE VALIDATION (BEFORE SAVE)
+      const isDuplicate = services.some(s => 
+          s.id !== serviceForm.id && 
+          s.serviceName.trim().toLowerCase() === serviceName.toLowerCase() &&
+          s.workType === workType
+      );
+
+      if (isDuplicate) {
+          showNotification(`Gagal: Pekerjaan "${serviceName}" dengan jenis "${workType}" sudah ada di database.`, "error");
           return;
       }
 
@@ -102,6 +164,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       try {
           const payload = {
               ...serviceForm,
+              serviceName: serviceName,
               serviceCode: serviceForm.serviceCode?.toUpperCase() || ''
           };
 
@@ -166,22 +229,39 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               const data = XLSX.utils.sheet_to_json(ws);
               
               let count = 0;
+              let skipCount = 0;
+              
+              // Map existing for faster lookup
+              const existingMap = new Set(services.map(s => `${s.serviceName.trim().toLowerCase()}_${s.workType}`));
+
               for (const row of data as any[]) {
-                  const serviceName = row['Nama Jasa'] || row['nama jasa'] || row['Service Name'];
+                  const serviceName = (row['Nama Jasa'] || row['nama jasa'] || row['Service Name'] || '').toString().trim();
+                  const workType = (row['Jenis Pekerjaan (KC/GTC/BP)'] || row['Jenis'] || 'KC').toString().trim().toUpperCase();
+                  
                   if (serviceName) {
+                      // 3. DUPLICATE VALIDATION ON IMPORT
+                      const key = `${serviceName.toLowerCase()}_${workType}`;
+                      if (existingMap.has(key)) {
+                          skipCount++;
+                          continue;
+                      }
+
                       const newItem = {
                           serviceCode: String(row['Kode Jasa'] || row['Kode'] || row['Code'] || '').toUpperCase(),
-                          serviceName: String(serviceName),
-                          workType: (row['Jenis Pekerjaan (KC/GTC/BP)'] || row['Jenis'] || 'KC') as 'KC' | 'GTC' | 'BP',
+                          serviceName: serviceName,
+                          workType: workType as any,
                           panelValue: Number(row['Nilai Panel'] || row['Panel'] || 0),
                           basePrice: Number(row['Harga Dasar'] || row['Harga'] || 0),
                           createdAt: serverTimestamp()
                       };
                       await addDoc(collection(db, SERVICES_MASTER_COLLECTION), newItem);
+                      existingMap.add(key); // Update map for rows within the same excel
                       count++;
                   }
               }
-              showNotification(`Berhasil mengimpor ${count} data jasa & panel.`, "success");
+              
+              const msg = `Berhasil mengimpor ${count} data. ` + (skipCount > 0 ? `(${skipCount} duplikat dilewati).` : '');
+              showNotification(msg, "success");
               loadServices();
           } catch (err: any) {
               console.error(err);
@@ -460,10 +540,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'services' && (
               <div className={`grid grid-cols-1 lg:grid-cols-3 gap-8 ${restrictedClass}`}>
                   <RestrictedOverlay />
-                  <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
                       <div className="flex justify-between items-center mb-4">
                           <h3 className="text-lg font-bold text-gray-800">Daftar Master Jasa (Standar Panel)</h3>
                           <div className="flex gap-2">
+                              <button 
+                                  onClick={handleCleanupDuplicates}
+                                  className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 text-xs font-bold"
+                                  title="Screening dan Hapus Data Ganda"
+                              >
+                                  <ShieldCheck size={14}/> Screening Duplikat
+                              </button>
                               <button 
                                   onClick={handleDownloadServiceTemplate} 
                                   className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-200 text-xs font-bold"
@@ -476,6 +563,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                               </label>
                           </div>
                       </div>
+                      
+                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-start gap-2 mb-4">
+                          <Info size={16} className="text-blue-600 mt-0.5"/>
+                          <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
+                              Sistem kini mencegah input data dengan <strong>Nama</strong> dan <strong>Jenis Pekerjaan</strong> yang sama untuk menjaga akurasi laporan produksi. Gunakan tombol "Screening Duplikat" jika database saat ini terindikasi memiliki data ganda.
+                          </p>
+                      </div>
+
                       <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                           <table className="w-full text-sm text-left">
                               <thead className="bg-gray-50 text-gray-600 uppercase sticky top-0">
@@ -510,11 +605,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                           </td>
                                       </tr>
                                   ))}
+                                  {services.length === 0 && (
+                                      <tr>
+                                          <td colSpan={6} className="text-center py-10 text-gray-400 italic">Belum ada data master jasa.</td>
+                                      </tr>
+                                  )}
                               </tbody>
                           </table>
                       </div>
                   </div>
-                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col">
                       <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                           <Layers className="text-indigo-600" size={20}/> {isEditingService ? 'Edit Jasa' : 'Input Jasa Baru'}
                       </h3>
