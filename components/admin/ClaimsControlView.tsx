@@ -291,7 +291,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
         <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-wrap items-center gap-8 shadow-sm shrink-0">
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse"></div>
-                <span className="tracking-tight uppercase">Aging > 3 Hari</span>
+                <span className="tracking-tight uppercase">Aging &gt; 3 Hari</span>
              </div>
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>

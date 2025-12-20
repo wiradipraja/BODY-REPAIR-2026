@@ -44,43 +44,45 @@ const LoginView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 font-sans">
-      <div className="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 w-full max-w-md animate-fade-in relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 p-4 font-sans">
+      <div className="bg-white p-8 md:p-10 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in border border-white/50 relative overflow-hidden">
+        {/* Decorative elements */}
+        <div className="absolute -right-12 -top-12 w-32 h-32 bg-indigo-50 rounded-full opacity-50"></div>
         
-        <div className="text-center mb-10">
-            <h1 className="text-2xl font-black text-gray-900 tracking-tighter">MAZDA RANGER</h1>
-            <p className="text-[10px] font-black text-indigo-400 mt-1 uppercase tracking-[0.2em]">Body & Paint System</p>
+        <div className="text-center mb-10 relative z-10">
+            <h1 className="text-3xl font-black text-indigo-900 tracking-tighter">MAZDA RANGER</h1>
+            <p className="text-[10px] font-black text-indigo-400 mt-1 uppercase tracking-[0.2em]">Body & Paint Management System</p>
         </div>
         
         {error && (
-            <div className="mb-8 p-4 bg-red-50/50 text-red-700 text-xs rounded-2xl border border-red-100 flex items-start gap-3 animate-shake">
+            <div className="mb-6 p-4 bg-red-50 text-red-700 text-xs rounded-xl border border-red-100 flex items-start gap-3 animate-shake">
                 <AlertCircle className="shrink-0 mt-0.5" size={16}/>
                 <div>
-                    <p className="font-bold mb-0.5 uppercase tracking-tighter">Autentikasi Gagal</p>
-                    <p className="font-medium opacity-80 leading-relaxed">{error}</p>
+                    <p className="font-bold mb-0.5 uppercase tracking-tighter">Terjadi Kesalahan</p>
+                    <p className="font-medium opacity-90 leading-relaxed">{error}</p>
                 </div>
             </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="space-y-1.5">
-            <label className="block text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1">Email Address</label>
+        <form onSubmit={handleLogin} className="space-y-5 relative z-10">
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Address</label>
             <input 
               type="email" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
-              className="block w-full p-4 bg-gray-50/50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-50 focus:bg-white transition-all outline-none text-gray-800 font-bold" 
+              className="block w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-gray-700 font-normal" 
               placeholder="admin@mazdaranger.com" 
               required
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="block text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1">Password</label>
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password</label>
             <input 
               type="password" 
               value={password} 
               onChange={e => setPassword(e.target.value)} 
-              className="block w-full p-4 bg-gray-50/50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-50 focus:bg-white transition-all outline-none text-gray-800 font-bold" 
+              className="block w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-gray-700 font-normal" 
               placeholder="••••••••" 
               required
             />
@@ -89,30 +91,30 @@ const LoginView: React.FC = () => {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-70 font-black tracking-wide transform active:scale-95 mt-4"
+            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-70 font-black tracking-wide transform active:scale-[0.98] mt-2"
           >
             {loading ? <Loader2 className="animate-spin" size={20}/> : <><LogIn size={20} /> SIGN IN</>}
           </button>
         </form>
 
-        <div className="relative my-10">
+        <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-50"></div>
+                <div className="w-full border-t border-gray-100"></div>
             </div>
             <div className="relative flex justify-center text-[10px]">
-                <span className="px-4 bg-white text-gray-300 font-bold uppercase tracking-[0.3em]">SECURE ACCESS</span>
+                <span className="px-4 bg-white text-gray-300 font-bold uppercase tracking-[0.3em]">Secure Access</span>
             </div>
         </div>
 
         <button 
             onClick={handleGuestLogin}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-white text-gray-400 border-2 border-gray-50 py-3 rounded-2xl hover:bg-gray-50 hover:text-indigo-500 transition-all font-bold text-xs tracking-wider"
+            className="w-full flex items-center justify-center gap-2 bg-white text-indigo-600 border-2 border-indigo-50 py-3 rounded-xl hover:bg-indigo-50 hover:border-indigo-100 transition-all font-black text-xs tracking-wide"
         >
-            <User size={16} /> GUEST DEMO MODE
+            <User size={18} /> GUEST DEMO MODE
         </button>
 
-        <div className="mt-10 text-center">
+        <div className="mt-8 text-center">
             <p className="text-[9px] text-gray-300 font-bold uppercase tracking-[0.2em]">© 2025 Mazda Ranger Workshop</p>
         </div>
       </div>
