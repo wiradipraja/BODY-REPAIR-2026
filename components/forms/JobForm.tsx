@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Job, Settings } from '../../types';
-import { carBrands, mazdaColors, posisiKendaraanOptions } from '../../utils/constants';
+import { carBrands, mazdaColors } from '../../utils/constants';
 import { formatPoliceNumber } from '../../utils/helpers';
-import { Save, Loader2, User, Car, Shield, AlertTriangle, Search, Info, Zap, Wallet, MapPin } from 'lucide-react';
+import { Save, Loader2, User, Car, Shield, Search, Info, Zap, Wallet } from 'lucide-react';
 
 interface JobFormProps {
   initialData?: Job | null;
@@ -15,9 +15,9 @@ interface JobFormProps {
 
 const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCancel, allJobs = [] }) => {
   const [formData, setFormData] = useState<Partial<Job>>({
-    statusKendaraan: 'Tunggu Estimasi', // DEFAULT UNTUK ADMIN CLAIM
+    statusKendaraan: 'Tunggu Estimasi',
     statusPekerjaan: 'Belum Mulai Perbaikan',
-    posisiKendaraan: 'Di Bengkel',
+    posisiKendaraan: 'Di Bengkel', // Default backend value
     jumlahPanel: 0,
     woNumber: '',
     namaSA: '', 
@@ -90,7 +90,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
         const newData = { ...prev, [name]: processedValue };
         
         // AUTOMATION: Jika asuransi dipilih, status harus 'Tunggu Estimasi' agar masuk papan admin
-        // Jika Umum dipilih, status boleh 'Booking Masuk' atau 'Tunggu Estimasi'
         if (name === 'namaAsuransi') {
             if (value !== 'Umum / Pribadi') {
                 newData.statusKendaraan = 'Tunggu Estimasi';
@@ -140,7 +139,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
           </div>
       )}
 
-      {/* SECTION 1: DATA KENDARAAN */}
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
             <div className="p-1.5 bg-gray-50 rounded-lg"><Car className="text-gray-600" size={20} /></div>
@@ -159,22 +157,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                     />
                     <Search className="absolute left-4 top-3.5 text-gray-300" size={18}/>
                 </div>
-            </div>
-
-            <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Posisi Fisik Kendaraan Saat Ini *</label>
-                <div className="relative">
-                    <select 
-                        name="posisiKendaraan" 
-                        value={formData.posisiKendaraan} 
-                        onChange={handleChange} 
-                        className={`w-full p-3 pl-11 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-black ${formData.posisiKendaraan === 'Di Bengkel' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}
-                    >
-                        {posisiKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                    <MapPin className={`absolute left-4 top-3.5 ${formData.posisiKendaraan === 'Di Bengkel' ? 'text-emerald-500' : 'text-orange-500'}`} size={18}/>
-                </div>
-                <p className="text-[9px] text-gray-400 font-bold italic mt-1">* Tanggung jawab SA untuk menentukan unit menginap atau dibawa pulang oleh pemilik.</p>
             </div>
 
             <div className="space-y-1.5">
@@ -201,7 +183,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
         </div>
       </div>
 
-      {/* SECTION 2: PATHWAY SELECTION */}
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
             <div className="p-1.5 bg-gray-50 rounded-lg"><Shield className="text-gray-600" size={20} /></div>
@@ -255,7 +236,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
         </div>
       </div>
 
-      {/* SECTION 3: CUSTOMER INFO */}
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
             <div className="p-1.5 bg-gray-50 rounded-lg"><User className="text-gray-600" size={20} /></div>
