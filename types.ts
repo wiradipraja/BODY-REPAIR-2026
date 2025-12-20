@@ -156,6 +156,7 @@ export interface Job {
   
   tanggalMasuk: string; // YYYY-MM-DD
   tanggalEstimasiSelesai?: string;
+  tanggalBooking?: string; // NEW: Triggers appearance in Admin Control
   
   woNumber?: string;
   namaSA?: string;

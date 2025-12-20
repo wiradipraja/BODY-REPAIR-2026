@@ -238,11 +238,12 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                     return (
                                         <div 
                                             key={job.id} 
-                                            className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.isReadyToCall && (stage === 'Unit di Pemilik (Tunggu Part)' || stage === 'Tunggu SPK Asuransi') ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
+                                            className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.statusKendaraan === 'Booking Masuk' ? 'border-indigo-600 ring-1 ring-indigo-50' : job.isReadyToCall && (stage === 'Unit di Pemilik (Tunggu Part)' || stage === 'Tunggu SPK Asuransi') ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
                                             onClick={() => openModal('create_estimation', job)}
                                         >
                                             {/* Accent Line */}
                                             {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div>}
+                                            {job.statusKendaraan === 'Booking Masuk' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600"></div>}
                                             {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>}
 
                                             <div className="flex justify-between items-start mb-3">
@@ -257,7 +258,18 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                                 <p className="text-[12px] font-bold text-gray-700 truncate uppercase">{job.carModel}</p>
                                                 <p className="text-[11px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
                                                 
-                                                {logistik && logistik.total > 0 && (
+                                                {/* BOOKING INFO SPECIAL DISPLAY */}
+                                                {job.statusKendaraan === 'Booking Masuk' && job.tanggalBooking && (
+                                                    <div className="mt-2 p-2 bg-indigo-50 rounded-lg border border-indigo-100 flex items-center gap-2">
+                                                        <Calendar size={14} className="text-indigo-600"/>
+                                                        <div>
+                                                            <p className="text-[8px] font-black text-indigo-400 uppercase leading-none">Jadwal Kedatangan</p>
+                                                            <p className="text-[11px] font-black text-indigo-700">{formatDateIndo(job.tanggalBooking)}</p>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {logistik && logistik.total > 0 && job.statusKendaraan !== 'Booking Masuk' && (
                                                     <div className="bg-gray-50 rounded-lg p-2 mt-2 space-y-1 border border-gray-100">
                                                         <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase tracking-tighter">
                                                             <div className="flex items-center gap-1"><ShoppingCart size={10}/> Order PO</div>
@@ -338,12 +350,12 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                 <span className="tracking-tight uppercase">Aging &gt; 3 Hari</span>
              </div>
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
-                <span className="tracking-tight uppercase">Part Ready (Gudang)</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
+                <span className="tracking-tight uppercase">Jadwal Booking Terkonfirmasi</span>
              </div>
              <div className="ml-auto flex items-center gap-2 text-[11px] text-indigo-400 font-medium italic bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
                 <Info size={14}/>
-                * Unit "Umum / Pribadi" diproses langsung di modul WO.
+                * Unit akan otomatis hilang dari antrian Booking CRC jika SA merubah posisi menjadi "Di Bengkel".
              </div>
         </div>
 
