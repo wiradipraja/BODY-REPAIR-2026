@@ -1,8 +1,9 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, InventoryItem, EstimateItem } from '../../types';
 import { formatDateIndo } from '../../utils/helpers';
 // Added CheckCircle2 to the imports to resolve reference error
-import { Search, Filter, CheckCircle, CheckCircle2, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save, ShoppingCart, Info } from 'lucide-react';
+import { Search, Filter, CheckCircle, CheckCircle2, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save, ShoppingCart, Info, Zap } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -26,6 +27,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
     const activeJobs = jobs.filter(j => 
         !j.isClosed && 
         j.woNumber && 
+        !j.isDeleted &&
         j.estimateData?.partItems && 
         j.estimateData.partItems.length > 0
     );
@@ -56,26 +58,31 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         let unOrderedCount = 0;
         
         const processedParts = parts.map(part => {
-            let status: 'ISSUED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
+            let status: 'ARRIVED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
             const reqQty = part.qty || 1;
 
+            // TRACKING HIERARCHY:
+            // 1. Physically Arrived (flagged in Job via Receiving PO)
             if (part.hasArrived) {
-                status = 'ISSUED';
+                status = 'ARRIVED';
                 readyCount++;
             }
-            else if (part.isIndent) {
-                status = 'INDENT_MANUAL';
-            }
+            // 2. In Stock at Warehouse (FIFO Allocation)
             else if (part.inventoryId && stockMap[part.inventoryId] >= reqQty) {
                 status = 'READY';
                 stockMap[part.inventoryId] -= reqQty;
                 readyCount++;
             }
+            // 3. Explicitly marked as Indent
+            else if (part.isIndent) {
+                status = 'INDENT_MANUAL';
+            }
+            // 4. Not in stock and not arrived
             else {
                 status = 'WAITING';
             }
 
-            // Track outstanding POs
+            // Track outstanding POs (not yet ordered)
             if (!part.hasArrived && !part.isOrdered) {
                 unOrderedCount++;
             }
@@ -290,11 +297,11 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                         </div>
                                         <div className="flex gap-2">
                                             {job.partStatus === 'LENGKAP' ? (
-                                                <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">LENGKAP</span>
+                                                <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 uppercase">Lengkap</span>
                                             ) : job.partStatus === 'PARTIAL' ? (
-                                                <span className="text-[9px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">SEBAGIAN</span>
+                                                <span className="text-[9px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">Sebagian</span>
                                             ) : (
-                                                <span className="text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200">BELUM ADA</span>
+                                                <span className="text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200 uppercase">Belum Ada</span>
                                             )}
                                         </div>
                                     </td>
@@ -364,14 +371,14 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                         <Info size={20} className="text-amber-600 shrink-0 mt-0.5"/>
                         <div className="text-xs text-amber-800 leading-relaxed font-bold">
                             Tugas Partman: <br/>
-                            1. Periksa kolom <span className="text-indigo-600">Status Order</span> di bawah. <br/>
-                            2. Jika tertulis <span className="text-amber-600">BELUM PO</span>, segera buat PO di menu Purchase Order. <br/>
-                            3. Gunakan tombol <span className="text-red-600 uppercase">Set Indent</span> jika sudah dipastikan barang perlu indent supplier.
+                            1. Periksa kolom <span className="text-indigo-600">Alokasi Stok</span> di bawah. <br/>
+                            2. Jika tertulis <span className="text-emerald-600">DITERIMA (FISIK)</span>, barang sudah diterima dari supplier dan siap di-issued. <br/>
+                            3. Gunakan tombol <span className="text-red-600 uppercase">Set Indent</span> jika barang perlu dipesan khusus.
                         </div>
                     </div>
 
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <table className="w-full text-sm text-left">
+                        <table className="w-full text-left text-sm">
                             <thead className="bg-gray-800 text-white uppercase text-[10px] font-black tracking-widest">
                                 <tr>
                                     <th className="p-4">No. Part / Nama</th>
@@ -387,12 +394,11 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                     let rowClass = 'bg-white';
 
                                     switch(part.allocationStatus) {
-                                        case 'ISSUED':
-                                            statusBadge = <span className="text-emerald-600 font-black text-[10px] flex items-center gap-1 uppercase border border-emerald-100 bg-emerald-50 px-2 py-0.5 rounded">SUDAH KELUAR</span>;
-                                            rowClass = 'bg-emerald-50/20 opacity-70';
+                                        case 'ARRIVED':
+                                            statusBadge = <span className="text-emerald-600 font-black text-[10px] flex items-center gap-1 uppercase border border-emerald-100 bg-emerald-50 px-2 py-0.5 rounded shadow-sm"><Zap size={10} className="fill-emerald-600"/> DITERIMA (FISIK)</span>;
                                             break;
                                         case 'READY':
-                                            statusBadge = <span className="text-blue-600 font-black text-[10px] flex items-center gap-1 uppercase border border-blue-100 bg-blue-50 px-2 py-0.5 rounded">STOK AMAN</span>;
+                                            statusBadge = <span className="text-blue-600 font-black text-[10px] flex items-center gap-1 uppercase border border-blue-100 bg-blue-50 px-2 py-0.5 rounded">READY GUDANG</span>;
                                             break;
                                         case 'INDENT_MANUAL':
                                             statusBadge = <span className="text-red-600 font-black text-[10px] flex items-center gap-1 uppercase border border-red-100 bg-red-50 px-2 py-0.5 rounded">INDENT SUPPLIER</span>;
@@ -413,11 +419,11 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                             <td className="p-4 text-center font-black text-gray-800">{part.qty}</td>
                                             <td className="p-4">
                                                 {part.hasArrived ? (
-                                                    <span className="text-[9px] font-black text-emerald-600 flex items-center gap-1 uppercase"><CheckCircle size={10}/> Issued</span>
+                                                    <span className="text-[9px] font-black text-emerald-600 flex items-center gap-1 uppercase"><CheckCircle size={10}/> Diterima</span>
                                                 ) : part.isOrdered ? (
                                                     <div className="flex flex-col">
                                                         <span className="text-[9px] font-black text-indigo-600 flex items-center gap-1 uppercase"><ShoppingCart size={10}/> Sudah di-PO</span>
-                                                        {part.isIndent && <span className="text-[8px] text-red-500 font-black">STOK INDENT</span>}
+                                                        {part.isIndent && <span className="text-[8px] text-red-500 font-black uppercase">Stok Indent</span>}
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center gap-1 text-amber-600">

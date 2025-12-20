@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
+import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
 import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X } from 'lucide-react';
@@ -426,6 +426,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
           const batch = writeBatch(db);
 
+          // Track which jobs need part updates to prevent duplicate array writes
+          const jobUpdateMap: Record<string, { parts: EstimateItem[], changed: boolean }> = {};
+
           for (const idx of selectedItemsToReceive) {
               const item = updatedItems[idx];
               const qtyNow = receiveQtyMap[idx] || 0;
@@ -464,30 +467,47 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   targetInventoryId = newInvRef.id;
               }
 
-              updatedItems[idx] = { ...item, qtyReceived: (item.qtyReceived || 0) + qtyNow, inventoryId: targetInventoryId };
+              const newQtyReceived = (item.qtyReceived || 0) + qtyNow;
+              updatedItems[idx] = { ...item, qtyReceived: newQtyReceived, inventoryId: targetInventoryId };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
 
-              // LOGIC: INTEGRATE WITH WORK ORDER
-              // Automatically mark part as 'hasArrived' in the Job if this item is linked to a Job
+              // INTEGRATE WITH WORK ORDER (ROBUST VERSION)
               if (item.refJobId && item.refPartIndex !== undefined) {
-                  const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
-                  const jobSnap = await getDoc(jobRef);
-                  if (jobSnap.exists()) {
-                      const jobData = jobSnap.data() as Job;
-                      const currentParts = [...(jobData.estimateData?.partItems || [])];
-                      if (currentParts[item.refPartIndex]) {
-                          // Check if total received for this item meets or exceeds the required qty
-                          if ((item.qtyReceived || 0) + qtyNow >= item.qty) {
-                              currentParts[item.refPartIndex] = { ...currentParts[item.refPartIndex], hasArrived: true };
-                              batch.update(jobRef, { 
-                                  'estimateData.partItems': currentParts,
-                                  updatedAt: serverTimestamp()
-                              });
-                          }
+                  const jobId = item.refJobId;
+                  
+                  // Initialize map for this job if not exists
+                  if (!jobUpdateMap[jobId]) {
+                      const jobRef = doc(db, SERVICE_JOBS_COLLECTION, jobId);
+                      const jobSnap = await getDoc(jobRef);
+                      if (jobSnap.exists()) {
+                          jobUpdateMap[jobId] = {
+                              parts: [...(jobSnap.data().estimateData?.partItems || [])],
+                              changed: false
+                          };
+                      }
+                  }
+
+                  // Update part flag in memory map
+                  if (jobUpdateMap[jobId] && jobUpdateMap[jobId].parts[item.refPartIndex]) {
+                      // Mark as arrived if quantity matches or exceeds
+                      if (newQtyReceived >= item.qty) {
+                          jobUpdateMap[jobId].parts[item.refPartIndex].hasArrived = true;
+                          jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
+                          jobUpdateMap[jobId].changed = true;
                       }
                   }
               }
           }
+
+          // Apply Job Updates from the map to the batch
+          Object.entries(jobUpdateMap).forEach(([jobId, data]) => {
+              if (data.changed) {
+                  batch.update(doc(db, SERVICE_JOBS_COLLECTION, jobId), {
+                      'estimateData.partItems': data.parts,
+                      updatedAt: serverTimestamp()
+                  });
+              }
+          });
 
           const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
           batch.update(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
