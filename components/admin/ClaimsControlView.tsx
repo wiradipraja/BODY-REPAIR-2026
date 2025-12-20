@@ -7,7 +7,7 @@ import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers
 import { 
     ShieldCheck, Clock, AlertTriangle, ChevronRight, User, 
     MessageSquare, Search, Phone, Package, Calendar, ArrowRight,
-    ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info
+    ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -50,22 +50,39 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
 
       return filtered.map(job => {
           const parts = job.estimateData?.partItems || [];
-          let isPartReady = parts.length > 0;
+          const totalParts = parts.length;
+          const orderedParts = parts.filter(p => p.isOrdered).length;
           
-          if (parts.length > 0) {
+          let readyCount = 0;
+          let allPartsReady = totalParts > 0;
+          
+          if (totalParts > 0) {
               parts.forEach(p => {
-                  if (p.hasArrived) return;
+                  if (p.hasArrived) {
+                      readyCount++;
+                      return;
+                  }
                   const reqQty = p.qty || 1;
                   if (p.inventoryId && stockMap[p.inventoryId] >= reqQty) {
                       stockMap[p.inventoryId] -= reqQty;
+                      readyCount++;
                   } else {
-                      isPartReady = false;
+                      allPartsReady = false;
                   }
               });
           } else {
-              isPartReady = false;
+              allPartsReady = false;
           }
-          return { ...job, isReadyToCall: isPartReady };
+
+          return { 
+              ...job, 
+              isReadyToCall: allPartsReady, 
+              logistik: { 
+                  total: totalParts, 
+                  ordered: orderedParts, 
+                  ready: readyCount 
+              } 
+          };
       });
   }, [jobs, inventoryItems, searchTerm]);
 
@@ -214,7 +231,8 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                     const aging = getAgingDays(job.updatedAt || job.createdAt);
                                     const isCritical = aging > 3;
                                     const hasNegotiation = job.insuranceNegotiationLog && job.insuranceNegotiationLog.length > 0;
-                                    
+                                    const logistik = job.logistik;
+
                                     return (
                                         <div 
                                             key={job.id} 
@@ -236,6 +254,31 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                             <div className="space-y-1.5 mb-4">
                                                 <p className="text-[12px] font-bold text-gray-700 truncate uppercase">{job.carModel}</p>
                                                 <p className="text-[11px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
+                                                
+                                                {/* LOGISTIK INFO AREA */}
+                                                {logistik && logistik.total > 0 && (
+                                                    <div className="bg-gray-50 rounded-lg p-2 mt-2 space-y-1 border border-gray-100">
+                                                        <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase tracking-tighter">
+                                                            <div className="flex items-center gap-1"><ShoppingCart size={10}/> Order PO</div>
+                                                            <div className={logistik.ordered === logistik.total ? 'text-indigo-600' : ''}>
+                                                                {logistik.ordered} / {logistik.total}
+                                                            </div>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 h-1 rounded-full overflow-hidden">
+                                                            <div className="bg-indigo-500 h-full" style={{ width: `${(logistik.ordered / logistik.total) * 100}%` }}></div>
+                                                        </div>
+                                                        <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase tracking-tighter">
+                                                            <div className="flex items-center gap-1"><Package size={10}/> Ready Gudang</div>
+                                                            <div className={logistik.ready === logistik.total ? 'text-emerald-600' : ''}>
+                                                                {logistik.ready} / {logistik.total}
+                                                            </div>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 h-1 rounded-full overflow-hidden">
+                                                            <div className="bg-emerald-500 h-full" style={{ width: `${(logistik.ready / logistik.total) * 100}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 <div className="flex items-center justify-between pt-2">
                                                     <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1.5">
                                                         <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[8px]">SA</div> 
@@ -287,7 +330,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
             </div>
         </div>
         
-        {/* FOOTER INFO - CLEANER VERSION */}
+        {/* FOOTER INFO */}
         <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-wrap items-center gap-8 shadow-sm shrink-0">
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse"></div>
@@ -303,7 +346,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
              </div>
         </div>
 
-        {/* RE-ENTRY MODAL - CLEANER LIST */}
+        {/* RE-ENTRY MODAL */}
         <Modal 
             isOpen={isReEntryModalOpen} 
             onClose={() => { setIsReEntryModalOpen(false); setReEntrySearch(''); }}

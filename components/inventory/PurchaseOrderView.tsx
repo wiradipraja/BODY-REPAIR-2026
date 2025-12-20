@@ -110,6 +110,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         const docSnap = await getDoc(poRef);
         if(!docSnap.exists()) throw new Error("Dokumen PO tidak valid.");
 
+        const poData = docSnap.data() as PurchaseOrder;
+
+        // 1. Update PO Status
         await updateDoc(poRef, {
             status: 'Ordered',
             approvedBy: userPermissions.role,
@@ -117,8 +120,32 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             lastModified: serverTimestamp()
         });
 
-        showNotification(`PO ${selectedPO.poNumber} disetujui.`, "success");
-        // No need to manually update state, App.tsx listener handles it
+        // 2. AUTOMATION: Check linked jobs for status transition
+        const linkedJobIds = Array.from(new Set(poData.items.filter(i => i.refJobId).map(i => i.refJobId)));
+        
+        for (const jobId of linkedJobIds) {
+            if (!jobId) continue;
+            const jobRef = doc(db, SERVICE_JOBS_COLLECTION, jobId);
+            const jobSnap = await getDoc(jobRef);
+            
+            if (jobSnap.exists()) {
+                const jobData = jobSnap.data() as Job;
+                const parts = jobData.estimateData?.partItems || [];
+                
+                // Cek apakah SEMUA part sudah berstatus 'isOrdered' (termasuk yang baru di-approve ini)
+                const allOrdered = parts.every(p => p.isOrdered);
+                
+                if (allOrdered && jobData.posisiKendaraan === 'Di Pemilik') {
+                    // Jika unit masih di pemilik dan part sudah dipesan semua, naikkan status ke 'Tunggu Part'
+                    await updateDoc(jobRef, {
+                        statusKendaraan: 'Unit di Pemilik (Tunggu Part)',
+                        updatedAt: serverTimestamp()
+                    });
+                }
+            }
+        }
+
+        showNotification(`PO ${selectedPO.poNumber} disetujui & Workflow diupdate.`, "success");
         setViewMode('list');
         setSelectedPO(null);
     } catch (e: any) {

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -43,7 +44,8 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           !j.isClosed && 
           j.woNumber && 
           !j.isDeleted &&
-          j.statusKendaraan === 'Work In Progress' && // Strict filter for production
+          j.posisiKendaraan === 'Di Bengkel' && // CRITICAL: Only units physically inside
+          (j.statusKendaraan === 'Work In Progress' || j.statusKendaraan === 'Unit Rawat Jalan') && 
           (j.policeNumber.includes(term) || j.carModel.toUpperCase().includes(term) || j.customerName.toUpperCase().includes(term))
       );
   }, [jobs, searchTerm]);
