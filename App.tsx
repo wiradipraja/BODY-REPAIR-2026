@@ -96,7 +96,13 @@ const AppContent: React.FC = () => {
   const refreshSettings = async () => {
       try {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
-          if (!q.empty) setAppSettings(q.docs[0].data() as Settings);
+          if (!q.empty) {
+              const firestoreData = q.docs[0].data();
+              // Merging with initial state to ensure newly added fields are never undefined/missing
+              setAppSettings({ ...initialSettingsState, ...firestoreData } as Settings);
+          } else {
+              setAppSettings(initialSettingsState);
+          }
       } catch (e) { console.error(e); }
   };
 

@@ -61,20 +61,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     setLocalSettings(prev => ({ ...prev, [field]: value }));
   };
 
+  // FIXED: Added safety fallback to prevent "not iterable" error
   const handleArrayChange = (field: keyof Settings, index: number, value: any) => {
-    const arr = [...(localSettings[field] as any[])];
+    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
+    const arr = [...currentArray];
     arr[index] = value;
     setLocalSettings(prev => ({ ...prev, [field]: arr }));
   };
 
   const addItem = (field: keyof Settings, initialValue: any) => {
-    const arr = [...(localSettings[field] as any[])];
+    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
+    const arr = [...currentArray];
     arr.push(initialValue);
     setLocalSettings(prev => ({ ...prev, [field]: arr }));
   };
 
   const removeItem = (field: keyof Settings, index: number) => {
-    const arr = [...(localSettings[field] as any[])];
+    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
+    const arr = [...currentArray];
     arr.splice(index, 1);
     setLocalSettings(prev => ({ ...prev, [field]: arr }));
   };
@@ -488,16 +492,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {(localSettings.specialColorRates || []).map((rate, idx) => (
+                          {(localSettings.specialColorRates || []).map((rate, idx) => {
+                              const isCustom = rate.colorName && !mazdaColors.includes(rate.colorName) && rate.colorName !== '';
+                              
+                              return (
                               <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group transition-all hover:border-rose-300 hover:bg-rose-50/30">
                                   <div className="space-y-4">
                                       <div>
                                           <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pilih / Nama Warna</label>
                                           <select 
-                                              value={rate.colorName} 
+                                              value={isCustom ? 'Custom' : rate.colorName} 
                                               onChange={e => {
+                                                  const val = e.target.value;
                                                   const newRates = [...(localSettings.specialColorRates || [])];
-                                                  newRates[idx] = { ...rate, colorName: e.target.value };
+                                                  // If choosing custom, initialize with current name or empty
+                                                  newRates[idx] = { ...rate, colorName: val === 'Custom' ? (isCustom ? rate.colorName : '') : val };
                                                   setLocalSettings(prev => ({ ...prev, specialColorRates: newRates }));
                                               }}
                                               className="w-full p-2.5 bg-white border border-gray-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-rose-500"
@@ -506,18 +515,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                               {mazdaColors.map(c => <option key={c} value={c}>{c}</option>)}
                                               <option value="Custom">Manual Input...</option>
                                           </select>
-                                          {rate.colorName === 'Custom' && (
-                                              <input 
-                                                  type="text" 
-                                                  placeholder="Nama Warna Kustom..." 
-                                                  className="mt-2 w-full p-2.5 bg-white border border-gray-200 rounded-lg font-bold text-xs"
-                                                  onChange={e => {
-                                                      const newRates = [...(localSettings.specialColorRates || [])];
-                                                      newRates[idx] = { ...rate, colorName: e.target.value };
-                                                      setLocalSettings(prev => ({ ...prev, specialColorRates: newRates }));
-                                                  }}
-                                              />
-                                          )}
+                                          {isCustom || rate.colorName === '' ? (
+                                              <div className="mt-2 animate-fade-in">
+                                                  <input 
+                                                      type="text" 
+                                                      placeholder="Ketik Nama Warna..." 
+                                                      value={rate.colorName}
+                                                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-rose-500"
+                                                      onChange={e => {
+                                                          const newRates = [...(localSettings.specialColorRates || [])];
+                                                          newRates[idx] = { ...rate, colorName: e.target.value };
+                                                          setLocalSettings(prev => ({ ...prev, specialColorRates: newRates }));
+                                                      }}
+                                                  />
+                                              </div>
+                                          ) : null}
                                       </div>
                                       <div>
                                           <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Surcharge (Per 1.0 Panel)</label>
@@ -543,7 +555,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                       <Trash2 size={14}/>
                                   </button>
                               </div>
-                          ))}
+                          )})}
                           {(localSettings.specialColorRates || []).length === 0 && (
                               <div className="col-span-full py-10 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center text-gray-400 italic text-sm">
                                   <Palette size={32} className="mb-2 opacity-20"/>
@@ -555,7 +567,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               </div>
           )}
           
-          {/* TAB CONTENT OTHERS - STAY AS IS (SKIP FOR BREVITY) */}
+          {/* TAB CONTENT OTHERS */}
           {activeTab === 'general' && (
               <div className={`space-y-8 ${restrictedClass}`}>
                   <RestrictedOverlay/>
@@ -616,7 +628,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           <button onClick={() => addItem('mechanicNames', '')} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold hover:bg-indigo-200"><Plus size={12}/> Tambah</button>
                       </div>
                       <div className="space-y-2 max-h-60 overflow-y-auto">
-                          {localSettings.mechanicNames.map((mech, idx) => (
+                          {(localSettings.mechanicNames || []).map((mech, idx) => (
                               <div key={idx} className="flex gap-2">
                                   <input type="text" className="flex-grow p-1.5 border rounded text-sm" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
                                   <button onClick={() => removeItem('mechanicNames', idx)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
@@ -632,7 +644,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           <button onClick={() => addItem('serviceAdvisors', '')} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold hover:bg-indigo-200"><Plus size={12}/> Tambah</button>
                       </div>
                       <div className="space-y-2 max-h-60 overflow-y-auto">
-                          {localSettings.serviceAdvisors.map((sa, idx) => (
+                          {(localSettings.serviceAdvisors || []).map((sa, idx) => (
                               <div key={idx} className="flex gap-2">
                                   <input type="text" className="flex-grow p-1.5 border rounded text-sm" value={sa} onChange={e => handleArrayChange('serviceAdvisors', idx, e.target.value)} />
                                   <button onClick={() => removeItem('serviceAdvisors', idx)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
@@ -648,10 +660,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           <button onClick={() => addItem('insuranceOptions', {name: '', jasa: 0, part: 0})} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold hover:bg-indigo-200"><Plus size={12}/> Tambah</button>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {localSettings.insuranceOptions.map((ins, idx) => (
+                          {(localSettings.insuranceOptions || []).map((ins, idx) => (
                               <div key={idx} className="bg-white p-3 rounded border flex flex-col gap-2 relative group">
                                   <input type="text" placeholder="Nama Asuransi" className="font-bold text-sm border-b p-1" value={ins.name} onChange={e => {
-                                      const newArr = [...localSettings.insuranceOptions];
+                                      const newArr = [...(localSettings.insuranceOptions || [])];
                                       newArr[idx] = { ...ins, name: e.target.value };
                                       setLocalSettings(prev => ({ ...prev, insuranceOptions: newArr }));
                                   }} />
@@ -659,7 +671,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                       <div className="flex-1">
                                           <label className="text-gray-500 block">Disc Jasa %</label>
                                           <input type="number" className="w-full bg-gray-50 rounded p-1" value={ins.jasa} onChange={e => {
-                                              const newArr = [...localSettings.insuranceOptions];
+                                              const newArr = [...(localSettings.insuranceOptions || [])];
                                               newArr[idx] = { ...ins, jasa: Number(e.target.value) };
                                               setLocalSettings(prev => ({ ...prev, insuranceOptions: newArr }));
                                           }} />
@@ -667,7 +679,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                       <div className="flex-1">
                                           <label className="text-gray-500 block">Disc Part %</label>
                                           <input type="number" className="w-full bg-gray-50 rounded p-1" value={ins.part} onChange={e => {
-                                              const newArr = [...localSettings.insuranceOptions];
+                                              const newArr = [...(localSettings.insuranceOptions || [])];
                                               newArr[idx] = { ...ins, part: Number(e.target.value) };
                                               setLocalSettings(prev => ({ ...prev, insuranceOptions: newArr }));
                                           }} />
