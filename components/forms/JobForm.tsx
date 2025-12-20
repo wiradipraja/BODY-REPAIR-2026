@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Job, Settings } from '../../types';
-import { carBrands, mazdaColors } from '../../utils/constants';
+import { carBrands, mazdaColors, posisiKendaraanOptions } from '../../utils/constants';
 import { formatPoliceNumber } from '../../utils/helpers';
-import { Save, Loader2, User, Car, Shield, AlertTriangle, Search, Info, Zap, Wallet } from 'lucide-react';
+import { Save, Loader2, User, Car, Shield, AlertTriangle, Search, Info, Zap, Wallet, MapPin } from 'lucide-react';
 
 interface JobFormProps {
   initialData?: Job | null;
@@ -15,12 +15,12 @@ interface JobFormProps {
 
 const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCancel, allJobs = [] }) => {
   const [formData, setFormData] = useState<Partial<Job>>({
-    statusKendaraan: 'Booking Masuk',
+    statusKendaraan: 'Tunggu Estimasi', // DEFAULT UNTUK ADMIN CLAIM
     statusPekerjaan: 'Belum Mulai Perbaikan',
     posisiKendaraan: 'Di Bengkel',
     jumlahPanel: 0,
     woNumber: '',
-    namaSA: 'Pending Allocation', 
+    namaSA: '', 
     customerName: '',
     customerPhone: '',
     customerAddress: '',
@@ -79,12 +79,28 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     let processedValue: string | number = value;
+    
     if (name === 'policeNumber') {
         processedValue = formatPoliceNumber(value);
     } else if (type === 'number') {
         processedValue = Number(value);
     }
-    setFormData(prev => ({ ...prev, [name]: processedValue }));
+
+    setFormData(prev => {
+        const newData = { ...prev, [name]: processedValue };
+        
+        // AUTOMATION: Jika asuransi dipilih, status harus 'Tunggu Estimasi' agar masuk papan admin
+        // Jika Umum dipilih, status boleh 'Booking Masuk' atau 'Tunggu Estimasi'
+        if (name === 'namaAsuransi') {
+            if (value !== 'Umum / Pribadi') {
+                newData.statusKendaraan = 'Tunggu Estimasi';
+            } else {
+                newData.statusKendaraan = 'Booking Masuk';
+            }
+        }
+        
+        return newData;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -146,16 +162,25 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             </div>
 
             <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Warna Utama</label>
-                <select name="warnaMobil" value={formData.warnaMobil} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
-                    {mazdaColors.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Posisi Fisik Kendaraan Saat Ini *</label>
+                <div className="relative">
+                    <select 
+                        name="posisiKendaraan" 
+                        value={formData.posisiKendaraan} 
+                        onChange={handleChange} 
+                        className={`w-full p-3 pl-11 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-black ${formData.posisiKendaraan === 'Di Bengkel' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}
+                    >
+                        {posisiKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                    <MapPin className={`absolute left-4 top-3.5 ${formData.posisiKendaraan === 'Di Bengkel' ? 'text-emerald-500' : 'text-orange-500'}`} size={18}/>
+                </div>
+                <p className="text-[9px] text-gray-400 font-bold italic mt-1">* Tanggung jawab SA untuk menentukan unit menginap atau dibawa pulang oleh pemilik.</p>
             </div>
 
             <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Merk</label>
-                <select name="carBrand" value={formData.carBrand} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
-                    {carBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Warna Utama</label>
+                <select name="warnaMobil" value={formData.warnaMobil} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
+                    {mazdaColors.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
             </div>
 
@@ -170,8 +195,8 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             </div>
 
             <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Nomor Mesin</label>
-                <input type="text" name="nomorMesin" value={formData.nomorMesin || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-mono text-xs" placeholder="No. Mesin..." />
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tahun Pembuatan</label>
+                <input type="text" name="tahunPembuatan" value={formData.tahunPembuatan || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold" placeholder="2024" />
             </div>
         </div>
       </div>
@@ -194,7 +219,7 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                 </select>
             </div>
 
-            <div className={`md:col-span-2 p-5 rounded-2xl border transition-all ${isInsurance ? 'border-indigo-100 bg-white' : 'border-gray-100 bg-white'}`}>
+            <div className={`md:col-span-2 p-5 rounded-2xl border transition-all ${isInsurance ? 'border-indigo-100 bg-white shadow-sm' : 'border-gray-100 bg-white'}`}>
                 <div className="flex items-start gap-4">
                     <div className={`p-2 rounded-xl ${isInsurance ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-50 text-gray-400'}`}>
                         {isInsurance ? <Zap size={20}/> : <Wallet size={20}/>}
@@ -203,10 +228,10 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                         <p className="font-bold text-sm text-gray-800">
                             {isInsurance ? 'Alur Administrasi Asuransi (Klaim)' : 'Alur Perbaikan Umum (Non-Klaim)'}
                         </p>
-                        <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                        <p className="text-[11px] text-gray-400 mt-1 leading-relaxed font-medium">
                             {isInsurance 
-                                ? 'Sistem akan mengaktifkan modul pelacakan SPK, negosiasi asuransi, dan dokumen administrasi klaim.' 
-                                : 'Sistem akan memproses unit sebagai perbaikan pribadi/cash tanpa antrian validasi dokumen asuransi.'}
+                                ? 'Unit akan otomatis masuk ke antrian "Admin Claim Control" di kolom "Tunggu Estimasi".' 
+                                : 'Unit akan diproses sebagai perbaikan mandiri/cash tanpa antrian admin asuransi.'}
                         </p>
                     </div>
                 </div>
@@ -219,8 +244,11 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                         <input type="text" name="nomorPolis" value={formData.nomorPolis || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100" />
                     </div>
                     <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Masa Berlaku Polis</label>
-                        <input type="date" name="asuransiExpiryDate" value={formData.asuransiExpiryDate || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100" />
+                        <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Service Advisor (SA)</label>
+                        <select name="namaSA" value={formData.namaSA} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 font-bold">
+                            <option value="">-- Pilih SA Penanggung Jawab --</option>
+                            {(settings.serviceAdvisors || []).map(sa => <option key={sa} value={sa}>{sa}</option>)}
+                        </select>
                     </div>
                 </>
             )}
