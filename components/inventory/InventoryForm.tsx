@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { InventoryItem } from '../../types';
 import { Save, Loader2, Package, Info } from 'lucide-react';
@@ -44,6 +45,11 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
           ...prev,
           [name]: type === 'number' ? Number(value) : value
       }));
+  };
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'buyPrice' | 'sellPrice') => {
+      const raw = e.target.value.replace(/\D/g, '');
+      setFormData(prev => ({ ...prev, [field]: raw ? parseInt(raw, 10) : 0 }));
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,8 +189,9 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
                     <div className="relative">
                         <span className="absolute left-3 top-2 text-gray-500 text-sm">Rp</span>
                         <input 
-                            type="number" name="buyPrice" 
-                            value={formData.buyPrice} onChange={handleChange} 
+                            type="text" name="buyPrice" 
+                            value={formData.buyPrice ? new Intl.NumberFormat('id-ID').format(formData.buyPrice) : ''} 
+                            onChange={e => handlePriceChange(e, 'buyPrice')} 
                             className="w-full p-2 pl-9 border rounded"
                             placeholder="0"
                         />
@@ -200,8 +207,9 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
                         <div className="relative">
                             <span className="absolute left-3 top-2 text-gray-500 text-sm">Rp</span>
                             <input 
-                                type="number" name="sellPrice" 
-                                value={formData.sellPrice} onChange={handleChange} 
+                                type="text" name="sellPrice" 
+                                value={formData.sellPrice ? new Intl.NumberFormat('id-ID').format(formData.sellPrice) : ''} 
+                                onChange={e => handlePriceChange(e, 'sellPrice')} 
                                 className="w-full p-2 pl-9 border rounded font-bold text-emerald-700"
                                 placeholder="0"
                             />

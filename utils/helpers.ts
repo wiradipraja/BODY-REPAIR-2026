@@ -1,3 +1,4 @@
+
 import { Timestamp } from "firebase/firestore";
 
 export const formatCurrency = (number: number | undefined) => 
@@ -6,6 +7,25 @@ export const formatCurrency = (number: number | undefined) =>
 // Format Plat Nomor (Tanpa Spasi, Uppercase)
 export const formatPoliceNumber = (value: string) => {
     return value.replace(/\s/g, '').toUpperCase();
+};
+
+// NEW: Standardize WA Number to 628xxx format
+export const formatWaNumber = (phone: string | undefined): string => {
+    if (!phone) return '';
+    
+    // 1. Remove all non-numeric characters (spaces, dashes, plus signs)
+    let cleanNumber = phone.replace(/\D/g, '');
+
+    // 2. Handle '0' prefix
+    if (cleanNumber.startsWith('0')) {
+        cleanNumber = '62' + cleanNumber.substring(1);
+    }
+    // 3. Handle if starts with '8' (user forgot 0 or 62)
+    else if (cleanNumber.startsWith('8')) {
+        cleanNumber = '62' + cleanNumber;
+    }
+
+    return cleanNumber;
 };
 
 // Recursive function to remove undefined values for Firestore

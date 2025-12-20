@@ -32,6 +32,11 @@ service cloud.firestore {
       }
     }
 
+    // Rules untuk Master Jasa Service (Panel & Harga) - NEW
+    match /bengkel-services-master/{serviceId} {
+      allow read, write: if isAuthenticated();
+    }
+
     // Rules untuk Konfigurasi Sistem (Workshop Info, Role, dsb)
     match /bengkel-settings/{docId} {
       allow read, write: if isAuthenticated();
@@ -50,6 +55,11 @@ service cloud.firestore {
 
     // Rules untuk Transaksi Kasir (Cashier & Gatepass)
     match /bengkel-cashier-transactions/{trxId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules untuk Asset & Inventaris Tetap (NEW)
+    match /bengkel-assets/{assetId} {
       allow read, write: if isAuthenticated();
     }
 

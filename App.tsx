@@ -2,8 +2,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
-import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder } from './types';
+import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder, Asset } from './types';
 import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
 
@@ -25,7 +25,12 @@ import AccountingView from './components/finance/AccountingView';
 import CashierView from './components/finance/CashierView'; 
 import DebtReceivableView from './components/finance/DebtReceivableView'; 
 import InvoiceCreatorView from './components/finance/InvoiceCreatorView';
-import TaxManagementView from './components/finance/TaxManagementView'; // NEW IMPORT
+import TaxManagementView from './components/finance/TaxManagementView';
+import SpklManagementView from './components/production/SpklManagementView';
+import AssetManagementView from './components/general/AssetManagementView';
+import CrcDashboardView from './components/crc/CrcDashboardView'; 
+import JobControlView from './components/production/JobControlView';
+import ReportCenterView from './components/reports/ReportCenterView'; // NEW IMPORT
 import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -42,6 +47,7 @@ const AppContent: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
   const [transactions, setTransactions] = useState<CashierTransaction[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]); 
   
   const [loadingData, setLoadingData] = useState(true);
 
@@ -51,35 +57,74 @@ const AppContent: React.FC = () => {
     
     setLoadingData(true);
     
+    // Helper for error handling
+    const handleError = (context: string) => (error: any) => {
+        console.error(`Error in ${context} listener:`, error);
+        // Silently fail or show toast if needed, but prevent crash
+    };
+
     // 1. Vehicles
-    const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION)), (snap) => {
-      setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
-    });
+    const unsubVehicles = onSnapshot(
+        query(collection(db, UNITS_MASTER_COLLECTION)), 
+        (snap) => {
+            setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)).filter(v => !v.isDeleted));
+        }, 
+        handleError("Vehicles")
+    );
 
     // 2. Service Jobs
-    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION)), (snap) => {
-      setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
-    });
+    const unsubJobs = onSnapshot(
+        query(collection(db, SERVICE_JOBS_COLLECTION)), 
+        (snap) => {
+            setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
+        },
+        handleError("Jobs")
+    );
 
     // 3. Inventory
-    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION)), (snap) => {
-      setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
-    });
+    const unsubInventory = onSnapshot(
+        query(collection(db, SPAREPART_COLLECTION)), 
+        (snap) => {
+            setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+        },
+        handleError("Inventory")
+    );
 
     // 4. Suppliers
-    const unsubSuppliers = onSnapshot(query(collection(db, SUPPLIERS_COLLECTION)), (snap) => {
-      setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
-    });
+    const unsubSuppliers = onSnapshot(
+        query(collection(db, SUPPLIERS_COLLECTION)), 
+        (snap) => {
+            setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
+        },
+        handleError("Suppliers")
+    );
 
     // 5. Cashier Transactions (New Real-time)
-    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
-      setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
-    });
+    const unsubTransactions = onSnapshot(
+        query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc')), 
+        (snap) => {
+            setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
+        },
+        handleError("Transactions")
+    );
 
     // 6. Purchase Orders (New Real-time)
-    const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc')), (snap) => {
-      setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
-    });
+    const unsubPOs = onSnapshot(
+        query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc')), 
+        (snap) => {
+            setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
+        },
+        handleError("PurchaseOrders")
+    );
+
+    // 7. Assets (New Real-time)
+    const unsubAssets = onSnapshot(
+        query(collection(db, ASSETS_COLLECTION)), 
+        (snap) => {
+            setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
+        },
+        handleError("Assets")
+    );
 
     setLoadingData(false);
     
@@ -91,6 +136,7 @@ const AppContent: React.FC = () => {
         unsubSuppliers();
         unsubTransactions();
         unsubPOs();
+        unsubAssets();
     };
   }, [user]);
 
@@ -234,7 +280,7 @@ const AppContent: React.FC = () => {
           
           showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi Tersimpan`, "success");
           closeModal();
-          setCurrentView('entry_data');
+          setCurrentView('entry_data'); // Go to job list
           return saveType === 'wo' ? woNumber! : estimationNumber!;
       } catch (e) {
           console.error(e);
@@ -243,7 +289,6 @@ const AppContent: React.FC = () => {
       }
   };
 
-  // --- REVISED CLOSE JOB LOGIC WITH VALIDATION ---
   const handleCloseJob = async (job: Job) => {
       // 1. Validate Sparepart Issuance
       const partItems = job.estimateData?.partItems || [];
@@ -319,7 +364,8 @@ const AppContent: React.FC = () => {
              </div>
         )}
 
-        {currentView === 'estimation' && (
+        {/* Updated: 'estimation_create' is the ID for creating/finding jobs now */}
+        {currentView === 'estimation_create' && (
             <div className="max-w-4xl mx-auto">
                 <EstimationForm 
                     allVehicles={vehicles} 
@@ -338,7 +384,7 @@ const AppContent: React.FC = () => {
                     allData={filteredJobs}
                     openModal={openModal}
                     onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }}
-                    onCloseJob={handleCloseJob} // USING VALIDATED HANDLER
+                    onCloseJob={handleCloseJob} 
                     onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }}
                     userPermissions={userPermissions}
                     showNotification={showNotification}
@@ -351,10 +397,45 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
+        {currentView === 'production_spkl' && (
+            <SpklManagementView 
+                jobs={jobs} 
+                suppliers={suppliers} 
+                userPermissions={userPermissions} 
+                showNotification={showNotification} 
+            />
+        )}
+
+        {/* NEW PRODUCTION VIEW */}
+        {currentView === 'job_control' && (
+            <JobControlView 
+                jobs={jobs}
+                settings={appSettings}
+                showNotification={showNotification}
+                userPermissions={userPermissions}
+            />
+        )}
+
+        {currentView === 'general_affairs' && (
+            <AssetManagementView 
+                assets={assets}
+                userPermissions={userPermissions}
+                showNotification={showNotification}
+            />
+        )}
+
+        {currentView === 'crc_dashboard' && (
+            <CrcDashboardView 
+                jobs={jobs} 
+                inventoryItems={inventoryItems}
+                settings={appSettings} 
+                showNotification={showNotification} 
+            />
+        )}
+
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} />}
         {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
         
-        {/* Pass Global POs to View */}
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} realTimePOs={purchaseOrders} />}
         
         {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}
@@ -362,8 +443,8 @@ const AppContent: React.FC = () => {
 
         {/* FINANCE - FULLY REAL-TIME PROPS */}
         {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
-        {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
-        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} />}
+        {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} suppliers={suppliers} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
+        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} assets={assets} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
 
@@ -371,6 +452,16 @@ const AppContent: React.FC = () => {
             <div className="max-w-5xl mx-auto">
                 <SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} />
             </div>
+        )}
+
+        {/* NEW REPORT CENTER VIEW */}
+        {currentView === 'report_center' && (
+            <ReportCenterView 
+                jobs={jobs} 
+                transactions={transactions} 
+                purchaseOrders={purchaseOrders} 
+                inventoryItems={inventoryItems} 
+            />
         )}
 
         <Modal 

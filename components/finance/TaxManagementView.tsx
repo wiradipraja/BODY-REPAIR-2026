@@ -1,26 +1,41 @@
 
 import React, { useState, useMemo } from 'react';
-import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions } from '../../types';
+import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, CASHIER_COLLECTION } from '../../services/firebase';
-// Added XCircle to the imports from lucide-react
-import { Landmark, Calendar, Landmark as TaxIcon, ArrowUpRight, ArrowDownRight, Calculator, Plus, History, Receipt, AlertCircle, Building2, Save, Loader2, ListChecks, CheckCircle2, FileText, ShoppingCart, Percent, XCircle } from 'lucide-react';
+// Fix: Added getDocs to imports from firebase/firestore
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
+import { Landmark, Calendar, Landmark as TaxIcon, ArrowUpRight, ArrowDownRight, Calculator, Plus, History, Receipt, AlertCircle, Building2, Save, Loader2, ListChecks, CheckCircle2, FileText, ShoppingCart, Percent, XCircle, Wrench, Info, Users, ArrowRight, BarChart3, TrendingUp, ShieldCheck, ClipboardCheck } from 'lucide-react';
 
 interface TaxManagementViewProps {
   jobs: Job[];
   purchaseOrders: PurchaseOrder[];
   transactions: CashierTransaction[];
+  suppliers: Supplier[];
   settings: Settings;
   showNotification: (msg: string, type: string) => void;
   userPermissions: UserPermissions;
 }
 
-const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrders, transactions, settings, showNotification, userPermissions }) => {
-  const [activeTab, setActiveTab] = useState<'summary' | 'pending' | 'history'>('summary');
+const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrders, transactions, suppliers, settings, showNotification, userPermissions }) => {
+  const [activeTab, setActiveTab] = useState<'summary' | 'pending' | 'calculators' | 'history'>('summary');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // --- CALCULATOR STATES ---
+  const [calcPPh21, setCalcPPh21] = useState({
+      grossIncome: 0,
+      hasNPWP: true,
+      category: 'Bukan Pegawai'
+  });
+
+  // Wizard PPh 25 State
+  const [pph25Wizard, setPph25Wizard] = useState({
+      pphTerutangSPT: 0,
+      kreditPajak: 0, // Total PPh 22, 23, 24
+      isSavingDefault: false
+  });
 
   // Form State for Tax Payment
   const [taxForm, setTaxForm] = useState({
@@ -31,9 +46,15 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
       paymentMethod: 'Transfer' as 'Cash' | 'Transfer' | 'EDC',
       bankName: settings.workshopBankAccounts?.[0] ? `${settings.workshopBankAccounts[0].bankName} - ${settings.workshopBankAccounts[0].accountNumber}` : '',
       notes: '',
-      refNumber: '', // Linked to WO/PO
+      refNumber: '',
       refId: ''
   });
+
+  // Helper for formatting
+  const handleNumberChange = (value: string, setter: (val: number) => void) => {
+      const raw = value.replace(/\D/g, '');
+      setter(raw ? parseInt(raw, 10) : 0);
+  };
 
   // --- GET SETTLED TAX REF IDS ---
   const settledTaxRefs = useMemo(() => {
@@ -42,26 +63,51 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
         .map(t => t.refNumber));
   }, [transactions]);
 
-  // --- DATA PROCESSING: PPN Output (Invoices) ---
+  // --- DATA PROCESSING ---
   const pendingPPNInvoices = useMemo(() => {
       return jobs.filter(j => 
           j.hasInvoice && 
           j.woNumber && 
           !settledTaxRefs.has(j.woNumber)
-      ).sort((a,b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0));
+      ).sort((a,b) => (b.closedAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [jobs, settledTaxRefs]);
 
-  // --- DATA PROCESSING: PPh 23 (Sublet POs) ---
   const pendingPPhSublets = useMemo(() => {
-      return purchaseOrders.filter(po => 
-          po.status === 'Received' && 
-          !settledTaxRefs.has(po.poNumber) &&
-          // Check if PO contains sublet/jasa items
-          po.items.some(item => item.category === 'material' || item.name.toLowerCase().includes('jasa'))
-      ).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-  }, [purchaseOrders, settledTaxRefs]);
+      return purchaseOrders.filter(po => {
+          const supplier = suppliers.find(s => s.id === po.supplierId);
+          return (
+              po.status === 'Received' && 
+              supplier?.category === 'Jasa Luar' &&
+              !settledTaxRefs.has(po.poNumber)
+          );
+      }).sort((a,b) => (b.closedAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  }, [purchaseOrders, suppliers, settledTaxRefs]);
 
-  // --- REQUISITION CALCULATION: PPN ---
+  const monthlyRevenue = useMemo(() => {
+      return jobs.filter(j => {
+          if (!j.isClosed || !j.closedAt) return false;
+          const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+          return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+      }).reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
+  }, [jobs, selectedMonth, selectedYear]);
+
+  const annualRevenue = useMemo(() => {
+      return jobs.filter(j => {
+          if (!j.isClosed || !j.closedAt) return false;
+          const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+          return d.getFullYear() === selectedYear;
+      }).reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
+  }, [jobs, selectedYear]);
+
+  // --- PPh 25 INSTALLMENT TRACKING ---
+  const pph25InstallmentsPaid = useMemo(() => {
+      return transactions.filter(t => 
+        t.category === 'Pajak' && 
+        t.description?.includes('PPh 25') && 
+        new Date(t.date?.seconds * 1000).getFullYear() === selectedYear
+      );
+  }, [transactions, selectedYear]);
+
   const ppnStats = useMemo(() => {
       const periodInvoices = jobs.filter(j => {
           if (!j.hasInvoice || !j.closedAt) return false;
@@ -86,7 +132,55 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
         .sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
   }, [transactions]);
 
+  // --- CALCULATION LOGICS ---
+  const pph21Result = useMemo(() => {
+      const dpp = calcPPh21.grossIncome * 0.5;
+      const rate = calcPPh21.hasNPWP ? 0.05 : 0.06;
+      return Math.round(dpp * rate);
+  }, [calcPPh21]);
+
+  const pph25InstallmentResult = useMemo(() => {
+      const sisaPajak = pph25Wizard.pphTerutangSPT - pph25Wizard.kreditPajak;
+      return sisaPajak > 0 ? Math.round(sisaPajak / 12) : 0;
+  }, [pph25Wizard]);
+
+  const umkmTaxResult = Math.round(monthlyRevenue * 0.005);
+
   // --- HANDLERS ---
+  const applyCalcToForm = (type: string, amount: number, desc: string) => {
+      setTaxForm({
+          ...taxForm,
+          type: type as any,
+          amount,
+          notes: desc
+      });
+      setActiveTab('pending');
+      showNotification("Hasil kalkulasi diterapkan ke form setor.", "success");
+  };
+
+  const handleUpdatePph25Settings = async () => {
+      if (pph25InstallmentResult <= 0) return;
+      if (!window.confirm(`Gunakan ${formatCurrency(pph25InstallmentResult)} sebagai standar angsuran bulanan bengkel?`)) return;
+
+      setPph25Wizard(prev => ({ ...prev, isSavingDefault: true }));
+      try {
+          // Cari doc settings (bengkel-settings biasanya hanya 1 doc)
+          const q = await getDocs(collection(db, SETTINGS_COLLECTION));
+          if (!q.empty) {
+              const settingsDocRef = doc(db, SETTINGS_COLLECTION, q.docs[0].id);
+              await updateDoc(settingsDocRef, {
+                  fixedPph25Amount: pph25InstallmentResult,
+                  taxProfile: 'UMUM'
+              });
+              showNotification("Profil Pajak PPh 25 diperbarui di sistem.", "success");
+          }
+      } catch (e: any) {
+          showNotification("Gagal update settings: " + e.message, "error");
+      } finally {
+          setPph25Wizard(prev => ({ ...prev, isSavingDefault: false }));
+      }
+  };
+
   const prepareTaxFromInvoice = (job: Job) => {
       setTaxForm({
           ...taxForm,
@@ -96,11 +190,10 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
           refId: job.id,
           notes: `Setoran PPN Faktur ${job.woNumber} - ${job.customerName}`
       });
-      setActiveTab('pending'); // Scroll to form area
+      setActiveTab('pending'); 
   };
 
   const prepareTaxFromPO = (po: PurchaseOrder) => {
-      // Calculate 2% PPh 23 from total service cost (Assume 2% if not specific)
       const serviceTotal = po.items.reduce((acc, item) => acc + item.total, 0);
       const pphAmount = Math.round(serviceTotal * 0.02);
 
@@ -110,7 +203,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
           amount: pphAmount,
           refNumber: po.poNumber,
           refId: po.id,
-          notes: `Potongan PPh 23 (2%) atas PO Sublet ${po.poNumber} - ${po.supplierName}`
+          notes: `Potongan PPh 23 (2%) atas Jasa Luar ${po.poNumber} - ${po.supplierName}`
       });
       setActiveTab('pending');
   };
@@ -159,7 +252,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Manajemen Pajak Terintegrasi</h1>
-                    <p className="text-sm text-gray-500 font-medium">Monitoring Pajak Berbasis Transaksi (Case-by-Case Compliance)</p>
+                    <p className="text-sm text-gray-500 font-medium">Compliance Fiskal {settings.taxProfile || 'UMKM'} Bengkel</p>
                 </div>
             </div>
             
@@ -181,9 +274,12 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
             <button onClick={() => setActiveTab('summary')} className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${activeTab === 'summary' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 <Calculator size={18}/> Ringkasan PPN
             </button>
+            <button onClick={() => setActiveTab('calculators')} className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${activeTab === 'calculators' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                <Percent size={18}/> Kalkulator & Perencanaan Pajak
+            </button>
             <button onClick={() => setActiveTab('pending')} className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${activeTab === 'pending' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                <ListChecks size={18}/> Daftar Tunggu Pajak (Case)
-                { (pendingPPNInvoices.length + pendingPPhSublets.length) > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingPPNInvoices.length + pendingPPhSublets.length}</span>}
+                <ListChecks size={18}/> Daftar Tunggu & Setor
+                { (pendingPPNInvoices.length + pendingPPhSublets.length) > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full ml-1">{pendingPPNInvoices.length + pendingPPhSublets.length}</span>}
             </button>
             <button onClick={() => setActiveTab('history')} className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${activeTab === 'history' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 <History size={18}/> Riwayat Setoran
@@ -216,9 +312,218 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
                 <div className="bg-white p-8 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-center">
                     <AlertCircle size={40} className="text-indigo-300 mb-3"/>
-                    <h3 className="font-bold text-gray-800">Tips Kepatuhan Pajak</h3>
-                    <p className="text-sm text-gray-500 max-w-lg mt-2">Gunakan tab <strong>Daftar Tunggu</strong> untuk membayar pajak secara spesifik per transaksi. Ini membantu melacak Faktur mana yang sudah dilaporkan NTPN-nya.</p>
+                    <h3 className="font-bold text-gray-800">Audit Compliance Dashboard</h3>
+                    <p className="text-sm text-gray-500 max-w-lg mt-2">Pastikan semua WO yang sudah selesai (Closed) memiliki record PPN di tab Daftar Tunggu untuk menghindari selisih data saat pelaporan SPT.</p>
                 </div>
+            </div>
+        )}
+
+        {/* TAB: CALCULATORS */}
+        {activeTab === 'calculators' && (
+            <div className="space-y-8 animate-fade-in">
+                {/* TOP SECTION: WIZARDS */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* PPh 21 CALCULATOR */}
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                        <div className="p-4 bg-indigo-600 text-white flex justify-between items-center">
+                            <h3 className="font-bold flex items-center gap-2"><Users size={18}/> Kalkulator PPh 21 (Staff/Mekanik)</h3>
+                            <div className="bg-white/20 px-2 py-1 rounded text-[10px] font-bold">Pasal 21</div>
+                        </div>
+                        <div className="p-6 space-y-6">
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Penghasilan Bruto (Total Gaji/Komisi)</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2.5 font-bold text-gray-400">Rp</span>
+                                        <input 
+                                            type="text" 
+                                            value={calcPPh21.grossIncome ? new Intl.NumberFormat('id-ID').format(calcPPh21.grossIncome) : ''} 
+                                            onChange={e => handleNumberChange(e.target.value, (val) => setCalcPPh21({...calcPPh21, grossIncome: val}))}
+                                            className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg text-lg font-black text-gray-800 focus:ring-2 ring-indigo-500"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <span className="text-sm font-medium text-gray-700">Karyawan memiliki NPWP?</span>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" checked={calcPPh21.hasNPWP} onChange={e => setCalcPPh21({...calcPPh21, hasNPWP: e.target.checked})} className="sr-only peer"/>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                <div className="flex justify-between text-xs font-bold text-indigo-400 uppercase mb-2">
+                                    <span>PPh 21 Terutang</span>
+                                    <span>Hasil Perhitungan</span>
+                                </div>
+                                <div className="flex justify-between items-baseline">
+                                    <div className="text-[10px] text-gray-500">DPP (50% Bruto) x {calcPPh21.hasNPWP ? '5%' : '6%'}</div>
+                                    <div className="text-2xl font-black text-indigo-700">{formatCurrency(pph21Result)}</div>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={() => applyCalcToForm('PPh 21', pph21Result, `Pajak PPh 21 ${calcPPh21.hasNPWP ? 'NPWP' : 'Non-NPWP'} atas Bruto ${formatCurrency(calcPPh21.grossIncome)}`)}
+                                disabled={pph21Result <= 0}
+                                className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                Terapkan ke Form Setoran <ArrowRight size={18}/>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* PPh 25 / UMKM CALCULATOR */}
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                        <div className={`p-4 text-white flex justify-between items-center ${settings.taxProfile === 'UMKM' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                            <h3 className="font-bold flex items-center gap-2">
+                                <BarChart3 size={18}/> 
+                                {settings.taxProfile === 'UMKM' ? 'Kalkulator PPh Final UMKM' : 'Asisten Skema PPh 25 (Umum)'}
+                            </h3>
+                            <div className="bg-white/20 px-2 py-1 rounded text-[10px] font-bold">
+                                {settings.taxProfile === 'UMKM' ? 'PP 55/2022' : 'Wizard Angsuran'}
+                            </div>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            {settings.taxProfile === 'UMKM' ? (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase">Omzet Bulan Ini</p>
+                                            <p className="text-lg font-black text-gray-800">{formatCurrency(monthlyRevenue)}</p>
+                                        </div>
+                                        <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                            <p className="text-[10px] font-bold text-indigo-400 uppercase">PPh Final (0,5%)</p>
+                                            <p className="text-lg font-black text-indigo-700">{formatCurrency(umkmTaxResult)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1"><TrendingUp size={12}/> Akumulasi Omzet {selectedYear}</p>
+                                            <p className="text-[10px] font-bold text-amber-700">{Math.round((annualRevenue / 4800000000) * 100)}%</p>
+                                        </div>
+                                        <div className="w-full bg-amber-200/50 rounded-full h-2 overflow-hidden">
+                                            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${Math.min((annualRevenue / 4800000000) * 100, 100)}%` }}></div>
+                                        </div>
+                                        <div className="flex justify-between mt-1 text-[10px] text-amber-600 font-medium">
+                                            <span>Total: {formatCurrency(annualRevenue)}</span>
+                                            <span>Limit: 4,8 M</span>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => applyCalcToForm('PPh 25', umkmTaxResult, `Setoran PPh Final 0,5% UMKM atas Omzet Masa ${selectedMonth + 1}/${selectedYear}`)}
+                                        disabled={umkmTaxResult <= 0}
+                                        className="w-full py-3 bg-emerald-600 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        Terapkan Setoran UMKM <ArrowRight size={18}/>
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">PPh Terutang Setahun (SPT)</label>
+                                            <input 
+                                                type="text" 
+                                                value={pph25Wizard.pphTerutangSPT ? new Intl.NumberFormat('id-ID').format(pph25Wizard.pphTerutangSPT) : ''} 
+                                                onChange={e => handleNumberChange(e.target.value, (val) => setPph25Wizard({...pph25Wizard, pphTerutangSPT: val}))}
+                                                className="w-full p-2 border border-gray-300 rounded text-sm font-bold"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Total Kredit Pajak (22, 23, 24)</label>
+                                            <input 
+                                                type="text" 
+                                                value={pph25Wizard.kreditPajak ? new Intl.NumberFormat('id-ID').format(pph25Wizard.kreditPajak) : ''} 
+                                                onChange={e => handleNumberChange(e.target.value, (val) => setPph25Wizard({...pph25Wizard, kreditPajak: val}))}
+                                                className="w-full p-2 border border-gray-300 rounded text-sm font-bold"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                                        <div className="flex justify-between text-[10px] font-bold text-red-400 uppercase mb-1">
+                                            <span>Rekomendasi Angsuran Bulanan</span>
+                                            <span>PPh 25</span>
+                                        </div>
+                                        <div className="flex justify-between items-baseline">
+                                            <div className="text-[10px] text-gray-500">(Total - Kredit) / 12</div>
+                                            <div className="text-xl font-black text-red-700">{formatCurrency(pph25InstallmentResult)}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => applyCalcToForm('PPh 25', pph25InstallmentResult, `Setoran Angsuran PPh 25 Masa ${selectedMonth + 1}/${selectedYear}`)}
+                                            disabled={pph25InstallmentResult <= 0}
+                                            className="flex-1 py-2.5 bg-gray-800 text-white rounded-lg text-xs font-bold hover:bg-gray-900 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
+                                            Bebankan Bulan Ini
+                                        </button>
+                                        <button 
+                                            onClick={handleUpdatePph25Settings}
+                                            disabled={pph25InstallmentResult <= 0 || pph25Wizard.isSavingDefault}
+                                            className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-md border border-red-700"
+                                        >
+                                            {pph25Wizard.isSavingDefault ? <Loader2 className="animate-spin" size={14}/> : <ShieldCheck size={14}/>}
+                                            Set Sebagai Default
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* BOTTOM SECTION: MONITORING & TIMELINE */}
+                {settings.taxProfile === 'UMUM' && (
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in flex flex-col min-h-[400px]">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                            <h3 className="font-bold text-gray-800 flex items-center gap-2"><ClipboardCheck size={18} className="text-red-600"/> Proyeksi & Kepatuhan Angsuran PPh 25 (Tahun {selectedYear})</h3>
+                            <div className="text-[10px] font-bold text-gray-500 bg-white px-2 py-1 rounded border">Target: {formatCurrency((settings.fixedPph25Amount || 0) * 12)} / Tahun</div>
+                        </div>
+                        <div className="p-6">
+                            <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
+                                {["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"].map((m, idx) => {
+                                    const isPaid = pph25InstallmentsPaid.some(t => new Date(t.date?.seconds * 1000).getMonth() === idx);
+                                    const isPast = new Date().getFullYear() > selectedYear || (new Date().getFullYear() === selectedYear && new Date().getMonth() > idx);
+                                    
+                                    return (
+                                        <div key={m} className={`flex flex-col items-center p-3 rounded-lg border text-center transition-all ${isPaid ? 'bg-emerald-50 border-emerald-200 ring-2 ring-emerald-100' : isPast ? 'bg-red-50 border-red-100 opacity-60' : 'bg-gray-50 border-gray-100'}`}>
+                                            <span className={`text-[10px] font-black mb-2 ${isPaid ? 'text-emerald-600' : 'text-gray-400'}`}>{m.toUpperCase()}</span>
+                                            {isPaid ? (
+                                                <CheckCircle2 size={24} className="text-emerald-500"/>
+                                            ) : (
+                                                <div className={`w-6 h-6 rounded-full border-2 border-dashed ${isPast ? 'border-red-300' : 'border-gray-200'}`}></div>
+                                            )}
+                                            <span className="text-[8px] font-bold mt-2 text-gray-500">
+                                                {isPaid ? 'LUNAS' : isPast ? 'MISSING' : 'PENDING'}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            
+                            <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Terselesaikan</p>
+                                    <p className="text-xl font-black text-gray-800">{pph25InstallmentsPaid.length} / 12 <span className="text-sm font-medium text-gray-500">Bulan</span></p>
+                                </div>
+                                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                                    <p className="text-[10px] font-bold text-emerald-600 uppercase">Total Terbayar</p>
+                                    <p className="text-xl font-black text-emerald-700">{formatCurrency(pph25InstallmentsPaid.reduce((acc, t) => acc + t.amount, 0))}</p>
+                                </div>
+                                <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                    <p className="text-[10px] font-bold text-indigo-600 uppercase">Kepatuhan Pajak</p>
+                                    <p className="text-xl font-black text-indigo-700">{Math.round((pph25InstallmentsPaid.length / 12) * 100)}%</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         )}
 
@@ -226,7 +531,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
                 {/* LEFT: PENDING LIST */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* SECTION PPN */}
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center">
                             <h3 className="font-bold text-emerald-800 flex items-center gap-2"><FileText size={18}/> Piutang PPN (Invoice Keluar)</h3>
@@ -246,7 +550,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                                                 <div className="font-bold text-emerald-600">{formatCurrency(job.estimateData?.ppnAmount)}</div>
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <button onClick={() => prepareTaxFromInvoice(job)} className="text-[10px] font-bold bg-emerald-600 text-white px-3 py-1.5 rounded hover:bg-emerald-700 shadow-sm">Bayar / Setor</button>
+                                                <button onClick={() => prepareTaxFromInvoice(job)} className="text-[10px] font-bold bg-emerald-600 text-white px-3 py-1.5 rounded hover:bg-emerald-700 shadow-sm transition-transform active:scale-95">Bayar / Setor</button>
                                             </td>
                                         </tr>
                                     ))}
@@ -256,11 +560,10 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                         </div>
                     </div>
 
-                    {/* SECTION PPh 23 */}
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="p-4 bg-orange-50 border-b border-orange-100 flex justify-between items-center">
-                            <h3 className="font-bold text-orange-800 flex items-center gap-2"><ShoppingCart size={18}/> Hutang PPh 23 (Potongan Sublet)</h3>
-                            <span className="text-[10px] font-bold bg-white text-orange-600 px-2 py-1 rounded border border-orange-200">{pendingPPhSublets.length} PO</span>
+                            <h3 className="font-bold text-orange-800 flex items-center gap-2"><Wrench size={18}/> Hutang PPh 23 (Objek Jasa Luar)</h3>
+                            <span className="text-[10px] font-bold bg-white text-orange-600 px-2 py-1 rounded border border-emerald-200">{pendingPPhSublets.length} PO</span>
                         </div>
                         <div className="overflow-x-auto max-h-60 overflow-y-auto">
                             <table className="w-full text-sm text-left">
@@ -271,19 +574,19 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                                             <tr key={po.id} className="hover:bg-gray-50">
                                                 <td className="px-4 py-3">
                                                     <div className="font-bold text-gray-900">{po.poNumber}</div>
-                                                    <div className="text-[10px] text-gray-400">{po.supplierName}</div>
+                                                    <div className="text-[10px] text-gray-400 font-bold text-indigo-600">{po.supplierName} (Vendor Jasa)</div>
                                                 </td>
                                                 <td className="px-4 py-3 text-right">
-                                                    <div className="text-[10px] text-gray-400">Est. PPh 23 (2%)</div>
+                                                    <div className="text-[10px] text-gray-400">Potongan PPh 23 (2%)</div>
                                                     <div className="font-bold text-orange-600">{formatCurrency(serviceTotal * 0.02)}</div>
                                                 </td>
                                                 <td className="px-4 py-3 text-right">
-                                                    <button onClick={() => prepareTaxFromPO(po)} className="text-[10px] font-bold bg-orange-600 text-white px-3 py-1.5 rounded hover:bg-orange-700 shadow-sm">Bebankan</button>
+                                                    <button onClick={() => prepareTaxFromPO(po)} className="text-[10px] font-bold bg-orange-600 text-white px-3 py-1.5 rounded hover:bg-orange-700 shadow-sm transition-transform active:scale-95">Potong & Bebankan</button>
                                                 </td>
                                             </tr>
                                         );
                                     })}
-                                    {pendingPPhSublets.length === 0 && <tr><td colSpan={3} className="p-8 text-center text-gray-400 italic">Tidak ada tagihan PPh 23 yang perlu dipotong.</td></tr>}
+                                    {pendingPPhSublets.length === 0 && <tr><td colSpan={3} className="p-8 text-center text-gray-400 italic">Tidak ada tagihan Jasa Luar yang perlu dipotong PPh 23.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -313,8 +616,8 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                             <select value={taxForm.type} onChange={e => setTaxForm({...taxForm, type: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 font-bold text-gray-800">
                                 <option value="PPh 23">PPh 23 (Potongan Jasa Luar)</option>
                                 <option value="PPN (Setoran Masa)">PPN (Setoran Hasil Faktur)</option>
+                                <option value="PPh 25">{settings.taxProfile === 'UMKM' ? 'PPh Final 0,5% (UMKM)' : 'PPh 25 (Angsuran Bulanan)'}</option>
                                 <option value="PPh 21">PPh 21 (Pajak Staff/Gaji)</option>
-                                <option value="PPh 25">PPh 25 (Pajak Badan)</option>
                                 <option value="Lainnya">Pajak Lainnya</option>
                             </select>
                         </div>
@@ -323,7 +626,13 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nominal Pajak (IDR)</label>
                             <div className="relative">
                                 <span className="absolute left-3 top-2.5 font-bold text-gray-400">Rp</span>
-                                <input type="number" required value={taxForm.amount || ''} onChange={e => setTaxForm({...taxForm, amount: Number(e.target.value)})} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg text-lg font-black text-indigo-900 focus:ring-2 ring-indigo-500"/>
+                                <input 
+                                    type="text" required 
+                                    value={taxForm.amount ? new Intl.NumberFormat('id-ID').format(taxForm.amount) : ''} 
+                                    onChange={e => handleNumberChange(e.target.value, (val) => setTaxForm({...taxForm, amount: val}))} 
+                                    className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg text-lg font-black text-indigo-900 focus:ring-2 ring-indigo-500"
+                                    placeholder="0"
+                                />
                             </div>
                         </div>
 

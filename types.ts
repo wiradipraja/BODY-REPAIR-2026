@@ -1,74 +1,35 @@
 
 import { Timestamp } from 'firebase/firestore';
 
-export interface Vehicle {
-  id: string;
-  policeNumber: string;
-  customerName: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  customerKota?: string;
-  customerKelurahan?: string;
-  customerKecamatan?: string;
-  customerProvinsi?: string;
-  carBrand?: string;
-  carModel: string;
-  warnaMobil: string;
-  nomorRangka?: string;
-  nomorMesin?: string;
-  tahunPembuatan?: string;
-  namaAsuransi: string;
-  nomorPolis?: string;
-  asuransiExpiryDate?: string;
-  createdAt?: Timestamp;
-  isDeleted?: boolean;
-}
-
-export interface Job {
-  id: string;
-  unitId: string; // Linked to Vehicle.id
-  policeNumber: string; // Redundant for easy search/display
-  customerName: string;
-  // Fix: Added missing mirrored fields from Vehicle
-  customerPhone?: string;
-  customerAddress?: string;
-  customerKota?: string;
-  customerKelurahan?: string;
-  customerKecamatan?: string;
-  customerProvinsi?: string;
-  carBrand?: string;
-  carModel: string;
-  warnaMobil: string;
-  namaAsuransi: string;
-  nomorPolis?: string;
-  asuransiExpiryDate?: string;
-  
-  // Mirrored technical info from Vehicle for full transaction visibility
-  nomorRangka?: string;
-  nomorMesin?: string;
-  tahunPembuatan?: string;
-  
-  woNumber?: string;
-  namaSA: string;
-  statusKendaraan: string;
-  statusPekerjaan: string;
-  posisiKendaraan: string;
-  jumlahPanel?: number;
-  
-  tanggalMasuk?: string;
-  tanggalEstimasiSelesai?: string;
-  isClosed: boolean;
-  hasInvoice?: boolean; // NEW FLAG: Locks the WO if true
-  closedAt?: Timestamp;
-  createdAt?: Timestamp;
-  isDeleted?: boolean;
-  
-  estimateData?: EstimateData;
-  costData?: JobCostData;
-  usageLog?: UsageLogItem[];
-  
-  hargaJasa?: number;
-  hargaPart?: number;
+export interface Settings {
+  workshopName: string;
+  workshopAddress: string;
+  workshopPhone: string;
+  workshopEmail: string;
+  ppnPercentage: number;
+  monthlyTarget: number;
+  weeklyTarget: number;
+  afterServiceFollowUpDays: number;
+  nationalHolidays: string[];
+  mechanicNames: string[];
+  serviceAdvisors: string[];
+  insuranceOptions: { name: string; jasa: number; part: number }[];
+  statusKendaraanOptions: string[];
+  statusPekerjaanOptions: string[];
+  userRoles: Record<string, string>;
+  roleOptions: string[];
+  workshopBankAccounts: { bankName: string; accountNumber: string; accountHolder: string }[];
+  whatsappTemplates: {
+    bookingReminder: string;
+    afterService: string;
+    readyForPickup: string;
+    promoBroadcast?: string;
+  };
+  whatsappConfig?: {
+    mode: 'API' | 'MANUAL';
+  };
+  taxProfile?: 'UMKM' | 'UMUM';
+  fixedPph25Amount?: number;
 }
 
 export interface UserProfile {
@@ -77,7 +38,6 @@ export interface UserProfile {
   displayName: string | null;
   jobdesk?: string;
   role?: string;
-  createdAt?: any;
 }
 
 export interface UserPermissions {
@@ -85,37 +45,44 @@ export interface UserPermissions {
   hasFinanceAccess: boolean;
 }
 
-export interface JobCostData {
-  hargaModalBahan: number;
-  hargaBeliPart: number;
-  jasaExternal: number;
+export interface ServiceMasterItem {
+  id: string;
+  serviceCode?: string; 
+  serviceName: string;
+  workType: 'KC' | 'GTC' | 'BP' | 'Lainnya'; 
+  panelValue: number; 
+  basePrice: number;
+  createdAt?: any;
 }
 
 export interface EstimateItem {
   name: string;
   price: number;
-  number?: string;
   qty?: number;
+  number?: string; // Part number
+  inventoryId?: string | null;
+  panelCount?: number;
+  workType?: string;
+  hasArrived?: boolean;
   isOrdered?: boolean;
   isIndent?: boolean;
   indentETA?: string;
-  hasArrived?: boolean;
-  inventoryId?: string;
 }
 
 export interface EstimateData {
   estimationNumber?: string;
-  estimatorName?: string;
+  grandTotal: number;
   jasaItems: EstimateItem[];
   partItems: EstimateItem[];
   discountJasa: number;
   discountPart: number;
-  subtotalJasa: number;
-  subtotalPart: number;
   discountJasaAmount: number;
   discountPartAmount: number;
   ppnAmount: number;
-  grandTotal: number;
+  subtotalJasa: number;
+  subtotalPart: number;
+  invoiceCancelReason?: string;
+  estimatorName?: string;
 }
 
 export interface UsageLogItem {
@@ -128,43 +95,131 @@ export interface UsageLogItem {
   costPerUnit: number;
   totalCost: number;
   category: 'sparepart' | 'material';
+  notes?: string;
   issuedAt: string;
   issuedBy: string;
+}
+
+export interface SpklItem {
+  id: string;
+  taskName: string;
+  vendorName: string;
+  cost: number;
+  hasPph23: boolean;
+  pph23Amount: number;
+  status: 'Open' | 'Closed';
+  createdAt: string;
+  closedAt?: string | null;
   notes?: string;
 }
 
-export interface Supplier {
+export interface CostData {
+  hargaModalBahan: number;
+  hargaBeliPart: number;
+  jasaExternal: number;
+}
+
+export interface Job {
   id: string;
-  name: string;
-  category: string;
-  phone: string;
-  address: string;
-  picName: string;
-  bankName?: string;
-  bankAccountNumber?: string;
-  bankAccountHolder?: string;
-  createdAt: any;
+  unitId?: string; // Links to Vehicle
+  policeNumber: string;
+  customerName: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerKelurahan?: string;
+  customerKecamatan?: string;
+  customerKota?: string;
+  customerProvinsi?: string;
+  
+  carBrand: string;
+  carModel: string;
+  warnaMobil: string;
+  nomorRangka?: string;
+  nomorMesin?: string;
+  tahunPembuatan?: string;
+  
+  namaAsuransi: string;
+  nomorPolis?: string;
+  asuransiExpiryDate?: string;
+  
+  statusKendaraan: string;
+  statusPekerjaan: string;
+  posisiKendaraan: string;
+  jumlahPanel: number; 
+  
+  tanggalMasuk: string; // YYYY-MM-DD
+  tanggalEstimasiSelesai?: string;
+  
+  woNumber?: string;
+  namaSA?: string;
+  mechanicName?: string;
+  
+  estimateData?: EstimateData;
+  hargaJasa?: number;
+  hargaPart?: number;
+  
+  costData?: CostData;
+  usageLog?: UsageLogItem[];
+  spklItems?: SpklItem[];
+  
+  isClosed: boolean;
+  closedAt?: any; // Timestamp
+  hasInvoice?: boolean;
+  
+  createdAt?: any; // Timestamp
+  updatedAt?: any; // Timestamp
+  isDeleted?: boolean;
+
+  crcFollowUpStatus?: 'Pending' | 'Contacted' | 'Unreachable';
+  crcFollowUpDate?: any;
+  customerRating?: number;
+  customerFeedback?: string;
+}
+
+export interface Vehicle {
+  id: string;
+  policeNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  customerKota?: string;
+  carBrand: string;
+  carModel: string;
+  warnaMobil: string;
+  nomorRangka?: string;
+  nomorMesin?: string;
+  tahunPembuatan?: string;
+  namaAsuransi: string;
+  isDeleted?: boolean;
+  createdAt?: any;
 }
 
 export interface InventoryItem {
   id: string;
   code: string;
   name: string;
-  category: 'sparepart' | 'material';
   brand?: string;
+  category: 'sparepart' | 'material';
   stock: number;
   unit: string;
-  minStock: number;
+  minStock?: number;
   buyPrice: number;
   sellPrice: number;
   location?: string;
-  isStockManaged?: boolean;
-  createdAt: any;
+  isStockManaged?: boolean; // false for vendor managed
+  createdAt?: any;
   updatedAt?: any;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  category: 'Sparepart' | 'Bahan' | 'Jasa Luar' | 'Umum';
+  phone?: string;
+  address?: string;
+}
+
 export interface PurchaseOrderItem {
-  inventoryId?: string | null;
   code: string;
   name: string;
   brand?: string;
@@ -174,7 +229,8 @@ export interface PurchaseOrderItem {
   unit: string;
   price: number;
   total: number;
-  refJobId?: string; 
+  inventoryId?: string | null;
+  refJobId?: string;
   refWoNumber?: string;
   refPartIndex?: number;
   isIndent?: boolean;
@@ -186,62 +242,55 @@ export interface PurchaseOrder {
   poNumber: string;
   supplierId: string;
   supplierName: string;
-  status: 'Draft' | 'Pending Approval' | 'Ordered' | 'Rejected' | 'Partial' | 'Received' | 'Cancelled';
+  status: 'Draft' | 'Pending Approval' | 'Ordered' | 'Partial' | 'Received' | 'Rejected' | 'Cancelled';
   items: PurchaseOrderItem[];
-  subtotal: number;
+  notes?: string;
   hasPpn: boolean;
+  subtotal: number;
   ppnAmount: number;
   totalAmount: number;
-  notes?: string;
+  paidAmount?: number; // Calculated field
+  remaining?: number; // Calculated field
+  
   createdBy: string;
   createdAt: any;
   approvedBy?: string;
   approvedAt?: any;
-  rejectionReason?: string;
-  receivedAt?: any;
   receivedBy?: string;
+  receivedAt?: any;
+  rejectionReason?: string;
   lastModified?: any;
 }
 
 export interface CashierTransaction {
   id: string;
-  date: any;
+  date: any; // Timestamp
   type: 'IN' | 'OUT';
-  category: 'Uang Muka' | 'Pelunasan' | 'Invoice Masuk' | 'Operasional' | 'Pajak' | 'Lainnya'; // Added 'Pajak'
+  category: string;
   amount: number;
-  paymentMethod: 'Cash' | 'Transfer' | 'EDC';
-  bankName?: string; 
-  refNumber?: string; // WO Number or Invoice Number
-  refJobId?: string;
-  refPoId?: string; // NEW: Link to Purchase Order ID for AP
+  paymentMethod: 'Cash' | 'Transfer' | 'EDC' | 'Non-Tunai (Pajak)';
+  bankName?: string;
   description?: string;
-  customerName?: string;
+  customerName?: string; // Payer or Payee
+  refNumber?: string; // WO or PO number
+  refJobId?: string;
+  refPoId?: string;
+  
+  taxCertificateNumber?: string;
+  
   createdBy: string;
   createdAt: any;
 }
 
-export interface BankAccount {
-  bankName: string;
-  accountNumber: string;
-  accountHolder: string;
-}
-
-export interface Settings {
-  workshopName?: string;
-  workshopAddress?: string;
-  workshopPhone?: string;
-  workshopEmail?: string;
-  ppnPercentage: number;
-  monthlyTarget: number;
-  weeklyTarget: number;
-  afterServiceFollowUpDays: number;
-  nationalHolidays: string[];
-  mechanicNames: string[];
-  serviceAdvisors: string[];
-  insuranceOptions: { name: string; jasa: number; part: number }[];
-  statusKendaraanOptions: string[];
-  statusPekerjaanOptions: string[];
-  userRoles: Record<string, { role: string; financeAccess: boolean }>;
-  roleOptions: string[];
-  workshopBankAccounts?: BankAccount[]; 
+export interface Asset {
+  id: string;
+  name: string;
+  category: string;
+  purchasePrice: number;
+  purchaseDate: string | Date; // stored as string YYYY-MM-DD or date object
+  usefulLifeYears: number;
+  residualValue: number;
+  monthlyDepreciation: number;
+  status: 'Active' | 'Sold' | 'Disposed';
+  createdAt: any;
 }

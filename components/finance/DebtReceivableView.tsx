@@ -54,6 +54,12 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
     fetchData();
   }, []);
 
+  // Helper for formatting
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value.replace(/\D/g, '');
+      setPaymentForm(prev => ({ ...prev, amount: raw ? parseInt(raw, 10) : 0 }));
+  };
+
   // --- DATA PROCESSING: RECEIVABLES (PIUTANG) ---
   const receivables = useMemo(() => {
       // Logic: Closed Jobs OR Active Jobs with WO.
@@ -370,11 +376,12 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Nominal Pembayaran (Rp)</label>
                         <input 
-                            type="number" 
+                            type="text" 
                             required 
                             className="w-full p-3 border border-gray-300 rounded-lg text-lg font-bold text-gray-900"
-                            value={paymentForm.amount}
-                            onChange={e => setPaymentForm({...paymentForm, amount: Number(e.target.value)})}
+                            value={paymentForm.amount ? new Intl.NumberFormat('id-ID').format(paymentForm.amount) : ''}
+                            onChange={handleAmountChange}
+                            placeholder="0"
                         />
                     </div>
 

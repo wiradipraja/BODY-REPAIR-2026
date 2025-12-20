@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
@@ -36,6 +37,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
            const simBahan = revenueJasa * 0.15;
            const simBeliPart = revenuePart * 0.80;
            const grossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
+           
+           // Calculate total panel value
+           const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
 
           return {
             'Tanggal Masuk': formatDateIndo(job.tanggalMasuk),
@@ -44,7 +48,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
             'Nama Asuransi': job.namaAsuransi || '',
             'No. HP/WA': `="${job.customerPhone || ''}"`,
             'Model Mobil': job.carModel || '',
-            'Jumlah Panel': job.estimateData?.jasaItems?.length || 0,
+            'Jumlah Panel': totalPanelValue,
             'Status Kendaraan': job.statusKendaraan || '',
             'Status Pekerjaan': job.statusPekerjaan || '',
             'Tgl Estimasi Selesai': formatDateIndo(job.tanggalEstimasiSelesai),
@@ -148,8 +152,9 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {allData.map((job) => {
-                     // 1. UPDATE: Panel Count from Estimate
-                     const panelCount = job.estimateData?.jasaItems?.length || 0;
+                     // 1. UPDATE: Panel Count from Estimate (Sum of Panel Values)
+                     // If panelCount is undefined (old data), fallback to 0. 
+                     const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
 
                      // 2. UPDATE: Simulated Profit Calculation
                      // Revenue
@@ -181,7 +186,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                              <div className="text-xs text-gray-500">{job.namaAsuransi}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                             <span className="px-2 py-1 text-xs font-medium bg-gray-100 rounded-full">{panelCount}</span>
+                             <span className="px-2 py-1 text-xs font-bold bg-gray-100 rounded-full">{totalPanelValue.toFixed(1)}</span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                              <span className={`px-2 py-1 text-xs leading-5 font-semibold rounded-full border ${getStatusColor(job.statusKendaraan)}`}>

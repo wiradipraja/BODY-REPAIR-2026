@@ -28,8 +28,13 @@ export const initialSettingsState: Settings = {
     statusKendaraanOptions: ["Banding Harga SPK", "Booking Masuk", "Klaim Asuransi", "Work In Progress", "Selesai", "Sudah Di ambil Pemilik"].sort(),
     statusPekerjaanOptions: ["Belum Mulai Perbaikan", "Las Ketok", "Bongkar", "Dempul", "Cat", "Poles", "Pemasangan", "Finishing", "Quality Control", "Tunggu Part", "Selesai"],
     userRoles: {},
-    roleOptions: ["Manager", "Service Advisor", "Admin Bengkel", "Foreman", "Sparepart", "Staff"],
-    workshopBankAccounts: [] // Default empty
+    roleOptions: ["Manager", "Service Advisor", "Admin Bengkel", "Foreman", "Sparepart", "Staff", "CRC"],
+    workshopBankAccounts: [], // Default empty
+    whatsappTemplates: {
+        bookingReminder: "Halo Bpk/Ibu {nama}, kami dari Mazda Ranger mengingatkan jadwal perbaikan kendaraan {mobil} ({nopol}) besok. Mohon konfirmasinya. Terima kasih.",
+        afterService: "Halo Bpk/Ibu {nama}, terima kasih telah mempercayakan perbaikan {mobil} di Mazda Ranger. Bagaimana hasil perbaikannya? Mohon luangkan waktu untuk memberi penilaian.",
+        readyForPickup: "Kabar Gembira! Kendaraan {mobil} ({nopol}) milik Bpk/Ibu {nama} sudah selesai diperbaiki dan siap diambil. Terima kasih."
+    }
 };
 
 export const initialCostState = { hargaJasa: 0, hargaPart: 0, hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 };

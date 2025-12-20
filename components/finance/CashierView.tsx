@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
-import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator } from 'lucide-react';
+import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface CashierViewProps {
@@ -27,6 +26,11 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
   const [selectedBank, setSelectedBank] = useState('');
   const [notes, setNotes] = useState('');
   
+  // WITHHOLDING TAX STATE
+  const [hasWithholding, setHasWithholding] = useState(false);
+  const [withholdingAmount, setWithholdingAmount] = useState<number | ''>('');
+  const [taxCertificateNo, setTaxCertificateNo] = useState('');
+
   // WO Linking & Payment Calculation
   const [woSearch, setWoSearch] = useState('');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -65,7 +69,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       setSelectedJob(job);
       setWoSearch(job.woNumber || job.policeNumber);
       
-      // Calculate from GLOBAL transactions prop (Instant calculation)
       const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
       
       const totalPaid = transactions
@@ -76,6 +79,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       setPaymentSummary({ totalBill, totalPaid, remaining });
       setAmount(remaining > 0 ? remaining : ''); 
+      setWithholdingAmount('');
+      setHasWithholding(false);
 
       if (totalPaid > 0) {
           setNotes(`Pelunasan Sisa Tagihan (Total: ${formatCurrency(totalBill)}, Sudah Bayar: ${formatCurrency(totalPaid)})`);
@@ -93,6 +98,15 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       }
   };
 
+  const handleWithholdingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const rawValue = e.target.value.replace(/[^0-9]/g, '');
+      if (rawValue) {
+          setWithholdingAmount(parseInt(rawValue, 10));
+      } else {
+          setWithholdingAmount('');
+      }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!amount || amount <= 0) {
@@ -107,6 +121,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       setLoading(true);
       try {
+          // 1. Create the Main Payment Transaction
           const newTrx: any = {
               date: serverTimestamp(),
               type: trxType,
@@ -128,18 +143,36 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
               newTrx.refJobId = selectedJob.id;
               newTrx.customerName = selectedJob.customerName;
           } else {
-              if (category.includes('Kas Kecil')) {
-                  newTrx.customerName = 'Internal / Bengkel';
-              } else {
-                  newTrx.customerName = 'Non-Customer / Umum';
-              }
+              newTrx.customerName = category.includes('Kas Kecil') ? 'Internal / Bengkel' : 'Non-Customer / Umum';
           }
 
           await addDoc(collection(db, CASHIER_COLLECTION), newTrx);
+
+          // 2. Create the Withholding Tax Transaction if enabled
+          if (trxType === 'IN' && hasWithholding && withholdingAmount && Number(withholdingAmount) > 0) {
+              const taxTrx: any = {
+                  date: serverTimestamp(),
+                  type: 'IN',
+                  category: 'Potongan PPh (Pihak Ke-3)',
+                  amount: Number(withholdingAmount),
+                  paymentMethod: 'Non-Tunai (Pajak)',
+                  description: `Potongan Pajak PPh oleh Pelanggan. Ref: ${newTrx.refNumber}`,
+                  taxCertificateNumber: taxCertificateNo || 'PENDING',
+                  createdBy: userPermissions.role || 'Staff',
+                  createdAt: serverTimestamp(),
+                  refJobId: selectedJob?.id,
+                  refNumber: selectedJob?.woNumber,
+                  customerName: selectedJob?.customerName
+              };
+              await addDoc(collection(db, CASHIER_COLLECTION), taxTrx);
+          }
           
           showNotification("Transaksi berhasil disimpan.", "success");
           
           setAmount('');
+          setWithholdingAmount('');
+          setHasWithholding(false);
+          setTaxCertificateNo('');
           setNotes('');
           setSelectedJob(null);
           setWoSearch('');
@@ -159,7 +192,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       }
 
       const bill = selectedJob.estimateData?.grandTotal || 0;
-      // Calculate from GLOBAL transactions
       const paid = transactions
           .filter(t => t.refJobId === selectedJob.id && t.type === 'IN')
           .reduce((acc, t) => acc + (t.amount || 0), 0);
@@ -221,7 +253,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                 </div>
                 
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Transaksi</label>
@@ -309,7 +341,14 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                             onClick={handlePrintInvoice}
                                             className="flex-1 bg-white border border-indigo-300 text-indigo-700 py-2 rounded text-xs font-bold hover:bg-indigo-100 flex items-center justify-center gap-1 shadow-sm transition-colors"
                                         >
-                                            <Printer size={14}/> Cetak Faktur (Invoice)
+                                            <Printer size={14}/> Faktur
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={handlePrintGatePass}
+                                            className="flex-1 bg-gray-800 text-white py-2 rounded text-xs font-bold hover:bg-gray-900 flex items-center justify-center gap-1 shadow-sm transition-colors"
+                                        >
+                                            <Ticket size={14}/> Gatepass
                                         </button>
                                     </div>
                                 </div>
@@ -319,7 +358,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    {selectedJob ? 'Nominal Pembayaran (Kekurangan)' : 'Nominal (Rp)'}
+                                    {selectedJob ? 'Nominal Dibayar (Uang Masuk Kas)' : 'Nominal (Rp)'}
                                 </label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-3 text-gray-500 font-bold">Rp</span>
@@ -334,9 +373,55 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                 </div>
                             </div>
 
+                            {/* WITHHOLDING TAX SECTION (PPh Diterima dari Pelanggan) */}
+                            {trxType === 'IN' && selectedJob && (
+                                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-4">
+                                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={hasWithholding} 
+                                            onChange={e => setHasWithholding(e.target.checked)}
+                                            className="w-4 h-4 text-amber-600 rounded"
+                                        />
+                                        <span className="text-sm font-bold text-amber-800">Ada Potongan Pajak oleh Pelanggan?</span>
+                                    </label>
+
+                                    {hasWithholding && (
+                                        <div className="space-y-4 animate-fade-in pt-2 border-t border-amber-100">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Pajak Dipotong (Rp)</label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={withholdingAmount ? new Intl.NumberFormat('id-ID').format(withholdingAmount) : ''} 
+                                                        onChange={handleWithholdingChange}
+                                                        className="w-full p-2 border border-amber-300 rounded text-sm font-bold text-amber-900"
+                                                        placeholder="Contoh: 20.000"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">No. Bukti Potong</label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={taxCertificateNo} 
+                                                        onChange={e => setTaxCertificateNo(e.target.value)}
+                                                        className="w-full p-2 border border-amber-300 rounded text-sm font-mono"
+                                                        placeholder="BP-123XXX"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center text-[10px] font-bold text-amber-700 bg-white p-2 rounded border border-amber-100">
+                                                <span>PELUNASAN PIUTANG AKAN DICATAT SEBESAR:</span>
+                                                <span className="text-sm">{formatCurrency(Number(amount || 0) + Number(withholdingAmount || 0))}</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Metode Pembayaran</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Metode Pembayaran (Uang Masuk)</label>
                                     <div className="flex gap-2">
                                         {['Cash', 'Transfer', 'EDC'].map(m => (
                                             <button
@@ -397,29 +482,19 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                     </div>
 
                     <div className="pt-4 border-t flex gap-3 justify-end">
-                        {category === 'Pelunasan' && selectedJob && (
-                            <button 
-                                type="button"
-                                onClick={handlePrintGatePass}
-                                className="mr-auto flex items-center gap-2 bg-gray-800 text-white px-5 py-2.5 rounded-lg hover:bg-gray-900 transition-colors shadow-sm font-bold"
-                            >
-                                <Ticket size={18}/> Cetak Gate Pass
-                            </button>
-                        )}
-
                         <button 
                             type="submit" 
                             disabled={loading}
-                            className={`flex items-center gap-2 text-white px-8 py-2.5 rounded-lg shadow-lg font-bold transition-all transform active:scale-95 ${trxType === 'IN' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
+                            className={`flex items-center gap-2 text-white px-10 py-3 rounded-xl shadow-lg font-black transition-all transform active:scale-95 ${trxType === 'IN' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
                         >
-                            <Save size={18}/> {loading ? 'Menyimpan...' : 'Simpan Transaksi'}
+                            <Save size={20}/> {loading ? 'Menyimpan...' : 'PROSES TRANSAKSI'}
                         </button>
                     </div>
                 </form>
             </div>
 
             {/* RIWAYAT (REALTIME FROM PROPS) */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[650px]">
                 <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                     <History size={18} className="text-gray-500"/>
                     <h3 className="font-bold text-gray-800">Riwayat Transaksi (Live)</h3>
@@ -429,11 +504,11 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                         <div className="p-8 text-center text-gray-400 text-sm">Belum ada transaksi.</div>
                     ) : (
                         <div className="divide-y divide-gray-100">
-                            {transactions.slice(0, 20).map(trx => (
+                            {transactions.slice(0, 30).map(trx => (
                                 <div key={trx.id} className="p-4 hover:bg-gray-50 transition-colors group">
                                     <div className="flex justify-between items-start mb-1">
-                                        <div>
-                                            <p className={`text-xs font-bold uppercase ${trx.type === 'IN' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        <div className="flex-1">
+                                            <p className={`text-[10px] font-black uppercase ${trx.type === 'IN' ? 'text-emerald-600' : 'text-red-600'}`}>
                                                 {trx.type === 'IN' ? 'Terima Uang' : 'Keluar Uang'} ({trx.paymentMethod})
                                             </p>
                                             <p className="font-bold text-gray-800 text-sm mt-0.5">
@@ -448,17 +523,24 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                             <p className="text-[10px] text-gray-400 mt-1">{formatDateIndo(trx.date)}</p>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-gray-500 truncate mb-2">
+                                    <p className="text-xs text-gray-500 truncate mb-1">
                                         {trx.customerName && <span className="font-semibold text-indigo-900">{trx.customerName} - </span>}
                                         {trx.description || '-'}
                                     </p>
-                                    <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
-                                            onClick={() => generateReceiptPDF(trx, settings)}
-                                            className="text-xs flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-gray-600 hover:text-indigo-600 hover:border-indigo-200"
-                                        >
-                                            <Printer size={12}/> Kwitansi
-                                        </button>
+                                    {trx.taxCertificateNumber && (
+                                        <div className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 w-fit">
+                                            <ShieldCheck size={10}/> BP: {trx.taxCertificateNumber}
+                                        </div>
+                                    )}
+                                    <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity mt-2">
+                                        {trx.paymentMethod !== 'Non-Tunai (Pajak)' && (
+                                            <button 
+                                                onClick={() => generateReceiptPDF(trx, settings)}
+                                                className="text-xs flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-gray-600 hover:text-indigo-600 hover:border-indigo-200"
+                                            >
+                                                <Printer size={12}/> Kwitansi
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}

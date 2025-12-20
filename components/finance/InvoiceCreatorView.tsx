@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
@@ -5,7 +6,7 @@ import { generateInvoicePDF } from '../../utils/pdfGenerator';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 // Added Eye to the imports from lucide-react
-import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw, Box, Truck, Eye } from 'lucide-react';
+import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw, Box, Truck, Eye, ExternalLink } from 'lucide-react';
 
 interface InvoiceCreatorViewProps {
   jobs: Job[];
@@ -31,9 +32,13 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       
       const allPartsIssued = (job.estimateData?.partItems || []).every(p => p.hasArrived);
       const materialsIssued = job.usageLog?.some(l => l.category === 'material');
+      
+      // NEW VALIDATION: Check for SPKL items
+      const allSpklClosed = (job.spklItems || []).every(s => s.status === 'Closed');
+      
       const isClosed = job.isClosed;
 
-      return isClosed && allPartsIssued && materialsIssued;
+      return isClosed && allPartsIssued && materialsIssued && allSpklClosed;
   };
 
   // Filter ONLY ready WOs for the search dropdown results
@@ -247,7 +252,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                             <AlertTriangle className="text-orange-600 mt-1 shrink-0" size={20}/>
                             <div>
                                 <p className="font-bold text-orange-800 text-sm">Unit Tidak Siap Faktur</p>
-                                <p className="text-xs text-orange-700 mt-1">Data yang anda cari belum melakukan **Close WO** dan **Pembebanan Spare Part & Bahan Baku**. Pastikan produksi sudah selesai di input.</p>
+                                <p className="text-xs text-orange-700 mt-1">Pastikan anda sudah melakukan: <br/> 1. Close WO (Selesai Produksi) <br/> 2. Pembebanan Part & Bahan <br/> 3. <strong>Menyelesaikan (Close) SPKL Jasa Luar</strong>.</p>
                             </div>
                         </div>
                     )}
@@ -276,6 +281,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                     <th className="px-4 py-3">Unit</th>
                                     <th className="px-4 py-3 text-center">Part</th>
                                     <th className="px-4 py-3 text-center">Bahan</th>
+                                    <th className="px-4 py-3 text-center">SPKL</th>
                                     <th className="px-4 py-3 text-center">Ready?</th>
                                 </tr>
                             </thead>
@@ -283,7 +289,9 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 {wipUnits.map(j => {
                                     const allPartsIssued = (j.estimateData?.partItems || []).every(p => p.hasArrived);
                                     const materialsIssued = j.usageLog?.some(l => l.category === 'material');
-                                    const isReady = allPartsIssued && materialsIssued;
+                                    const spklCount = (j.spklItems || []).length;
+                                    const spklClosed = (j.spklItems || []).every(s => s.status === 'Closed');
+                                    const isReady = allPartsIssued && materialsIssued && spklClosed;
 
                                     return (
                                         <tr key={j.id} className="hover:bg-gray-50">
@@ -297,6 +305,11 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                             <td className="px-4 py-3 text-center">
                                                 {materialsIssued ? <CheckCircle size={14} className="text-green-500 mx-auto"/> : <XCircle size={14} className="text-red-400 mx-auto"/>}
                                             </td>
+                                            <td className="px-6 py-3 text-center">
+                                                {spklCount > 0 ? (
+                                                    spklClosed ? <CheckCircle size={14} className="text-indigo-500 mx-auto"/> : <Clock size={14} className="text-orange-500 mx-auto"/>
+                                                ) : <span className="text-gray-300">-</span>}
+                                            </td>
                                             <td className="px-4 py-3 text-center">
                                                 {isReady ? (
                                                     <span className="text-[9px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">SIAP CLOSE</span>
@@ -307,7 +320,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                         </tr>
                                     );
                                 })}
-                                {wipUnits.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-gray-400">Tidak ada unit WIP.</td></tr>}
+                                {wipUnits.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-gray-400">Tidak ada unit WIP.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -394,6 +407,16 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <p className="mt-2 text-gray-500 font-mono text-xs">VIN: {selectedJob.nomorRangka || '-'}</p>
                             </div>
                         </div>
+
+                        {/* SPKL ITEMS PREVIEW */}
+                        {(selectedJob.spklItems || []).length > 0 && (
+                            <div className="border-t border-indigo-100 bg-indigo-50/30">
+                                <div className="px-6 py-2 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-1"><ExternalLink size={12}/> Biaya Pekerjaan Luar (SPKL)</span>
+                                    <span className="text-xs font-black text-indigo-700">{formatCurrency((selectedJob.spklItems || []).reduce((acc, i) => acc + i.cost, 0))}</span>
+                                </div>
+                            </div>
+                        )}
 
                         {/* TABLES: JASA & PARTS */}
                         <div className="border-t border-gray-100">

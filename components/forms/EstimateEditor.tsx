@@ -1,83 +1,59 @@
 
 import React, { useState, useEffect } from 'react';
-import { Job, EstimateItem, EstimateData, Settings, InventoryItem } from '../../types';
+import { Job, EstimateData, Settings, InventoryItem, EstimateItem, ServiceMasterItem } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
+import { Save, Plus, Trash2, Calculator, Printer, Lock, X } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { Plus, Trash2, Save, Calculator, AlertCircle, Download, FileCheck, User, Search, Package, Clock, Lock } from 'lucide-react';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db, SERVICES_MASTER_COLLECTION } from '../../services/firebase';
 
 interface EstimateEditorProps {
   job: Job;
   ppnPercentage: number;
   insuranceOptions: { name: string; jasa: number; part: number }[];
-  onSave: (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo') => Promise<string>;
+  onSave: (jobId: string, data: EstimateData, saveType: 'estimate' | 'wo') => Promise<string>;
   onCancel: () => void;
-  settings?: Settings; 
-  creatorName?: string;
-  inventoryItems?: InventoryItem[]; 
+  settings: Settings;
+  creatorName: string;
+  inventoryItems: InventoryItem[];
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, inventoryItems = [] }) => {
-  const [jasaItems, setJasaItems] = useState<EstimateItem[]>([]);
-  const [partItems, setPartItems] = useState<EstimateItem[]>([]);
-  const [discountJasa, setDiscountJasa] = useState(0);
-  const [discountPart, setDiscountPart] = useState(0);
-  const [existingEstimationNumber, setExistingEstimationNumber] = useState<string | undefined>(undefined);
-  const [existingWONumber, setExistingWONumber] = useState<string | undefined>(undefined);
-  const [persistedEstimatorName, setPersistedEstimatorName] = useState<string | undefined>(undefined);
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ 
+  job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, inventoryItems 
+}) => {
+  const [jasaItems, setJasaItems] = useState<EstimateItem[]>(job.estimateData?.jasaItems || []);
+  const [partItems, setPartItems] = useState<EstimateItem[]>(job.estimateData?.partItems || []);
   
-  const [totals, setTotals] = useState({
-    subtotalJasa: 0, subtotalPart: 0,
-    discJasaRp: 0, discPartRp: 0,
-    dpp: 0, ppn: 0, grandTotal: 0
-  });
+  const [discountJasa, setDiscountJasa] = useState(job.estimateData?.discountJasa || 0);
+  const [discountPart, setDiscountPart] = useState(job.estimateData?.discountPart || 0);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serviceMasterList, setServiceMasterList] = useState<ServiceMasterItem[]>([]);
 
-  // LOCKING STATE
-  const isLocked = !!job.hasInvoice;
+  // If job has WO, it should be locked for editing in some cases, but here we allow editing until closed.
+  const isLocked = job.isClosed;
 
-  // Initialize data
   useEffect(() => {
-    const hasExistingData = job.estimateData && (
-        (job.estimateData.jasaItems && job.estimateData.jasaItems.length > 0) || 
-        (job.estimateData.partItems && job.estimateData.partItems.length > 0) ||
-        job.estimateData.grandTotal > 0
-    );
-
-    if (hasExistingData && job.estimateData) {
-      setJasaItems(job.estimateData.jasaItems || []);
-      setPartItems(job.estimateData.partItems || []);
-      setDiscountJasa(job.estimateData.discountJasa || 0);
-      setDiscountPart(job.estimateData.discountPart || 0);
-      setExistingEstimationNumber(job.estimateData.estimationNumber);
-      setPersistedEstimatorName(job.estimateData.estimatorName);
-    } else {
-      const matchedInsurance = insuranceOptions.find(ins => ins.name === job.namaAsuransi);
-      if (matchedInsurance) {
-          setDiscountJasa(matchedInsurance.jasa || 0);
-          setDiscountPart(matchedInsurance.part || 0);
+      // Auto set discounts if not set
+      if (!job.estimateData && job.namaAsuransi) {
+          const ins = insuranceOptions.find(i => i.name === job.namaAsuransi);
+          if (ins) {
+              setDiscountJasa(ins.jasa);
+              setDiscountPart(ins.part);
+          }
       }
-    }
-    
-    setExistingWONumber(job.woNumber);
-  }, [job, insuranceOptions]);
+      loadServices();
+  }, [job.namaAsuransi, insuranceOptions, job.estimateData]);
 
-  // Recalculate totals
-  useEffect(() => {
-    const subJasa = jasaItems.reduce((acc, item) => acc + (item.price || 0), 0);
-    const subPart = partItems.reduce((acc, item) => acc + ((item.price || 0) * (item.qty || 1)), 0);
-
-    const discJasaRp = (subJasa * discountJasa) / 100;
-    const discPartRp = (subPart * discountPart) / 100;
-
-    const totalJasaNet = subJasa - discJasaRp;
-    const totalPartNet = subPart - discPartRp;
-
-    const dpp = totalJasaNet + totalPartNet;
-    const ppn = (dpp * ppnPercentage) / 100;
-    const grandTotal = dpp + ppn;
-
-    setTotals({ subtotalJasa: subJasa, subtotalPart: subPart, discJasaRp, discPartRp, dpp, ppn, grandTotal });
-  }, [jasaItems, partItems, discountJasa, discountPart, ppnPercentage]);
+  const loadServices = async () => {
+      try {
+          const q = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
+          const snap = await getDocs(q);
+          setServiceMasterList(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
+      } catch (e) {
+          console.error(e);
+      }
+  };
 
   // Handlers for Items
   const addItem = (type: 'jasa' | 'part') => {
@@ -92,6 +68,38 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
     const items = type === 'jasa' ? [...jasaItems] : [...partItems];
     let newItem = { ...items[index], [field]: value };
 
+    // --- AUTO-FETCH LOGIC FOR SERVICES (BY CODE OR NAME) ---
+    if (type === 'jasa') {
+        // CASE A: User types in KODE JASA (stored in 'number' field for consistency)
+        if (field === 'number') {
+            const inputCode = String(value).toUpperCase().trim();
+            newItem.number = inputCode; // Allow custom input
+            
+            const foundService = serviceMasterList.find(s => s.serviceCode === inputCode);
+            if (foundService) {
+                newItem.name = foundService.serviceName;
+                if (!newItem.price) newItem.price = foundService.basePrice;
+                newItem.panelCount = foundService.panelValue;
+                newItem.workType = foundService.workType;
+            }
+        }
+        
+        // CASE B: User types in NAMA JASA
+        if (field === 'name') {
+            const inputName = String(value);
+            newItem.name = inputName;
+
+            const foundService = serviceMasterList.find(s => s.serviceName === inputName);
+            if (foundService) {
+                // Auto-fill Code if exists
+                if (foundService.serviceCode) newItem.number = foundService.serviceCode;
+                if (!newItem.price) newItem.price = foundService.basePrice;
+                newItem.panelCount = foundService.panelValue;
+                newItem.workType = foundService.workType;
+            }
+        }
+    }
+
     // --- AUTO-FETCH LOGIC FOR SPAREPARTS ---
     if (type === 'part' && field === 'number') {
         const foundPart = inventoryItems.find(inv => inv.code.toUpperCase() === String(value).toUpperCase());
@@ -100,7 +108,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
             newItem.price = foundPart.sellPrice;
             newItem.inventoryId = foundPart.id;
         } else {
-            newItem.inventoryId = undefined; // Will be cleaned to null by handleSave cleanObject
+            newItem.inventoryId = undefined; 
         }
     }
     // ----------------------------------------
@@ -115,57 +123,49 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
   };
 
   const prepareEstimateData = (estimationNumber?: string): EstimateData => {
-      const finalEstimatorName = persistedEstimatorName || creatorName || 'Admin';
+      const subtotalJasa = jasaItems.reduce((acc, i) => acc + (Number(i.price) || 0), 0);
+      const subtotalPart = partItems.reduce((acc, i) => acc + ((Number(i.price) || 0) * (Number(i.qty) || 1)), 0);
+      
+      const discountJasaAmount = Math.round((subtotalJasa * discountJasa) / 100);
+      const discountPartAmount = Math.round((subtotalPart * discountPart) / 100);
+      
+      const dpp = (subtotalJasa - discountJasaAmount) + (subtotalPart - discountPartAmount);
+      const ppnAmount = Math.round(dpp * (ppnPercentage / 100));
+      const grandTotal = dpp + ppnAmount;
+
       return {
-        jasaItems, partItems, discountJasa, discountPart,
-        subtotalJasa: totals.subtotalJasa, subtotalPart: totals.subtotalPart,
-        discountJasaAmount: totals.discJasaRp, discountPartAmount: totals.discPartRp,
-        ppnAmount: totals.ppn, grandTotal: totals.grandTotal,
-        estimationNumber: estimationNumber || existingEstimationNumber,
-        estimatorName: finalEstimatorName
+          estimationNumber: estimationNumber || job.estimateData?.estimationNumber,
+          grandTotal,
+          jasaItems,
+          partItems,
+          discountJasa,
+          discountPart,
+          discountJasaAmount,
+          discountPartAmount,
+          ppnAmount,
+          subtotalJasa,
+          subtotalPart,
+          estimatorName: creatorName
       };
   };
 
-  const handleSave = async (type: 'estimate' | 'wo') => {
-    if (isLocked) return;
-    if (type === 'wo' && !existingWONumber) {
-        if (!window.confirm("Terbitkan Work Order (WO)?\n\nTindakan ini akan:\n1. Membuat Nomor WO baru.\n2. Memotong stok inventory jika ada.\n3. Mengubah status unit menjadi WIP.")) {
-            return;
-        }
-    }
-    
-    setIsSubmitting(true);
-    const data = prepareEstimateData();
-
-    try {
-      const generatedId = await onSave(job.id, data, type);
-      
-      if (type === 'wo') setExistingWONumber(generatedId);
-      if (type === 'estimate') setExistingEstimationNumber(generatedId);
-      
-      const finalEstimateData = prepareEstimateData(type === 'estimate' ? generatedId : existingEstimationNumber); 
-      
-      const jobForPDF = { 
-          ...job, 
-          woNumber: type === 'wo' ? generatedId : existingWONumber,
-      };
-      
-      if (settings) {
-         generateEstimationPDF(jobForPDF, finalEstimateData, settings, finalEstimateData.estimatorName);
-      }
-    } catch (error) {
-       console.error("Save failed", error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDownloadOnly = () => {
-      if (settings) {
-          const currentData = prepareEstimateData();
-          generateEstimationPDF(job, currentData, settings, currentData.estimatorName);
+  const handleSaveAction = async (saveType: 'estimate' | 'wo') => {
+      setIsSubmitting(true);
+      try {
+          const data = prepareEstimateData();
+          await onSave(job.id, data, saveType);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsSubmitting(false);
       }
   };
+
+  const handlePrintEstimation = () => {
+      generateEstimationPDF(job, prepareEstimateData(), settings, creatorName);
+  };
+
+  const totals = prepareEstimateData();
 
   return (
     <div className="space-y-6">
@@ -178,235 +178,211 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ job, ppnPercentage, ins
         ))}
       </datalist>
 
+      {/* DATALIST UNTUK AUTOCOMPLETE KODE JASA */}
+      <datalist id="service-code-list">
+        {serviceMasterList.filter(s => s.serviceCode).map(item => (
+            <option key={item.id} value={item.serviceCode}>
+                {item.serviceName}
+            </option>
+        ))}
+      </datalist>
+
+      {/* DATALIST UNTUK AUTOCOMPLETE NAMA JASA */}
+      <datalist id="service-name-list">
+        {serviceMasterList.map(item => (
+            <option key={item.id} value={item.serviceName}>
+                {item.serviceCode ? `[${item.serviceCode}] ` : ''} Panel: {item.panelValue} | {formatCurrency(item.basePrice)}
+            </option>
+        ))}
+      </datalist>
+
       {/* LOCKED BANNER */}
       {isLocked && (
-          <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex items-center gap-3 text-red-800 animate-fade-in">
-              <Lock size={24} className="shrink-0"/>
-              <div>
-                  <h4 className="font-bold">Dokumen Terkunci</h4>
-                  <p className="text-sm">Faktur Penagihan (Invoice) sudah diterbitkan untuk WO ini. Data tidak dapat diubah kecuali Faktur dibatalkan di menu Finance.</p>
-              </div>
+          <div className="bg-red-50 p-3 rounded flex items-center gap-2 text-red-700 font-bold">
+              <Lock size={18}/> Estimasi / WO ini terkunci karena status sudah Closed.
           </div>
       )}
 
-      {/* Header Info Unit */}
-      <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        <div>
-          <p className="text-gray-500">No. Polisi</p>
-          <p className="font-bold text-gray-900">{job.policeNumber}</p>
-        </div>
-        <div>
-          <p className="text-gray-500">Pelanggan</p>
-          <p className="font-bold text-gray-900">{job.customerName}</p>
-        </div>
-        <div>
-           <p className="text-gray-500">Asuransi</p>
-           <p className="font-bold text-indigo-700">{job.namaAsuransi}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-            {existingWONumber ? (
-                <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold border border-emerald-200 shadow-sm flex items-center gap-1">
-                    <FileCheck size={12}/> WO: {existingWONumber}
-                </span>
-            ) : existingEstimationNumber ? (
-                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold border border-blue-200 shadow-sm">
-                    Est: {existingEstimationNumber}
-                </span>
-            ) : (
-                <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-bold border border-gray-200">
-                    New Draft
-                </span>
-            )}
-        </div>
-      </div>
-      
-      {existingEstimationNumber && (
-          <div className="bg-gray-50 px-4 py-2 rounded border border-gray-200 text-gray-600 text-sm flex items-center justify-between">
-              <span className="flex items-center gap-2"><User size={14}/> Estimator: <strong>{persistedEstimatorName}</strong></span>
-              <button onClick={handleDownloadOnly} className="flex items-center gap-1 text-gray-600 hover:text-gray-900 underline text-xs">
-                  <Download size={14}/> Download PDF Terakhir
+      {/* JASA SECTION */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200">
+          <div className="flex justify-between items-center mb-4">
+              <h4 className="font-bold text-gray-800">A. Jasa Perbaikan</h4>
+              <button onClick={() => addItem('jasa')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded font-bold hover:bg-blue-100 disabled:opacity-50">
+                  <Plus size={16}/> Tambah Jasa
               </button>
           </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* KOLOM JASA PERBAIKAN */}
-        <div className={`border rounded-xl p-4 bg-white shadow-sm h-fit ${isLocked ? 'opacity-80 pointer-events-none' : ''}`}>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Calculator size={18} className="text-blue-600"/> Jasa Perbaikan
-            </h3>
-            {!isLocked && (
-                <button onClick={() => addItem('jasa')} className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-semibold hover:bg-blue-100 transition">
-                + Tambah Jasa
-                </button>
-            )}
+          <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                  <tr>
+                      <th className="p-2 w-10">No</th>
+                      <th className="p-2 w-32">Kode Jasa</th>
+                      <th className="p-2">Nama Jasa / Pekerjaan</th>
+                      <th className="p-2 w-40 text-right">Biaya (Rp)</th>
+                      <th className="p-2 w-10"></th>
+                  </tr>
+              </thead>
+              <tbody>
+                  {jasaItems.map((item, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                          <td className="p-2 text-center text-gray-500">{i+1}</td>
+                          {/* INPUT KODE JASA */}
+                          <td className="p-2">
+                              <input 
+                                  list="service-code-list"
+                                  type="text" 
+                                  value={item.number || ''} 
+                                  onChange={e => updateItem('jasa', i, 'number', e.target.value)} 
+                                  className="w-full p-1.5 border rounded uppercase font-mono text-xs"
+                                  placeholder="Kode..."
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          {/* INPUT NAMA JASA */}
+                          <td className="p-2">
+                              <input 
+                                  list="service-name-list"
+                                  type="text" 
+                                  value={item.name} 
+                                  onChange={e => updateItem('jasa', i, 'name', e.target.value)} 
+                                  className="w-full p-1.5 border rounded"
+                                  placeholder="Ketik Nama Pekerjaan..."
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2">
+                              <input 
+                                  type="number" 
+                                  value={item.price} 
+                                  onChange={e => updateItem('jasa', i, 'price', Number(e.target.value))} 
+                                  className="w-full p-1.5 border rounded text-right"
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2 text-center">
+                              <button onClick={() => removeItem('jasa', i)} disabled={isLocked} className="text-red-400 hover:text-red-600 disabled:opacity-30"><Trash2 size={16}/></button>
+                          </td>
+                      </tr>
+                  ))}
+              </tbody>
+          </table>
+          <div className="flex justify-end items-center gap-4 mt-3 bg-gray-50 p-2 rounded">
+              <span className="text-sm font-bold text-gray-600">Diskon Jasa (%)</span>
+              <input type="number" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} className="w-16 p-1 border rounded text-center font-bold" disabled={isLocked}/>
+              <span className="text-sm font-bold text-gray-800">Subtotal: {formatCurrency(totals.subtotalJasa - totals.discountJasaAmount)}</span>
           </div>
-          
-          <div className="space-y-3">
-            {jasaItems.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-start">
-                <input disabled={isLocked} type="text" placeholder="Nama Pekerjaan" className="col-span-7 p-2 border rounded text-sm focus:ring-1 ring-blue-500 disabled:bg-gray-100" value={item.name} onChange={e => updateItem('jasa', idx, 'name', e.target.value)} />
-                <input disabled={isLocked} type="number" placeholder="Harga" className="col-span-4 p-2 border rounded text-sm text-right focus:ring-1 ring-blue-500 disabled:bg-gray-100" value={item.price || ''} onChange={e => updateItem('jasa', idx, 'price', Number(e.target.value))} />
-                {!isLocked && <button onClick={() => removeItem('jasa', idx)} className="col-span-1 p-2 text-red-400 hover:text-red-600 flex justify-center"><Trash2 size={16} /></button>}
-              </div>
-            ))}
-            {jasaItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item jasa</p>}
-          </div>
-
-          <div className="mt-4 pt-4 border-t space-y-2">
-             <div className="flex justify-between items-center text-sm bg-blue-50 p-2 rounded">
-                <span className="text-blue-800 font-semibold">Diskon Jasa (%)</span>
-                <input disabled={isLocked} type="number" min="0" max="100" className="w-16 p-1 border border-blue-200 rounded text-right text-xs font-bold text-blue-800 disabled:bg-gray-100" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} />
-             </div>
-             <div className="flex justify-between text-sm font-bold text-blue-700 pt-2 border-t border-dashed">
-                <span>Total Jasa Netto</span>
-                <span>{formatCurrency(totals.subtotalJasa - totals.discJasaRp)}</span>
-             </div>
-          </div>
-        </div>
-
-        {/* KOLOM SPAREPART - UPDATED: NO INDENT CHECKBOX */}
-        <div className={`border rounded-xl p-4 bg-white shadow-sm h-fit ${isLocked ? 'opacity-80 pointer-events-none' : ''}`}>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Calculator size={18} className="text-orange-600"/> Sparepart / Bahan
-            </h3>
-            {!isLocked && (
-                <button onClick={() => addItem('part')} className="text-xs bg-orange-50 text-orange-600 px-3 py-1 rounded-full font-semibold hover:bg-orange-100 transition">
-                + Tambah Part
-                </button>
-            )}
-          </div>
-          
-          <div className="space-y-3">
-            {partItems.map((item, idx) => (
-              <div key={idx} className="p-2 rounded border border-gray-200 bg-gray-50 space-y-2 relative">
-                  <div className="grid grid-cols-12 gap-2 items-center">
-                    
-                    {/* INPUT KODE PART */}
-                    <div className="col-span-4">
-                        <input 
-                            disabled={isLocked}
-                            type="text" 
-                            placeholder="No. Part (Ketik...)" 
-                            className={`w-full p-2 border rounded text-sm font-mono disabled:bg-gray-100 ${item.inventoryId ? 'border-green-400 bg-green-50 text-green-800' : ''}`}
-                            value={item.number || ''} 
-                            list="inventory-list" 
-                            onChange={e => updateItem('part', idx, 'number', e.target.value)} 
-                        />
-                    </div>
-
-                    <div className="col-span-8 flex gap-1">
-                        <input disabled={isLocked} type="text" placeholder="Nama Sparepart" className="w-full p-2 border rounded text-sm disabled:bg-gray-100" value={item.name} onChange={e => updateItem('part', idx, 'name', e.target.value)} />
-                        {!isLocked && <button onClick={() => removeItem('part', idx)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>}
-                    </div>
-                    
-                    <div className="col-span-4 flex items-center gap-1">
-                        <span className="text-xs text-gray-500">Qty:</span>
-                        <input disabled={isLocked} type="number" className="w-full p-2 border rounded text-sm text-center font-bold disabled:bg-gray-100" value={item.qty || ''} onChange={e => updateItem('part', idx, 'qty', Number(e.target.value))} />
-                    </div>
-                    <div className="col-span-8 flex items-center gap-1">
-                         <span className="text-xs text-gray-500">Rp:</span>
-                         <input disabled={isLocked} type="number" placeholder="Harga" className="w-full p-2 border rounded text-sm text-right disabled:bg-gray-100" value={item.price || ''} onChange={e => updateItem('part', idx, 'price', Number(e.target.value))} />
-                    </div>
-                    
-                    {/* INFO STOK JIKA ADA LINK */}
-                    {item.inventoryId && (
-                        <div className="col-span-12 flex justify-end">
-                            <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full border border-green-200 flex items-center gap-1 shadow-sm">
-                                <Package size={10}/> Linked to Stock
-                            </span>
-                        </div>
-                    )}
-                  </div>
-              </div>
-            ))}
-            {partItems.length === 0 && <p className="text-gray-400 text-center text-sm italic py-4">Belum ada item sparepart</p>}
-          </div>
-
-          <div className="mt-4 pt-4 border-t space-y-2">
-             <div className="flex justify-between items-center text-sm bg-orange-50 p-2 rounded">
-                <span className="text-orange-800 font-semibold">Diskon Part (%)</span>
-                <input disabled={isLocked} type="number" min="0" max="100" className="w-16 p-1 border border-orange-200 rounded text-right text-xs font-bold text-orange-800 disabled:bg-gray-100" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} />
-             </div>
-             <div className="flex justify-between text-sm font-bold text-orange-700 pt-2 border-t border-dashed">
-                <span>Total Part Netto</span>
-                <span>{formatCurrency(totals.subtotalPart - totals.discPartRp)}</span>
-             </div>
-          </div>
-        </div>
       </div>
 
-      {/* FOOTER TOTAL */}
-      <div className="bg-gray-900 text-white p-6 rounded-xl shadow-lg mt-4">
-        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-start gap-3 opacity-80 text-sm">
-                <AlertCircle size={20} className="mt-0.5" />
-                <p className="max-w-xs">Grand Total sudah termasuk PPN. Pastikan item dan harga sudah benar sebelum menerbitkan dokumen.</p>
-            </div>
-            
-            <div className="w-full md:w-auto space-y-1">
-                <div className="flex justify-between gap-12 text-gray-400 text-sm">
-                    <span>PPN ({ppnPercentage}%)</span>
-                    <span>{formatCurrency(totals.ppn)}</span>
-                </div>
-                <div className="flex justify-between gap-12 text-2xl font-bold text-white pt-2 border-t border-gray-700 mt-2">
-                    <span>Grand Total</span>
-                    <span>{formatCurrency(totals.grandTotal)}</span>
-                </div>
-            </div>
-        </div>
+      {/* PARTS SECTION */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200">
+          <div className="flex justify-between items-center mb-4">
+              <h4 className="font-bold text-gray-800">B. Sparepart & Bahan</h4>
+              <button onClick={() => addItem('part')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-3 py-1 rounded font-bold hover:bg-orange-100 disabled:opacity-50">
+                  <Plus size={16}/> Tambah Part
+              </button>
+          </div>
+          <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                  <tr>
+                      <th className="p-2 w-10">No</th>
+                      <th className="p-2 w-40">Nomor Part (Kode)</th>
+                      <th className="p-2">Nama Sparepart</th>
+                      <th className="p-2 w-20 text-center">Qty</th>
+                      <th className="p-2 w-32 text-right">Harga Satuan</th>
+                      <th className="p-2 w-32 text-right">Total</th>
+                      <th className="p-2 w-10"></th>
+                  </tr>
+              </thead>
+              <tbody>
+                  {partItems.map((item, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                          <td className="p-2 text-center text-gray-500">{i+1}</td>
+                          <td className="p-2">
+                              <input 
+                                  list="inventory-list"
+                                  type="text" 
+                                  value={item.number} 
+                                  onChange={e => updateItem('part', i, 'number', e.target.value)} 
+                                  className="w-full p-1.5 border rounded uppercase font-mono"
+                                  placeholder="Cari Kode Part..."
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2">
+                              <input 
+                                  type="text" 
+                                  value={item.name} 
+                                  onChange={e => updateItem('part', i, 'name', e.target.value)} 
+                                  className="w-full p-1.5 border rounded"
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2">
+                              <input 
+                                  type="number" 
+                                  value={item.qty} 
+                                  onChange={e => updateItem('part', i, 'qty', Number(e.target.value))} 
+                                  className="w-full p-1.5 border rounded text-center"
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2">
+                              <input 
+                                  type="number" 
+                                  value={item.price} 
+                                  onChange={e => updateItem('part', i, 'price', Number(e.target.value))} 
+                                  className="w-full p-1.5 border rounded text-right"
+                                  disabled={isLocked}
+                              />
+                          </td>
+                          <td className="p-2 text-right font-medium">
+                              {formatCurrency((item.price || 0) * (item.qty || 1))}
+                          </td>
+                          <td className="p-2 text-center">
+                              <button onClick={() => removeItem('part', i)} disabled={isLocked} className="text-red-400 hover:text-red-600 disabled:opacity-30"><Trash2 size={16}/></button>
+                          </td>
+                      </tr>
+                  ))}
+              </tbody>
+          </table>
+          <div className="flex justify-end items-center gap-4 mt-3 bg-gray-50 p-2 rounded">
+              <span className="text-sm font-bold text-gray-600">Diskon Part (%)</span>
+              <input type="number" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} className="w-16 p-1 border rounded text-center font-bold" disabled={isLocked}/>
+              <span className="text-sm font-bold text-gray-800">Subtotal: {formatCurrency(totals.subtotalPart - totals.discountPartAmount)}</span>
+          </div>
       </div>
 
-      {/* ACTION BUTTONS */}
-      <div className="flex flex-col-reverse md:flex-row justify-end gap-3 pt-2">
-        <button 
-          onClick={onCancel}
-          className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-          disabled={isSubmitting}
-        >
-          Tutup
-        </button>
+      {/* SUMMARY */}
+      <div className="bg-gray-900 text-white p-6 rounded-xl flex flex-col md:flex-row justify-between items-center shadow-lg">
+          <div className="flex gap-2">
+              <button onClick={handlePrintEstimation} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded font-bold transition-colors">
+                  <Printer size={18}/> Cetak Estimasi
+              </button>
+          </div>
+          <div className="flex items-center gap-6 mt-4 md:mt-0">
+              <div className="text-right">
+                  <p className="text-xs text-gray-400">PPN ({ppnPercentage}%)</p>
+                  <p className="font-bold">{formatCurrency(totals.ppnAmount)}</p>
+              </div>
+              <div className="text-right border-l border-gray-700 pl-6">
+                  <p className="text-sm text-gray-400 uppercase tracking-widest font-bold">Grand Total</p>
+                  <p className="text-3xl font-black text-emerald-400">{formatCurrency(totals.grandTotal)}</p>
+              </div>
+          </div>
+      </div>
 
-        {/* LOGIC TOMBOL AKSI */}
-        {!existingEstimationNumber ? (
-             <button 
-                onClick={() => handleSave('estimate')}
-                disabled={isSubmitting || isLocked}
-                className="flex items-center justify-center gap-2 px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-lg font-bold"
-             >
-                {isSubmitting ? <span className="animate-spin">⏳</span> : <Save size={18} />}
-                Simpan Draft Estimasi
-             </button>
-        ) : !existingWONumber ? (
-             <>
-                <button 
-                    onClick={() => handleSave('estimate')}
-                    disabled={isSubmitting || isLocked}
-                    className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-bold disabled:opacity-50"
-                >
-                    <Save size={18} /> Update Estimasi
-                </button>
-                <button 
-                    onClick={() => handleSave('wo')}
-                    disabled={isSubmitting || isLocked}
-                    className="flex items-center justify-center gap-2 px-8 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 shadow-lg font-bold"
-                >
-                    {isSubmitting ? <span className="animate-spin">⏳</span> : <FileCheck size={18} />}
-                    Terbitkan Work Order (WO)
-                </button>
-             </>
-        ) : (
-             <button 
-                onClick={() => handleSave('wo')}
-                disabled={isSubmitting || isLocked}
-                className={`flex items-center justify-center gap-2 px-8 py-2.5 text-white rounded-lg transition-colors disabled:opacity-50 shadow-lg font-bold ${isLocked ? 'bg-gray-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-             >
-                {isSubmitting ? <span className="animate-spin">⏳</span> : isLocked ? <Lock size={18}/> : <FileCheck size={18} />}
-                {isLocked ? 'Terkunci (Faktur Terbit)' : 'Update & Download WO'}
-             </button>
-        )}
+      {/* ACTIONS */}
+      <div className="flex justify-end gap-3 pt-2 border-t">
+          <button onClick={onCancel} className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-bold">Batal / Tutup</button>
+          {!isLocked && (
+              <>
+                  <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting} className="px-6 py-2.5 border-2 border-indigo-600 text-indigo-700 rounded-lg hover:bg-indigo-50 font-bold transition-colors disabled:opacity-50">
+                      Simpan Estimasi
+                  </button>
+                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold shadow-lg transition-transform active:scale-95 disabled:opacity-50">
+                      <Save size={18}/> {job.woNumber ? 'Update WO' : 'Terbitkan WO'}
+                  </button>
+              </>
+          )}
       </div>
     </div>
   );
