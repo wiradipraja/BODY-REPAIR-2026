@@ -5,7 +5,7 @@ import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers
 import { 
     Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, 
     Activity, Palette, Search, Package, Box, Tag, AlertCircle, 
-    CheckCircle2, ChevronRight, Hash, Layers
+    CheckCircle2, ChevronRight, Hash, Layers, MapPin, UserCheck
 } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
 import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
@@ -40,14 +40,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
+  // Status & Position Local State
+  const [currentStatus, setCurrentStatus] = useState(job.statusKendaraan);
+  const [currentPosisi, setCurrentPosisi] = useState(job.posisiKendaraan || 'Di Bengkel');
+
   // Detect special color surcharge
   const specialColorRate = useMemo(() => {
       return (settings.specialColorRates || []).find(r => r.colorName === job.warnaMobil);
   }, [job.warnaMobil, settings.specialColorRates]);
 
   const [newLogNote, setNewLogNote] = useState('');
-  const [currentStatus, setCurrentStatus] = useState(job.statusKendaraan);
-
   const isLocked = job.isClosed;
 
   useEffect(() => {
@@ -77,6 +79,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           const snap = await getDocs(q);
           setServiceMasterList(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
       } catch (e) { console.error(e); }
+  };
+
+  const handleUpdateCheckIn = async (field: 'statusKendaraan' | 'posisiKendaraan', value: string) => {
+      if (isLocked) return;
+      try {
+          if (field === 'statusKendaraan') setCurrentStatus(value);
+          if (field === 'posisiKendaraan') setCurrentPosisi(value);
+
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+              [field]: value, 
+              updatedAt: serverTimestamp() 
+          });
+          showNotification(`Update ${field === 'posisiKendaraan' ? 'Posisi Unit' : 'Status Control'} Berhasil`, "success");
+      } catch (e) {
+          showNotification("Gagal update status", "error");
+      }
   };
 
   const calculateFinalServicePrice = (basePrice: number, panelValue: number) => {
@@ -175,68 +193,103 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
-          // Automation is now handled in App.tsx handleSaveEstimate 
-          // to ensure data consistency and prevent race conditions.
           await onSave(job.id, data, saveType);
       } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
 
   return (
     <div className="space-y-6">
-      {/* HEADER CONTROL AREA */}
-      <div className="flex flex-col md:flex-row gap-4 items-stretch">
-          <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex-grow flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-600 text-white rounded-lg"><Activity size={20}/></div>
+      {/* CHECK-IN & STATUS CONTROL CENTER */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white border border-indigo-100 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row gap-6 items-center">
+              <div className="shrink-0 flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md"><UserCheck size={24}/></div>
                   <div>
-                      <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Update Control Status</p>
+                      <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">SA Check-In Control</h4>
+                      <p className="text-[10px] text-indigo-500 font-bold">Penentuan Lokasi Unit & Alur Admin</p>
+                  </div>
+              </div>
+
+              <div className="h-10 w-px bg-gray-100 hidden md:block"></div>
+
+              <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                  {/* FISIK CONTROL */}
+                  <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1">
+                          <MapPin size={10}/> Posisi Fisik Unit
+                      </label>
+                      <div className="flex bg-gray-100 p-1 rounded-xl">
+                          <button 
+                            type="button"
+                            onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Bengkel')}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                          >
+                              INAP (BENGKEL)
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Pemilik')}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                          >
+                              BAWA PULANG
+                          </button>
+                      </div>
+                  </div>
+
+                  {/* STATUS CONTROL */}
+                  <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1">
+                          <Activity size={10}/> Status Administrasi
+                      </label>
                       <select 
                         value={currentStatus} 
-                        onChange={e => {
-                            setCurrentStatus(e.target.value);
-                            updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: e.target.value, updatedAt: serverTimestamp() });
-                        }}
-                        className="bg-transparent font-black text-indigo-900 border-none focus:ring-0 cursor-pointer p-0"
+                        onChange={e => handleUpdateCheckIn('statusKendaraan', e.target.value)}
+                        className="w-full p-2 bg-indigo-50 border-none rounded-xl text-xs font-black text-indigo-700 focus:ring-2 ring-indigo-200"
                       >
                           {settings.statusKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
                   </div>
               </div>
-              {job.namaAsuransi !== 'Umum / Pribadi' && (
-                  <div className="flex-1 max-w-md">
-                      <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={newLogNote} 
-                            onChange={e => setNewLogNote(e.target.value)}
-                            placeholder="Log Negosiasi / Banding SPK..." 
-                            className="flex-grow p-2 text-xs border rounded-lg"
-                          />
-                          <button onClick={async () => {
-                              if (!newLogNote.trim()) return;
-                              const newLog: InsuranceLog = { date: new Date().toISOString(), user: creatorName, note: newLogNote };
-                              await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { insuranceNegotiationLog: arrayUnion(newLog) });
-                              setNewLogNote('');
-                              showNotification("Log negosiasi ditambahkan", "success");
-                          }} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1">
-                              <MessageSquare size={14}/> Log
-                          </button>
+          </div>
+
+          <div className="bg-white border border-gray-100 p-5 rounded-2xl shadow-sm flex items-center justify-between">
+              {specialColorRate ? (
+                  <div className="flex items-center gap-3">
+                      <div className="p-2 bg-rose-600 text-white rounded-xl animate-pulse"><Palette size={20}/></div>
+                      <div>
+                          <p className="text-[10px] font-black text-rose-400 uppercase">Premium Color</p>
+                          <p className="text-xs font-black text-rose-900 truncate max-w-[120px]">{job.warnaMobil}</p>
+                          <p className="text-[9px] text-rose-500 font-bold">Auto-Surcharge Active</p>
+                      </div>
+                  </div>
+              ) : (
+                  <div className="flex items-center gap-3 opacity-40">
+                      <div className="p-2 bg-gray-200 text-gray-500 rounded-xl"><Palette size={20}/></div>
+                      <div>
+                          <p className="text-[10px] font-black text-gray-400 uppercase">Standard Color</p>
+                          <p className="text-xs font-black text-gray-600">{job.warnaMobil}</p>
                       </div>
                   </div>
               )}
-          </div>
-
-          {/* SPECIAL COLOR INDICATOR */}
-          {specialColorRate && (
-              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center gap-4 animate-fade-in shadow-sm">
-                  <div className="p-2 bg-rose-600 text-white rounded-lg animate-pulse"><Palette size={20}/></div>
-                  <div>
-                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">WARNA SPESIAL TERDETEKSI</p>
-                      <p className="font-black text-rose-900 text-sm">{job.warnaMobil}</p>
-                      <p className="text-[9px] text-rose-500 font-bold uppercase tracking-tight">Surcharge: +{formatCurrency(specialColorRate.surchargePerPanel)} / Panel</p>
+              {job.namaAsuransi !== 'Umum / Pribadi' && (
+                  <div className="text-right">
+                      <button 
+                        onClick={() => {
+                            const note = prompt("Catatan Log Negosiasi:");
+                            if (note) {
+                                const newLog: InsuranceLog = { date: new Date().toISOString(), user: creatorName, note };
+                                updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { insuranceNegotiationLog: arrayUnion(newLog) });
+                                showNotification("Log negosiasi ditambahkan", "success");
+                            }
+                        }}
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        title="Tambah Log Negosiasi"
+                      >
+                          <MessageSquare size={20}/>
+                      </button>
                   </div>
-              </div>
-          )}
+              )}
+          </div>
       </div>
 
       {isLocked && (<div className="bg-red-50 p-3 rounded flex items-center gap-2 text-red-700 font-bold"><Lock size={18}/> WO ini terkunci (Closed).</div>)}
@@ -297,7 +350,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                         placeholder="KETIK NAMA PEKERJAAN..." 
                                         disabled={isLocked}
                                       />
-                                      {/* OVERLAY SEARCH PICKER (JASA) */}
                                       {activeSearch?.type === 'jasa' && activeSearch.index === i && (
                                           <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[450px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
                                               <div className="p-3 bg-indigo-900 text-white flex items-center gap-2 sticky top-0 z-10">
@@ -417,7 +469,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                         placeholder="KETIK NAMA BARANG..." 
                                         disabled={isLocked}
                                       />
-                                      {/* OVERLAY SEARCH PICKER (PART) */}
                                       {activeSearch?.type === 'part' && activeSearch.index === i && (
                                           <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[550px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
                                               <div className="p-3 bg-orange-600 text-white flex items-center gap-2 sticky top-0 z-10 shadow-sm">
