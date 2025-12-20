@@ -175,9 +175,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
-          if (job.namaAsuransi !== 'Umum / Pribadi' && saveType === 'estimate') {
-              await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: 'Tunggu SPK Asuransi', updatedAt: serverTimestamp() });
-          }
+          // Automation is now handled in App.tsx handleSaveEstimate 
+          // to ensure data consistency and prevent race conditions.
           await onSave(job.id, data, saveType);
       } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };

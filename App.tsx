@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
@@ -97,7 +98,6 @@ const AppContent: React.FC = () => {
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
           if (!q.empty) {
               const firestoreData = q.docs[0].data();
-              // Merging with initial state to ensure newly added fields are never undefined/missing
               setAppSettings({ ...initialSettingsState, ...firestoreData } as Settings);
           } else {
               setAppSettings(initialSettingsState);
@@ -211,10 +211,23 @@ const AppContent: React.FC = () => {
               estimateData: { ...estimateData, estimationNumber },
               hargaJasa: estimateData.subtotalJasa,
               hargaPart: estimateData.subtotalPart,
-              namaSA: estimateData.estimatorName || userData.displayName
+              namaSA: estimateData.estimatorName || userData.displayName,
+              updatedAt: serverTimestamp()
           };
           delete basePayload.id;
-          if (woNumber) { basePayload.woNumber = woNumber; basePayload.statusKendaraan = 'Work In Progress'; }
+
+          // AUTOMATION: Move status to 'Tunggu SPK Asuransi' if saved as estimate and it's an insurance job
+          if (saveType === 'estimate' && basePayload.namaAsuransi !== 'Umum / Pribadi') {
+              if (basePayload.statusKendaraan === 'Tunggu Estimasi') {
+                  basePayload.statusKendaraan = 'Tunggu SPK Asuransi';
+              }
+          }
+
+          // AUTOMATION: Move status to 'Work In Progress' if WO is issued
+          if (woNumber) { 
+              basePayload.woNumber = woNumber; 
+              basePayload.statusKendaraan = 'Work In Progress'; 
+          }
 
           if (isNew) {
               await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));
@@ -308,7 +321,6 @@ const AppContent: React.FC = () => {
         {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} /> )}
 
         <Modal isOpen={modalState.isOpen} onClose={closeModal} title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
-            {/* Added showNotification prop to fix undefined error in EstimateEditor */}
             {modalState.type === 'create_estimation' && modalState.data && ( <EstimateEditor job={modalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}
             {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>

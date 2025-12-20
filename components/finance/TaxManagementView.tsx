@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-// Fix: Added getDocs to imports from firebase/firestore
+// Added getDocs to imports to fix reference error
 import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { Landmark, Calendar, Landmark as TaxIcon, ArrowUpRight, ArrowDownRight, Calculator, Plus, History, Receipt, AlertCircle, Building2, Save, Loader2, ListChecks, CheckCircle2, FileText, ShoppingCart, Percent, XCircle, Wrench, Info, Users, ArrowRight, BarChart3, TrendingUp, ShieldCheck, ClipboardCheck } from 'lucide-react';

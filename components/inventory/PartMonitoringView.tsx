@@ -1,8 +1,8 @@
-
 import React, { useState, useMemo } from 'react';
 import { Job, InventoryItem, EstimateItem } from '../../types';
 import { formatDateIndo } from '../../utils/helpers';
-import { Search, Filter, CheckCircle, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save } from 'lucide-react';
+// Added CheckCircle2 to the imports to resolve reference error
+import { Search, Filter, CheckCircle, CheckCircle2, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save, ShoppingCart, Info } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -14,7 +14,7 @@ interface PartMonitoringViewProps {
 
 const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventoryItems }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'LENGKAP' | 'PARTIAL' | 'INDENT'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'LENGKAP' | 'PARTIAL' | 'INDENT' | 'NEED_ORDER'>('ALL');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -51,6 +51,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         const parts = job.estimateData?.partItems || [];
         const totalParts = parts.length;
         let readyCount = 0;
+        let unOrderedCount = 0;
         
         const processedParts = parts.map(part => {
             let status: 'ISSUED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
@@ -72,6 +73,11 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                 status = 'WAITING';
             }
 
+            // Track outstanding POs
+            if (!part.hasArrived && !part.isOrdered) {
+                unOrderedCount++;
+            }
+
             return { ...part, allocationStatus: status };
         });
         
@@ -86,7 +92,9 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             partStatus: jobStatus,
             totalParts,
             readyParts: readyCount,
-            detailedParts: processedParts
+            detailedParts: processedParts,
+            hasOutstandingOrder: unOrderedCount > 0,
+            unOrderedCount
         };
     }).filter(job => {
         const matchesSearch = 
@@ -94,7 +102,9 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             job.woNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             job.customerName.toLowerCase().includes(searchTerm.toLowerCase());
         
-        const matchesStatus = statusFilter === 'ALL' || job.partStatus === statusFilter;
+        const matchesStatus = 
+            statusFilter === 'ALL' || 
+            (statusFilter === 'NEED_ORDER' ? job.hasOutstandingOrder : job.partStatus === statusFilter);
 
         return matchesSearch && matchesStatus;
     });
@@ -104,7 +114,8 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
       const lengkap = processedJobs.filter(j => j.partStatus === 'LENGKAP').length;
       const partial = processedJobs.filter(j => j.partStatus === 'PARTIAL').length;
       const indent = processedJobs.filter(j => j.partStatus === 'INDENT').length;
-      return { total: processedJobs.length, lengkap, partial, indent };
+      const needOrder = processedJobs.filter(j => j.hasOutstandingOrder).length;
+      return { total: processedJobs.length, lengkap, partial, indent, needOrder };
   }, [processedJobs]);
 
   const handleToggleIndent = async (partIndex: number, currentIndentStatus: boolean, currentETA?: string) => {
@@ -150,7 +161,7 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-12">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
                 <h1 className="text-3xl font-bold text-gray-900">Monitoring Part WO</h1>
@@ -158,16 +169,28 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
             <div 
                 onClick={() => setStatusFilter('ALL')}
                 className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'ALL' ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
             >
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-gray-600">Total Unit (Part)</span>
-                    <Package size={20} className="text-indigo-50"/>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Total Antrian</span>
+                    <Package size={16} className="text-indigo-400"/>
                 </div>
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-2xl font-black text-gray-900">{stats.total}</div>
+            </div>
+
+            <div 
+                onClick={() => setStatusFilter('NEED_ORDER')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'NEED_ORDER' ? 'bg-amber-50 border-amber-300 ring-1 ring-amber-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
+            >
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-bold text-amber-600 uppercase">Perlu Order (PO)</span>
+                    <ShoppingCart size={16} className="text-amber-500"/>
+                </div>
+                <div className="text-2xl font-black text-amber-700">{stats.needOrder}</div>
+                <p className="text-[10px] text-amber-600 font-bold mt-1">Outstanding Pekerjaan</p>
             </div>
 
             <div 
@@ -175,23 +198,23 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                 className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'LENGKAP' ? 'bg-green-50 border-green-300 ring-1 ring-green-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
             >
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-green-700">Part Lengkap</span>
-                    <CheckCircle size={20} className="text-green-500"/>
+                    <span className="text-[10px] font-bold text-green-700 uppercase">Part Lengkap</span>
+                    <CheckCircle size={16} className="text-green-500"/>
                 </div>
-                <div className="text-2xl font-bold text-green-800">{stats.lengkap}</div>
-                <p className="text-xs text-green-600 mt-1">Ready Gudang / Terpasang</p>
+                <div className="text-2xl font-black text-green-800">{stats.lengkap}</div>
+                <p className="text-[10px] text-green-600 font-bold mt-1">Siap Produksi</p>
             </div>
 
             <div 
                 onClick={() => setStatusFilter('PARTIAL')}
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'PARTIAL' ? 'bg-orange-50 border-orange-300 ring-1 ring-orange-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'PARTIAL' ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
             >
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-orange-700">Lengkap Sebagian</span>
-                    <Clock size={20} className="text-orange-500"/>
+                    <span className="text-[10px] font-bold text-blue-700 uppercase">Partial</span>
+                    <Clock size={16} className="text-blue-500"/>
                 </div>
-                <div className="text-2xl font-bold text-orange-800">{stats.partial}</div>
-                <p className="text-xs text-orange-600 mt-1">Sebagian Ready/Terpasang</p>
+                <div className="text-2xl font-black text-blue-800">{stats.partial}</div>
+                <p className="text-[10px] text-blue-600 font-bold mt-1">Proses Sebagian</p>
             </div>
 
             <div 
@@ -199,88 +222,100 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                 className={`p-4 rounded-xl border cursor-pointer transition-all ${statusFilter === 'INDENT' ? 'bg-red-50 border-red-300 ring-1 ring-red-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
             >
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-red-700">Indent / Kosong</span>
-                    <AlertTriangle size={20} className="text-red-500"/>
+                    <span className="text-[10px] font-bold text-red-700 uppercase">Kosong</span>
+                    <AlertTriangle size={16} className="text-red-500"/>
                 </div>
-                <div className="text-2xl font-bold text-red-800">{stats.indent}</div>
-                <p className="text-xs text-red-600 mt-1">Perlu Order Supplier</p>
+                <div className="text-2xl font-black text-red-800">{stats.indent}</div>
+                <p className="text-[10px] text-red-600 font-bold mt-1">Stok 0</p>
             </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50">
+            <div className="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
                 <Search className="text-gray-400" size={20}/>
                 <input 
                     type="text" 
                     placeholder="Cari No. Polisi, WO, atau Pelanggan..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="bg-transparent border-none focus:ring-0 text-gray-700 w-full placeholder-gray-400"
+                    className="bg-transparent border-none focus:ring-0 text-gray-700 w-full placeholder-gray-400 font-medium"
                 />
             </div>
 
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-100 text-gray-600 uppercase font-semibold">
+                    <thead className="bg-gray-100 text-gray-500 uppercase font-black text-[10px] tracking-widest">
                         <tr>
-                            <th className="px-6 py-3">Info Unit (WO)</th>
-                            <th className="px-6 py-3">Tanggal Masuk</th>
-                            <th className="px-6 py-3">Ketersediaan Part</th>
-                            <th className="px-6 py-3">Status Supply</th>
-                            <th className="px-6 py-3 text-center">Detail</th>
+                            <th className="px-6 py-4">Unit Info (Work Order)</th>
+                            <th className="px-6 py-4">Tgl Masuk</th>
+                            <th className="px-6 py-4">Status Ketersediaan</th>
+                            <th className="px-6 py-4">Logistik (PO)</th>
+                            <th className="px-6 py-4 text-center w-20">Aksi</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {processedJobs.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="text-center py-8 text-gray-400 italic">
-                                    Tidak ada data Work Order dengan status ini.
+                                <td colSpan={5} className="text-center py-20 text-gray-400 italic font-medium">
+                                    Tidak ada data Work Order ditemukan.
                                 </td>
                             </tr>
                         ) : (
                             processedJobs.map(job => (
-                                <tr key={job.id} className="hover:bg-gray-50">
+                                <tr key={job.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4">
-                                        <div className="font-bold text-gray-900">{job.policeNumber}</div>
-                                        <div className="text-xs text-indigo-600 font-mono mb-1">{job.woNumber}</div>
-                                        <div className="text-xs text-gray-500">{job.carModel} | {job.customerName}</div>
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-2 h-10 rounded-full ${job.partStatus === 'LENGKAP' ? 'bg-emerald-500' : job.partStatus === 'PARTIAL' ? 'bg-blue-500' : 'bg-red-500'}`}></div>
+                                            <div>
+                                                <div className="font-black text-gray-900 text-lg">{job.policeNumber}</div>
+                                                <div className="text-[10px] text-indigo-600 font-black tracking-widest uppercase">{job.woNumber || 'NO-WO'}</div>
+                                                <div className="text-xs text-gray-400 font-medium">{job.carModel} | {job.customerName}</div>
+                                            </div>
+                                        </div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-600">
+                                    <td className="px-6 py-4 text-gray-600 font-medium">
                                         {formatDateIndo(job.tanggalMasuk)}
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-grow bg-gray-200 rounded-full h-2.5 w-24 overflow-hidden">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <div className="flex-grow bg-gray-100 rounded-full h-2.5 w-32 overflow-hidden border border-gray-200">
                                                 <div 
-                                                    className={`h-2.5 rounded-full ${job.partStatus === 'LENGKAP' ? 'bg-green-500' : job.partStatus === 'PARTIAL' ? 'bg-orange-500' : 'bg-red-500'}`} 
+                                                    className={`h-full rounded-full transition-all duration-500 ${job.partStatus === 'LENGKAP' ? 'bg-emerald-500' : job.partStatus === 'PARTIAL' ? 'bg-blue-500' : 'bg-rose-500'}`} 
                                                     style={{ width: `${(job.readyParts / job.totalParts) * 100}%` }}
                                                 ></div>
                                             </div>
-                                            <span className="text-xs font-bold text-gray-700">{job.readyParts}/{job.totalParts}</span>
+                                            <span className="text-[11px] font-black text-gray-700">{job.readyParts}/{job.totalParts}</span>
                                         </div>
-                                        <p className="text-[10px] text-gray-400 mt-1">Ready Gudang + Terpasang</p>
+                                        <div className="flex gap-2">
+                                            {job.partStatus === 'LENGKAP' ? (
+                                                <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">LENGKAP</span>
+                                            ) : job.partStatus === 'PARTIAL' ? (
+                                                <span className="text-[9px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">SEBAGIAN</span>
+                                            ) : (
+                                                <span className="text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200">BELUM ADA</span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {job.partStatus === 'LENGKAP' && (
-                                            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold border border-green-200">
-                                                Lengkap (Ready)
-                                            </span>
-                                        )}
-                                        {job.partStatus === 'PARTIAL' && (
-                                            <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold border border-orange-200">
-                                                Lengkap Sebagian
-                                            </span>
-                                        )}
-                                        {job.partStatus === 'INDENT' && (
-                                            <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200">
-                                                Indent / Kosong
-                                            </span>
+                                        {job.hasOutstandingOrder ? (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-1.5 text-amber-600">
+                                                    <ShoppingCart size={14} className="animate-pulse"/>
+                                                    <span className="text-[11px] font-black uppercase tracking-tighter">Perlu PO ({job.unOrderedCount})</span>
+                                                </div>
+                                                <p className="text-[9px] text-amber-500 font-bold">Segera buat Purchase Order</p>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-1.5 text-emerald-600">
+                                                <CheckCircle2 size={14}/>
+                                                <span className="text-[11px] font-black uppercase tracking-tighter">Order Berjalan</span>
+                                            </div>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <button 
                                             onClick={() => setSelectedJob(job)}
-                                            className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-full transition-colors"
+                                            className="p-2.5 bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all shadow-sm group-hover:scale-110 active:scale-95"
                                             title="Kelola Part"
                                         >
                                             <Eye size={18}/>
@@ -297,111 +332,128 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         <Modal 
             isOpen={!!selectedJob} 
             onClose={() => setSelectedJob(null)} 
-            title={`Kontrol Part - ${selectedJob?.policeNumber} (${selectedJob?.woNumber})`}
+            title={`Part Management Control - ${selectedJob?.policeNumber}`}
             maxWidth="max-w-5xl"
         >
             {selectedJob && (
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg text-sm border border-gray-200">
-                        <div>
-                            <span className="block text-gray-500 text-xs uppercase">Pelanggan / Asuransi</span>
-                            <span className="font-bold text-gray-900">{selectedJob.customerName}</span>
-                            <span className="text-gray-500 mx-2">|</span>
-                            <span className="text-indigo-600 font-semibold">{selectedJob.namaAsuransi}</span>
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-1">
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Detail Pelanggan & WO</span>
+                            <div className="flex items-center gap-2">
+                                <span className="font-black text-gray-900 text-base">{selectedJob.woNumber}</span>
+                                <span className="text-gray-300">|</span>
+                                <span className="font-bold text-gray-600">{selectedJob.namaAsuransi}</span>
+                            </div>
+                            <span className="text-sm font-bold text-gray-500 uppercase leading-none mt-1">{selectedJob.customerName}</span>
                         </div>
-                        <div className="text-right">
-                            <span className="block text-gray-500 text-xs uppercase">SA / Tgl Masuk</span>
-                            <span className="font-bold">{selectedJob.namaSA || '-'}</span>
-                            <span className="text-gray-500 mx-2">|</span>
-                            <span>{formatDateIndo(selectedJob.tanggalMasuk)}</span>
-                        </div>
-                    </div>
-
-                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-xs text-blue-800 flex items-start gap-2">
-                        <AlertCircle size={16} className="shrink-0 mt-0.5"/>
-                        <div>
-                            <strong>Partman Control Area:</strong> <br/>
-                            - Klik tombol <strong>SET INDENT</strong> jika stok kosong dan perlu order ke supplier. <br/>
-                            - Sistem alokasi otomatis (FIFO) akan dilewati jika status manual Indent aktif.
+                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex items-center justify-between">
+                            <div>
+                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Pencapaian Stok</span>
+                                <div className="text-2xl font-black text-indigo-700">{selectedJob.readyParts} / {selectedJob.totalParts} <span className="text-xs font-bold opacity-60 uppercase">Item Ready</span></div>
+                            </div>
+                            <div className="p-3 bg-white rounded-xl text-indigo-600 shadow-sm border border-indigo-200">
+                                <Package size={24}/>
+                            </div>
                         </div>
                     </div>
 
-                    <table className="w-full text-sm text-left border border-gray-200 rounded-lg overflow-hidden">
-                        <thead className="bg-gray-800 text-white font-semibold">
-                            <tr>
-                                <th className="p-3 border-b border-gray-700">No. Part</th>
-                                <th className="p-3 border-b border-gray-700">Nama Part</th>
-                                <th className="p-3 border-b border-gray-700 text-center">Qty</th>
-                                <th className="p-3 border-b border-gray-700">Status Alokasi</th>
-                                <th className="p-3 border-b border-gray-700 text-center">Aksi Partman</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                            {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || []).map((part: any, idx: number) => {
-                                let statusBadge;
-                                let rowClass = 'bg-white';
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
+                        <Info size={20} className="text-amber-600 shrink-0 mt-0.5"/>
+                        <div className="text-xs text-amber-800 leading-relaxed font-bold">
+                            Tugas Partman: <br/>
+                            1. Periksa kolom <span className="text-indigo-600">Status Order</span> di bawah. <br/>
+                            2. Jika tertulis <span className="text-amber-600">BELUM PO</span>, segera buat PO di menu Purchase Order. <br/>
+                            3. Gunakan tombol <span className="text-red-600 uppercase">Set Indent</span> jika sudah dipastikan barang perlu indent supplier.
+                        </div>
+                    </div>
 
-                                switch(part.allocationStatus) {
-                                    case 'ISSUED':
-                                        statusBadge = <span className="text-green-700 font-bold flex items-center gap-1"><CheckCircle size={14}/> Sudah Keluar</span>;
-                                        rowClass = 'bg-green-50 opacity-75';
-                                        break;
-                                    case 'READY':
-                                        statusBadge = <span className="text-blue-600 font-bold flex items-center gap-1"><Package size={14}/> Ready Gudang (Booked)</span>;
-                                        rowClass = 'bg-blue-50';
-                                        break;
-                                    case 'INDENT_MANUAL':
-                                        statusBadge = (
-                                            <div>
-                                                <span className="text-red-600 font-bold flex items-center gap-1"><Clock size={14}/> INDENT SUPPLIER</span>
-                                                {part.indentETA && <span className="text-[10px] text-red-500 block ml-5">ETA: {part.indentETA}</span>}
-                                            </div>
-                                        );
-                                        rowClass = 'bg-red-50';
-                                        break;
-                                    case 'WAITING':
-                                        statusBadge = <span className="text-orange-600 font-bold flex items-center gap-1"><AlertTriangle size={14}/> Menunggu Stok</span>;
-                                        break;
-                                    default:
-                                        statusBadge = <span className="text-gray-400">Unknown</span>;
-                                }
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-800 text-white uppercase text-[10px] font-black tracking-widest">
+                                <tr>
+                                    <th className="p-4">No. Part / Nama</th>
+                                    <th className="p-4 text-center">Qty</th>
+                                    <th className="p-4">Status Order</th>
+                                    <th className="p-4">Alokasi Stok (FIFO)</th>
+                                    <th className="p-4 text-center">Aksi Partman</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {(processedJobs.find(j => j.id === selectedJob.id)?.detailedParts || []).map((part: any, idx: number) => {
+                                    let statusBadge;
+                                    let rowClass = 'bg-white';
 
-                                return (
-                                    <tr key={idx} className={rowClass}>
-                                        <td className="p-3 font-mono text-xs">{part.number || '-'}</td>
-                                        <td className="p-3">
-                                            {part.name}
-                                        </td>
-                                        <td className="p-3 text-center font-bold">{part.qty}</td>
-                                        <td className="p-3">
-                                            {statusBadge}
-                                        </td>
-                                        <td className="p-3 text-center">
-                                            {part.allocationStatus !== 'ISSUED' && (
-                                                <button 
-                                                    disabled={isUpdating}
-                                                    onClick={() => handleToggleIndent(idx, part.isIndent, part.indentETA)}
-                                                    className={`px-3 py-1.5 rounded text-xs font-bold shadow-sm transition-colors border ${part.isIndent 
-                                                        ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' 
-                                                        : 'bg-red-600 text-white border-red-700 hover:bg-red-700'
-                                                    }`}
-                                                >
-                                                    {part.isIndent ? 'Batalkan Indent' : 'Set Indent'}
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                    switch(part.allocationStatus) {
+                                        case 'ISSUED':
+                                            statusBadge = <span className="text-emerald-600 font-black text-[10px] flex items-center gap-1 uppercase border border-emerald-100 bg-emerald-50 px-2 py-0.5 rounded">SUDAH KELUAR</span>;
+                                            rowClass = 'bg-emerald-50/20 opacity-70';
+                                            break;
+                                        case 'READY':
+                                            statusBadge = <span className="text-blue-600 font-black text-[10px] flex items-center gap-1 uppercase border border-blue-100 bg-blue-50 px-2 py-0.5 rounded">STOK AMAN</span>;
+                                            break;
+                                        case 'INDENT_MANUAL':
+                                            statusBadge = <span className="text-red-600 font-black text-[10px] flex items-center gap-1 uppercase border border-red-100 bg-red-50 px-2 py-0.5 rounded">INDENT SUPPLIER</span>;
+                                            break;
+                                        case 'WAITING':
+                                            statusBadge = <span className="text-amber-600 font-black text-[10px] flex items-center gap-1 uppercase border border-amber-100 bg-amber-50 px-2 py-0.5 rounded">KOSONG</span>;
+                                            break;
+                                        default:
+                                            statusBadge = <span className="text-gray-400">-</span>;
+                                    }
 
-                    <div className="flex justify-end pt-4">
+                                    return (
+                                        <tr key={idx} className={`${rowClass} transition-colors`}>
+                                            <td className="p-4">
+                                                <div className="font-black text-gray-900 leading-tight uppercase">{part.name}</div>
+                                                <div className="text-[10px] font-mono text-gray-400 mt-0.5">{part.number || 'NO-PART'}</div>
+                                            </td>
+                                            <td className="p-4 text-center font-black text-gray-800">{part.qty}</td>
+                                            <td className="p-4">
+                                                {part.hasArrived ? (
+                                                    <span className="text-[9px] font-black text-emerald-600 flex items-center gap-1 uppercase"><CheckCircle size={10}/> Issued</span>
+                                                ) : part.isOrdered ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[9px] font-black text-indigo-600 flex items-center gap-1 uppercase"><ShoppingCart size={10}/> Sudah di-PO</span>
+                                                        {part.isIndent && <span className="text-[8px] text-red-500 font-black">STOK INDENT</span>}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-1 text-amber-600">
+                                                        <AlertCircle size={10} className="animate-pulse"/>
+                                                        <span className="text-[9px] font-black uppercase tracking-tighter">BELUM PO</span>
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="p-4">
+                                                {statusBadge}
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                {part.allocationStatus !== 'ISSUED' && (
+                                                    <button 
+                                                        disabled={isUpdating}
+                                                        onClick={() => handleToggleIndent(idx, part.isIndent, part.indentETA)}
+                                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border shadow-sm ${part.isIndent 
+                                                            ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100' 
+                                                            : 'bg-red-600 text-white border-red-700 hover:bg-red-700 hover:scale-105 active:scale-95'
+                                                        }`}
+                                                    >
+                                                        {part.isIndent ? 'BATAL INDENT' : 'SET INDENT'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="flex justify-end pt-4 border-t border-gray-100">
                         <button 
                             onClick={() => setSelectedJob(null)}
-                            className="px-6 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 font-medium"
+                            className="px-8 py-3 bg-gray-100 text-gray-600 rounded-2xl hover:bg-gray-200 font-black transition-all active:scale-95"
                         >
-                            Tutup
+                            TUTUP
                         </button>
                     </div>
                 </div>
