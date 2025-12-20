@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
@@ -14,7 +14,7 @@ interface PurchaseOrderViewProps {
   jobs?: Job[]; 
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
-  realTimePOs?: PurchaseOrder[]; // GLOBAL REAL-TIME PROP
+  realTimePOs?: PurchaseOrder[];
 }
 
 const UNIT_OPTIONS = ['Pcs', 'Set', 'Unit', 'Liter', 'Kaleng', 'Kg', 'Gram', 'Meter', 'Roll', 'Galon'];
@@ -58,7 +58,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     fetchSettings();
   }, []);
 
-  // Sync selected PO with real-time updates
   useEffect(() => {
       if (selectedPO) {
           const updated = realTimePOs.find(p => p.id === selectedPO.id);
@@ -112,7 +111,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
         const poData = docSnap.data() as PurchaseOrder;
 
-        // 1. Update PO Status
         await updateDoc(poRef, {
             status: 'Ordered',
             approvedBy: userPermissions.role,
@@ -120,7 +118,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             lastModified: serverTimestamp()
         });
 
-        // 2. AUTOMATION: Check linked jobs for status transition
         const linkedJobIds = Array.from(new Set(poData.items.filter(i => i.refJobId).map(i => i.refJobId)));
         
         for (const jobId of linkedJobIds) {
@@ -131,12 +128,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             if (jobSnap.exists()) {
                 const jobData = jobSnap.data() as Job;
                 const parts = jobData.estimateData?.partItems || [];
-                
-                // Cek apakah SEMUA part sudah berstatus 'isOrdered' (termasuk yang baru di-approve ini)
                 const allOrdered = parts.every(p => p.isOrdered);
                 
                 if (allOrdered && jobData.posisiKendaraan === 'Di Pemilik') {
-                    // Jika unit masih di pemilik dan part sudah dipesan semua, naikkan status ke 'Tunggu Part'
                     await updateDoc(jobRef, {
                         statusKendaraan: 'Unit di Pemilik (Tunggu Part)',
                         updatedAt: serverTimestamp()
@@ -188,13 +182,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
     setIsProcessing(true);
     try {
-        // 1. Update PO Status
         await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, po.id), {
             status: 'Cancelled',
             lastModified: serverTimestamp()
         });
 
-        // 2. Revert isOrdered flag in linked Jobs
         for (const item of po.items) {
             if (item.refJobId && item.refPartIndex !== undefined) {
                 const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
@@ -432,6 +424,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       try {
           const updatedItems = [...selectedPO.items];
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
+          const batch = writeBatch(db);
 
           for (const idx of selectedItemsToReceive) {
               const item = updatedItems[idx];
@@ -446,14 +439,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
 
               if (targetInventoryId) {
-                  await updateDoc(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
+                  batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
                       stock: increment(qtyNow), 
                       buyPrice: item.price, 
                       brand: item.brand || 'No Brand', 
                       updatedAt: serverTimestamp() 
                   });
               } else {
-                  const newItem = await addDoc(collection(db, SPAREPART_COLLECTION), {
+                  const newInvRef = doc(collection(db, SPAREPART_COLLECTION));
+                  batch.set(newInvRef, {
                       code: itemCodeUpper, 
                       name: item.name, 
                       category: item.category || 'sparepart', 
@@ -467,23 +461,46 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       createdAt: serverTimestamp(), 
                       updatedAt: serverTimestamp()
                   });
-                  targetInventoryId = newItem.id;
+                  targetInventoryId = newInvRef.id;
               }
 
               updatedItems[idx] = { ...item, qtyReceived: (item.qtyReceived || 0) + qtyNow, inventoryId: targetInventoryId };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
+
+              // LOGIC: INTEGRATE WITH WORK ORDER
+              // Automatically mark part as 'hasArrived' in the Job if this item is linked to a Job
+              if (item.refJobId && item.refPartIndex !== undefined) {
+                  const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
+                  const jobSnap = await getDoc(jobRef);
+                  if (jobSnap.exists()) {
+                      const jobData = jobSnap.data() as Job;
+                      const currentParts = [...(jobData.estimateData?.partItems || [])];
+                      if (currentParts[item.refPartIndex]) {
+                          // Check if total received for this item meets or exceeds the required qty
+                          if ((item.qtyReceived || 0) + qtyNow >= item.qty) {
+                              currentParts[item.refPartIndex] = { ...currentParts[item.refPartIndex], hasArrived: true };
+                              batch.update(jobRef, { 
+                                  'estimateData.partItems': currentParts,
+                                  updatedAt: serverTimestamp()
+                              });
+                          }
+                      }
+                  }
+              }
           }
 
           const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
-          await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
+          batch.update(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
               items: updatedItems, 
               status: isFull ? 'Received' : 'Partial',
               receivedAt: serverTimestamp(),
               receivedBy: userPermissions.role
           });
 
+          await batch.commit();
+
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
-          showNotification("Barang diterima & Stok terupdate.", "success");
+          showNotification("Barang diterima, WO & Stok terupdate.", "success");
           setViewMode('list');
           setSelectedPO(null);
       } catch (e: any) {

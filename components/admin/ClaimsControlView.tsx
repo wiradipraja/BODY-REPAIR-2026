@@ -43,6 +43,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
           (j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term))
       );
 
+      // FIFO SORTING: Priority for allocation
       filtered.sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
       const stockMap: Record<string, number> = {};
@@ -71,7 +72,8 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                   }
               });
           } else {
-              allPartsReady = false;
+              // Jasa only is considered ready for production immediately
+              allPartsReady = (job.estimateData?.jasaItems?.length || 0) > 0;
           }
 
           return { 
@@ -236,10 +238,10 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                     return (
                                         <div 
                                             key={job.id} 
-                                            className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
+                                            className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.isReadyToCall && (stage === 'Unit di Pemilik (Tunggu Part)' || stage === 'Tunggu SPK Asuransi') ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
                                             onClick={() => openModal('create_estimation', job)}
                                         >
-                                            {/* Accent Line for Critical/Ready */}
+                                            {/* Accent Line */}
                                             {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div>}
                                             {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>}
 
@@ -255,7 +257,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                                 <p className="text-[12px] font-bold text-gray-700 truncate uppercase">{job.carModel}</p>
                                                 <p className="text-[11px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
                                                 
-                                                {/* LOGISTIK INFO AREA */}
                                                 {logistik && logistik.total > 0 && (
                                                     <div className="bg-gray-50 rounded-lg p-2 mt-2 space-y-1 border border-gray-100">
                                                         <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase tracking-tighter">
@@ -293,7 +294,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                             {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && (
                                                 <div className="mb-4 py-1.5 px-2 bg-emerald-100/50 rounded-lg flex items-center gap-2 border border-emerald-200">
                                                     <Zap size={14} className="text-emerald-600 fill-emerald-600"/>
-                                                    <span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">SIAP PRODUKSI</span>
+                                                    <span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">SIAP PANGGIL / BOOKING</span>
                                                 </div>
                                             )}
 
