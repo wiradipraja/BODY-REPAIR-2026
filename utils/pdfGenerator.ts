@@ -71,12 +71,12 @@ export const generateEstimationPDF = (job: Job, estimateData: EstimateData, sett
   doc.text("A. JASA PERBAIKAN", 15, currentY);
   autoTable(doc, {
     startY: currentY + 2,
-    head: [['No', 'Uraian Pekerjaan', 'Biaya (Rp)']],
-    body: estimateData.jasaItems.map((item, idx) => [idx + 1, item.name, formatCurrency(item.price)]),
+    head: [['No', 'Jenis', 'Uraian Pekerjaan', 'Biaya (Rp)']],
+    body: estimateData.jasaItems.map((item, idx) => [idx + 1, item.workType || '-', item.name, formatCurrency(item.price)]),
     theme: 'plain',
     headStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
     styles: { fontSize: 9 },
-    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' } }
+    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 15, halign: 'center' }, 3: { cellWidth: 40, halign: 'right' } }
   });
 
   currentY = doc.lastAutoTable.finalY + 10;
@@ -205,8 +205,8 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
   // Table: Plain theme for clean print
   autoTable(doc, {
     startY: currentY + 2,
-    head: [['No', 'Uraian Pekerjaan', 'Biaya (Rp)']],
-    body: estimate.jasaItems.map((item, idx) => [idx + 1, item.name, formatCurrency(item.price)]),
+    head: [['No', 'Jenis', 'Uraian Pekerjaan', 'Biaya (Rp)']],
+    body: estimate.jasaItems.map((item, idx) => [idx + 1, item.workType || '-', item.name, formatCurrency(item.price)]),
     theme: 'plain', 
     headStyles: { 
         fillColor: false, 
@@ -217,7 +217,7 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
     },
     bodyStyles: { textColor: 0 },
     styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' } }
+    columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 15, halign: 'center' }, 3: { cellWidth: 40, halign: 'right' } }
   });
 
   // -- SECTION: PARTS --

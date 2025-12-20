@@ -87,7 +87,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
   const addItem = (type: 'jasa' | 'part') => {
     if (isLocked) return;
-    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0 } : { name: '', price: 0, qty: 1, number: '' };
+    const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0, workType: 'KC' } : { name: '', price: 0, qty: 1, number: '' };
     if (type === 'jasa') setJasaItems([...jasaItems, newItem]);
     else setPartItems([...partItems, newItem]);
   };
@@ -257,10 +257,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           <th className="px-4 py-2 w-10 text-center">No</th>
-                          <th className="px-4 py-2 w-44">Kode</th>
+                          <th className="px-4 py-2 w-32">Kode</th>
+                          <th className="px-4 py-2 w-16 text-center">Jenis</th>
                           <th className="px-4 py-2">Nama Pekerjaan</th>
-                          <th className="px-4 py-2 w-20 text-center">Panel</th>
-                          <th className="px-4 py-2 w-44 text-right">Biaya (Final)</th>
+                          <th className="px-4 py-2 w-16 text-center">Panel</th>
+                          <th className="px-4 py-2 w-40 text-right">Biaya (Final)</th>
                           <th className="px-4 py-2 w-10"></th>
                       </tr>
                   </thead>
@@ -276,10 +277,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                         onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.number || ''); }}
                                         onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }}
                                         className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all" 
-                                        placeholder="CARI KODE..." 
+                                        placeholder="CARI..." 
                                         disabled={isLocked}
                                       />
                                   </div>
+                              </td>
+                              <td className="px-4 py-3 text-center border-y border-gray-100">
+                                  <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black border ${item.workType === 'KC' ? 'bg-orange-50 text-orange-600 border-orange-200' : item.workType === 'GTC' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                      {item.workType || '-'}
+                                  </span>
                               </td>
                               <td className="px-4 py-3 relative border-y border-gray-100">
                                   <div className="relative">
