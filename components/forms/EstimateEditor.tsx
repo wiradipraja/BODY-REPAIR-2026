@@ -193,8 +193,21 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
-          await onSave(job.id, data, saveType);
-      } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
+          // onSave returns the new WO Number or Estimation Number
+          const resultNumber = await onSave(job.id, data, saveType);
+          
+          // AUTO DOWNLOAD TRIGGER: If it's a Work Order save/update, generate PDF immediately
+          if (saveType === 'wo' && resultNumber) {
+              const finalJobForPdf = { ...job, woNumber: resultNumber };
+              const finalDataForPdf = { ...data, estimationNumber: resultNumber };
+              generateEstimationPDF(finalJobForPdf, finalDataForPdf, settings, creatorName);
+          }
+      } catch (e) { 
+          console.error(e); 
+          showNotification("Gagal menyimpan data", "error");
+      } finally { 
+          setIsSubmitting(false); 
+      }
   };
 
   return (
