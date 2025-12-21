@@ -1,11 +1,12 @@
+
 import React, { useState, useMemo } from 'react';
-import { Job, Settings, UserPermissions } from '../../types';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Job, Settings, UserPermissions, ProductionLog, MechanicAssignment } from '../../types';
+import { doc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers 
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -31,10 +32,11 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   const [searchTerm, setSearchTerm] = useState('');
   const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
   
-  // Report Modal State
+  // Report & Modal State
   const [showProductivityReport, setShowProductivityReport] = useState(false);
   const [reportMonth, setReportMonth] = useState(new Date().getMonth());
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [viewHistoryJob, setViewHistoryJob] = useState<Job | null>(null);
 
   // --- DATA PROCESSING ---
   const activeProductionJobs = useMemo(() => {
@@ -43,8 +45,8 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           !j.isClosed && 
           j.woNumber && 
           !j.isDeleted &&
-          j.posisiKendaraan === 'Di Bengkel' && // CRITICAL: Only units physically inside
-          (j.statusKendaraan === 'Work In Progress' || j.statusKendaraan === 'Unit Rawat Jalan') && 
+          j.posisiKendaraan === 'Di Bengkel' && 
+          (j.statusKendaraan === 'Work In Progress' || j.statusKendaraan === 'Unit Rawat Jalan' || j.statusKendaraan === 'Booking Masuk') && 
           (j.policeNumber.includes(term) || j.carModel.toUpperCase().includes(term) || j.customerName.toUpperCase().includes(term))
       );
   }, [jobs, searchTerm]);
@@ -55,111 +57,166 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       STAGES.forEach(s => columns[s] = []);
       
       activeProductionJobs.forEach(job => {
-          // Normalize status
           const status = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
           if (columns[status]) columns[status].push(job);
       });
       return columns;
   }, [activeProductionJobs]);
 
-  // Mechanic Workload Calculation (Current Active Jobs)
+  // Mechanic Workload Calculation (Current Workload)
   const mechanicWorkload = useMemo(() => {
       const workload: Record<string, number> = {};
       (settings.mechanicNames || []).forEach(m => workload[m] = 0);
       
-      activeProductionJobs.forEach(j => {
-          if (j.mechanicName && workload[j.mechanicName] !== undefined) {
-              workload[j.mechanicName]++;
+      activeProductionJobs.forEach((j: Job) => {
+          // Get current PIC for the current stage
+          const currentStage = j.statusPekerjaan || 'Bongkar';
+          const currentPIC = j.assignedMechanics?.find(a => a.stage === currentStage)?.name;
+          
+          // Fix Error: Type 'unknown' cannot be used as an index type (casting currentPIC as string)
+          if (currentPIC && workload[currentPIC as string] !== undefined) {
+              workload[currentPIC as string]++;
           }
       });
       return workload;
   }, [activeProductionJobs, settings]);
 
-  // --- REPORT DATA ---
-  const productivityData = useMemo(() => {
-      const completedJobs = jobs.filter(j => {
-          // Only count closed jobs for payment calculation
-          if (!j.isClosed || !j.closedAt) return false;
-          
-          const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
-          return d.getMonth() === reportMonth && d.getFullYear() === reportYear;
-      });
-
-      const report: Record<string, { totalJobs: number, totalPanels: number, jobList: Job[] }> = {};
-      
-      (settings.mechanicNames || []).forEach(m => {
-          report[m] = { totalJobs: 0, totalPanels: 0, jobList: [] };
-      });
-
-      completedJobs.forEach(j => {
-          if (j.mechanicName && report[j.mechanicName]) {
-              report[j.mechanicName].totalJobs += 1;
-              // Sum panel count from estimate
-              const panels = j.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
-              report[j.mechanicName].totalPanels += panels;
-              report[j.mechanicName].jobList.push(j);
-          }
-      });
-
-      return report;
-  }, [jobs, reportMonth, reportYear, settings.mechanicNames]);
-
   // --- HANDLERS ---
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
-      const currentIndex = STAGES.indexOf(job.statusPekerjaan);
-      if (currentIndex === -1) return;
+      let currentIndex = STAGES.indexOf(job.statusPekerjaan);
+      if (currentIndex === -1) currentIndex = 0;
 
       let newIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
       
-      // Bounds check
-      if (newIndex < 0) newIndex = 0;
-      if (newIndex >= STAGES.length) {
-          // If next after QC -> Suggest Closing? Or just stay at QC
-          if(window.confirm("Unit sudah selesai QC. Tandai sebagai 'Selesai' (Ready For Delivery)?")) {
-               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
-                   statusPekerjaan: 'Selesai',
-                   statusKendaraan: 'Selesai', // Ready for delivery
-                   posisiKendaraan: 'Di Bengkel'
-               });
-               showNotification("Unit ditandai Selesai / Ready.", "success");
+      if (direction === 'next') {
+          if (newIndex >= STAGES.length) {
+              if(window.confirm("Unit sudah selesai QC. Tandai sebagai 'Selesai' (Ready For Delivery)?")) {
+                   await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+                       statusPekerjaan: 'Selesai',
+                       statusKendaraan: 'Selesai',
+                       posisiKendaraan: 'Di Bengkel',
+                       updatedAt: serverTimestamp()
+                   });
+                   showNotification("Unit ditandai Selesai / Ready.", "success");
+              }
+              return;
           }
-          return;
-      }
+          
+          const newStage = STAGES[newIndex];
+          const logEntry: ProductionLog = {
+              stage: newStage,
+              timestamp: new Date().toISOString(),
+              user: userPermissions.role,
+              type: 'progress'
+          };
 
-      const newStage = STAGES[newIndex];
-      
-      try {
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
               statusPekerjaan: newStage,
-              // Update timestamp for bottleneck calculation
+              productionLogs: arrayUnion(logEntry),
               updatedAt: serverTimestamp() 
           });
-          showNotification(`Status update: ${newStage}`, "success");
-      } catch (e) {
-          showNotification("Gagal update status", "error");
+          showNotification(`Update: ${newStage}`, "success");
+      } 
+      else if (direction === 'prev') {
+          if (newIndex < 0) return;
+
+          const reason = window.prompt(`Konfirmasi RE-WORK ke Stall ${STAGES[newIndex]}.\n\nMasukkan alasan re-work (wajib):`);
+          if (!reason || !reason.trim()) {
+              showNotification("Gagal: Alasan re-work harus diisi.", "error");
+              return;
+          }
+
+          const newStage = STAGES[newIndex];
+          const logEntry: ProductionLog = {
+              stage: newStage,
+              timestamp: new Date().toISOString(),
+              user: userPermissions.role,
+              note: reason,
+              type: 'rework'
+          };
+
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+              statusPekerjaan: newStage,
+              productionLogs: arrayUnion(logEntry),
+              updatedAt: serverTimestamp() 
+          });
+          showNotification(`Re-work dicatat: Kembali ke ${newStage}`, "info");
       }
   };
 
-  const handleAssignMechanic = async (jobId: string, mechanicName: string) => {
+  const handleAssignMechanic = async (job: Job, mechanicName: string) => {
+      const currentStage = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
+      
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), {
-              mechanicName: mechanicName
+          const assignment: MechanicAssignment = {
+              name: mechanicName,
+              stage: currentStage,
+              assignedAt: new Date().toISOString()
+          };
+
+          // Update assignedMechanics: Replace if same stage exists, or append
+          const currentAssignments = [...(job.assignedMechanics || [])];
+          const existingIdx = currentAssignments.findIndex(a => a.stage === currentStage);
+          
+          if (existingIdx >= 0) {
+              currentAssignments[existingIdx] = assignment;
+          } else {
+              currentAssignments.push(assignment);
+          }
+
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+              assignedMechanics: currentAssignments,
+              mechanicName: mechanicName // Kept for legacy compatibility
           });
+          
           setAssigningJobId(null);
-          showNotification(`Mekanik ${mechanicName} ditugaskan.`, "success");
+          showNotification(`Mekanik ${mechanicName} ditugaskan di stall ${currentStage}.`, "success");
       } catch (e) {
           showNotification("Gagal assign mekanik.", "error");
       }
   };
 
   const checkBottleneck = (job: Job) => {
-      // Logic: If last update > 3 days ago
       if (!job.updatedAt) return false; 
       const lastUpdate = (job as any).updatedAt || job.createdAt;
       const ms = lastUpdate.seconds ? lastUpdate.seconds * 1000 : new Date(lastUpdate).getTime();
       const diffDays = (Date.now() - ms) / (1000 * 3600 * 24);
       return diffDays > 3;
   };
+
+  // --- REFINED REPORT DATA (MULTI-MECHANIC SUPPORT) ---
+  const productivityData = useMemo(() => {
+      const completedJobs = jobs.filter(j => {
+          if (!j.isClosed || !j.closedAt) return false;
+          const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+          return d.getMonth() === reportMonth && d.getFullYear() === reportYear;
+      });
+
+      const report: Record<string, { totalJobs: number, totalPanels: number, jobList: Job[] }> = {};
+      (settings.mechanicNames || []).forEach(m => {
+          report[m] = { totalJobs: 0, totalPanels: 0, jobList: [] };
+      });
+
+      completedJobs.forEach(j => {
+          // Identify all mechanics involved in this WO
+          // Fix Error: Explicitly cast uniqueMechanics to string[] to ensure it's not unknown[] from Array.from(Set)
+          const uniqueMechanics = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || [])) as string[];
+          
+          // Logic: Each mechanic involved in a WO gets full credit for the WO panels 
+          // (or split based on stall if complexity needed later)
+          const panels = j.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
+
+          // Fix Error: Explicitly type mName as string to resolve 'unknown' index type error on lines 209-212
+          uniqueMechanics.forEach((mName: string) => {
+              if (report[mName]) {
+                  report[mName].totalJobs += 1;
+                  report[mName].totalPanels += panels;
+                  report[mName].jobList.push(j);
+              }
+          });
+      });
+      return report;
+  }, [jobs, reportMonth, reportYear, settings.mechanicNames]);
 
   return (
     <div className="space-y-6 animate-fade-in pb-4 h-[calc(100vh-100px)] flex flex-col">
@@ -171,7 +228,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Job Control Board</h1>
-                    <p className="text-sm text-gray-500 font-medium">Monitoring Produksi Real-time & Bottleneck</p>
+                    <p className="text-sm text-gray-500 font-medium">Monitoring Produksi Multi-Mekanik & Re-work</p>
                 </div>
             </div>
             
@@ -183,7 +240,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                         placeholder="Cari Unit / Nopol..." 
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        className="pl-10 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 w-64"
+                        className="pl-10 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-50 w-64"
                     />
                 </div>
                 <button 
@@ -196,17 +253,17 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
         </div>
 
         {/* MECHANIC WORKLOAD STRIP */}
-        <div className="flex gap-4 overflow-x-auto pb-2 shrink-0">
+        <div className="flex gap-4 overflow-x-auto pb-2 shrink-0 scrollbar-thin">
             {(settings.mechanicNames || []).map(mech => (
-                <div key={mech} className="bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3 min-w-[140px]">
+                <div key={mech} className="bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3 min-w-[150px]">
                     <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600">
                         <User size={14}/>
                     </div>
                     <div>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase">Mekanik</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase">Load Stall</p>
                         <p className="text-xs font-bold text-gray-800">{mech}</p>
                     </div>
-                    <div className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${mechanicWorkload[mech] > 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    <div className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${mechanicWorkload[mech] > 2 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                         {mechanicWorkload[mech] || 0}
                     </div>
                 </div>
@@ -226,57 +283,62 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                 <span className="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{jobsInStage.length}</span>
                             </div>
 
-                            {/* Column Body (Scrollable) */}
+                            {/* Column Body */}
                             <div className="p-2 flex-grow overflow-y-auto space-y-3 scrollbar-thin">
                                 {jobsInStage.map(job => {
                                     const isBottleneck = checkBottleneck(job);
+                                    const hasRework = job.productionLogs?.some(l => l.type === 'rework');
+                                    const currentPIC = job.assignedMechanics?.find(a => a.stage === (job.statusPekerjaan || 'Bongkar'))?.name;
+                                    
                                     return (
-                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isBottleneck ? 'border-l-red-500 ring-1 ring-red-200' : 'border-l-blue-500'}`}>
+                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isBottleneck ? 'border-l-red-500 ring-1 ring-red-200' : hasRework ? 'border-l-orange-400' : 'border-l-blue-500'}`}>
                                             <div className="flex justify-between items-start mb-2">
-                                                <span className="font-black text-gray-800 text-sm">{job.policeNumber}</span>
-                                                {/* Removed title prop from AlertTriangle and wrapped it in a span with title to fix TS error */}
-                                                {isBottleneck && (
-                                                    <span title="Unit diam > 3 hari">
-                                                        <AlertTriangle size={14} className="text-red-500 animate-pulse" />
-                                                    </span>
-                                                )}
+                                                <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
+                                                <div className="flex items-center gap-1.5">
+                                                    {hasRework && <RefreshCcw size={14} className="text-orange-500" title="Pernah Re-work"/>}
+                                                    {isBottleneck && <AlertTriangle size={14} className="text-red-500 animate-pulse" title="Unit diam > 3 hari"/>}
+                                                    <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                                                        <History size={14} className="text-gray-400"/>
+                                                    </button>
+                                                </div>
                                             </div>
                                             
-                                            <p className="text-xs text-gray-500 font-medium mb-1 truncate">{job.carModel}</p>
-                                            <p className="text-[10px] text-gray-400 mb-2 truncate">{job.customerName}</p>
+                                            <p className="text-[11px] font-bold text-gray-500 mb-1 truncate uppercase">{job.carModel} | {job.customerName}</p>
                                             
                                             <div className="flex items-center justify-between mb-3">
-                                                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium border border-gray-200 flex items-center gap-1">
+                                                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px] font-black border border-gray-200 flex items-center gap-1">
                                                     <Calendar size={10}/> {job.tanggalMasuk ? new Date(job.tanggalMasuk).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'}) : '-'}
                                                 </span>
+                                                <span className="text-[10px] font-bold text-indigo-600">{(job.estimateData?.jasaItems?.reduce((a,b) => a+(b.panelCount||0),0)||0).toFixed(1)} PNL</span>
                                             </div>
 
-                                            {/* MECHANIC ASSIGNMENT */}
+                                            {/* MECHANIC ASSIGNMENT (PIC PER STALL) */}
                                             <div className="mb-3">
-                                                {job.mechanicName ? (
+                                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">PIC {stage}:</label>
+                                                {currentPIC ? (
                                                     <div 
                                                         className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded p-1.5 cursor-pointer hover:bg-indigo-100"
                                                         onClick={() => setAssigningJobId(assigningJobId === job.id ? null : job.id)}
                                                     >
                                                         <User size={12} className="text-indigo-600"/>
-                                                        <span className="text-xs font-bold text-indigo-700">{job.mechanicName}</span>
+                                                        <span className="text-xs font-bold text-indigo-700 truncate">{currentPIC}</span>
                                                     </div>
                                                 ) : (
                                                     <button 
                                                         onClick={() => setAssigningJobId(assigningJobId === job.id ? null : job.id)}
                                                         className="w-full py-1 border border-dashed border-gray-300 rounded text-xs text-gray-400 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1"
                                                     >
-                                                        <Wrench size={12}/> Pilih Mekanik
+                                                        <Wrench size={12}/> Tunjuk Mekanik
                                                     </button>
                                                 )}
 
                                                 {assigningJobId === job.id && (
-                                                    <div className="mt-2 grid grid-cols-2 gap-1 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in">
+                                                    <div className="mt-2 grid grid-cols-2 gap-1 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in shadow-inner z-20 relative">
                                                         {(settings.mechanicNames || []).map(m => (
                                                             <button 
                                                                 key={m}
-                                                                onClick={() => handleAssignMechanic(job.id, m)}
-                                                                className="text-[10px] p-1 bg-white border rounded hover:bg-indigo-50 hover:text-indigo-700 text-left truncate"
+                                                                onClick={(e) => { e.stopPropagation(); handleAssignMechanic(job, m); }}
+                                                                className={`text-[10px] p-1.5 border rounded text-left truncate transition-colors ${currentPIC === m ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-white hover:bg-indigo-50 text-gray-700'}`}
                                                             >
                                                                 {m}
                                                             </button>
@@ -290,33 +352,27 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'prev')}
                                                     disabled={stage === STAGES[0]}
-                                                    className="text-gray-400 hover:text-gray-600 disabled:opacity-30 p-1"
-                                                    title="Mundur Tahap"
+                                                    className={`p-1.5 rounded-lg border transition-all ${stage === STAGES[0] ? 'opacity-0' : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'}`}
+                                                    title="Mundur Stall (Re-Work)"
                                                 >
-                                                    <ChevronRight size={16} className="rotate-180"/>
+                                                    <ChevronRight size={18} className="rotate-180"/>
                                                 </button>
                                                 
-                                                <span className="text-[10px] font-bold text-blue-600">
+                                                <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">
                                                     {stage}
                                                 </span>
 
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'next')}
-                                                    className="bg-blue-600 text-white rounded-full p-1 hover:bg-blue-700 shadow-sm"
-                                                    title="Lanjut Tahap Berikutnya"
+                                                    className="bg-indigo-600 text-white rounded-lg p-1.5 hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all active:scale-95"
+                                                    title="Lanjut Stall"
                                                 >
-                                                    <ChevronRight size={16}/>
+                                                    <ChevronRight size={18}/>
                                                 </button>
                                             </div>
                                         </div>
                                     );
                                 })}
-                                {jobsInStage.length === 0 && (
-                                    <div className="text-center py-10 opacity-30">
-                                        <div className="w-12 h-12 bg-gray-300 rounded-full mx-auto mb-2"></div>
-                                        <p className="text-xs font-bold text-gray-500">Kosong</p>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     );
@@ -324,67 +380,132 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             </div>
         </div>
 
-        {/* MODAL REPORT */}
+        {/* MODAL HISTORY LOGS */}
         <Modal 
-            isOpen={showProductivityReport} 
-            onClose={() => setShowProductivityReport(false)} 
-            title="Laporan Produktivitas Mekanik (Flat Rate)"
-            maxWidth="max-w-4xl"
+            isOpen={!!viewHistoryJob} 
+            onClose={() => setViewHistoryJob(null)} 
+            title={`Log Produksi & PIC - ${viewHistoryJob?.policeNumber}`}
         >
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <label className="text-sm font-bold text-gray-600">Periode Laporan:</label>
-                    <select 
-                        value={reportMonth} 
-                        onChange={e => setReportMonth(Number(e.target.value))}
-                        className="p-2 border rounded text-sm"
-                    >
-                        {["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map((m, i) => (
-                            <option key={i} value={i}>{m}</option>
-                        ))}
-                    </select>
-                    <select 
-                        value={reportYear} 
-                        onChange={e => setReportYear(Number(e.target.value))}
-                        className="p-2 border rounded text-sm"
-                    >
-                        {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
+            <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 flex justify-between items-center">
+                    <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase">Pelanggan</p>
+                        <p className="text-sm font-bold text-gray-800">{viewHistoryJob?.customerName}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[10px] font-black text-gray-400 uppercase">Unit</p>
+                        <p className="text-sm font-bold text-gray-800">{viewHistoryJob?.carModel}</p>
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                    <h4 className="text-xs font-black text-indigo-900 border-b pb-1 mb-2 uppercase tracking-widest">History PIC per Stall</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+                        {(viewHistoryJob?.assignedMechanics || []).map((pic, idx) => (
+                            <div key={idx} className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-lg text-indigo-600 shadow-sm"><User size={16}/></div>
+                                <div>
+                                    <p className="text-[10px] font-black text-indigo-400 uppercase leading-none">{pic.stage}</p>
+                                    <p className="text-sm font-black text-indigo-900">{pic.name}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <h4 className="text-xs font-black text-indigo-900 border-b pb-1 mb-2 uppercase tracking-widest">Progress Timeline</h4>
+                    {(viewHistoryJob?.productionLogs || []).length > 0 ? (
+                        [...viewHistoryJob!.productionLogs!].reverse().map((log, idx) => (
+                            <div key={idx} className={`p-4 rounded-xl border flex items-start gap-4 ${log.type === 'rework' ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-100'}`}>
+                                <div className={`p-2 rounded-lg ${log.type === 'rework' ? 'bg-orange-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
+                                    {log.type === 'rework' ? <RefreshCcw size={18}/> : <ArrowRight size={18}/>}
+                                </div>
+                                <div className="flex-grow">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <h4 className={`text-sm font-black ${log.type === 'rework' ? 'text-orange-700' : 'text-indigo-700'}`}>
+                                            {log.type === 'rework' ? 'RE-WORK:' : 'PROGRES:'} {log.stage}
+                                        </h4>
+                                        <span className="text-[10px] text-gray-400 font-medium">{new Date(log.timestamp).toLocaleString('id-ID')}</span>
+                                    </div>
+                                    {log.note && (
+                                        <p className="text-xs text-orange-900 bg-white/50 p-2 rounded border border-orange-100 mt-2 font-medium">
+                                            <span className="font-black text-[10px] block mb-1">ALASAN RE-WORK:</span>
+                                            {log.note}
+                                        </p>
+                                    )}
+                                    <div className="mt-2 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Mover PIC: {log.user}</div>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center py-12 text-gray-400 italic">Belum ada record log produksi.</div>
+                    )}
+                </div>
+            </div>
+        </Modal>
+
+        {/* MODAL Gaji/Productivity Report */}
+        <Modal isOpen={showProductivityReport} onClose={() => setShowProductivityReport(false)} title="Laporan Produktivitas & Gaji Panel" maxWidth="max-w-5xl">
+            <div className="space-y-6">
+                <div className="flex flex-col md:flex-row items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-bold text-gray-600">Periode:</label>
+                        <select value={reportMonth} onChange={e => setReportMonth(Number(e.target.value))} className="p-2 border rounded text-sm font-bold">{["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map((m, i) => (<option key={i} value={i}>{m}</option>))}</select>
+                        <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} className="p-2 border rounded text-sm font-bold">{[2023, 2024, 2025, 2026].map(y => (<option key={y} value={y}>{y}</option>))}</select>
+                    </div>
+                    {/* Fix Error: Cannot find name 'Info' (added to imports) */}
+                    <div className="md:ml-auto text-xs text-indigo-500 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
+                        <Info size={14}/> Hitungan berdasarkan seluruh mekanik yang terlibat dalam tiap stall (PIC) di unit yang sudah Closed.
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {Object.entries(productivityData).map(([mechanic, rawData]) => {
+                        // Fix Error: Property 'totalJobs' does not exist on type 'unknown' (casting rawData as specific type)
                         const data = rawData as { totalJobs: number, totalPanels: number, jobList: Job[] };
+                        if (data.totalJobs === 0) return null; // Only show mechanics with contribution
+                        
                         return (
-                        <div key={mechanic} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                            <div className="flex items-center gap-3 mb-3 border-b pb-2">
-                                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-full"><User size={20}/></div>
-                                <h3 className="font-bold text-gray-800">{mechanic}</h3>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="text-gray-500">Unit Selesai</span>
-                                    <span className="font-bold text-gray-800">{data.totalJobs}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="text-gray-500">Total Panel</span>
-                                    <span className="font-black text-xl text-indigo-600">{data.totalPanels.toFixed(1)}</span>
+                        <div key={mechanic} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                            <div className="flex items-center gap-4 mb-4 border-b pb-3">
+                                <div className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg"><User size={20}/></div>
+                                <div>
+                                    <h3 className="font-black text-gray-800 text-lg leading-none uppercase">{mechanic}</h3>
+                                    <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-wider">Mekanik Body & Paint</p>
                                 </div>
                             </div>
-                            <div className="mt-4 pt-3 border-t border-gray-100">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Detail Pekerjaan</p>
-                                <div className="max-h-32 overflow-y-auto text-xs space-y-1">
-                                    {data.jobList.map(j => (
-                                        <div key={j.id} className="flex justify-between">
-                                            <span>{j.policeNumber}</span>
-                                            <span className="text-gray-500">{(j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0).toFixed(1)} Pnl</span>
+                            
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Unit Selesai</p>
+                                    <p className="text-xl font-black text-gray-800">{data.totalJobs}</p>
+                                </div>
+                                <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                                    <p className="text-[10px] font-bold text-indigo-400 uppercase">Total Panel</p>
+                                    <p className="text-xl font-black text-indigo-700">{data.totalPanels.toFixed(1)}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex-grow">
+                                <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-1">Rincian Unit:</p>
+                                <div className="space-y-1.5 max-h-40 overflow-y-auto scrollbar-thin pr-1">
+                                    {data.jobList.map((job, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-[10px] p-2 bg-gray-50 rounded-lg border border-gray-100 group">
+                                            <span className="font-bold text-gray-700">{job.policeNumber}</span>
+                                            <span className="bg-white px-1.5 py-0.5 rounded border border-gray-200 font-black text-indigo-600">
+                                                {(job.estimateData?.jasaItems?.reduce((a,b) => a+(b.panelCount||0),0)||0).toFixed(1)} PNL
+                                            </span>
                                         </div>
                                     ))}
-                                    {data.jobList.length === 0 && <p className="text-gray-300 italic">Belum ada data selesai.</p>}
                                 </div>
                             </div>
                         </div>
                     )})}
+                    {Object.values(productivityData).every((d: any) => d.totalJobs === 0) && (
+                        <div className="col-span-full py-20 text-center text-gray-400 italic">
+                            <Layers size={48} className="mx-auto mb-4 opacity-20"/>
+                            Belum ada data pengerjaan unit untuk periode ini.
+                        </div>
+                    )}
                 </div>
             </div>
         </Modal>

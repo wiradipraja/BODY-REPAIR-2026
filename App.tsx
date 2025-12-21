@@ -10,6 +10,7 @@ import { cleanObject } from './utils/helpers';
 // Components
 import MainDashboard from './components/dashboard/MainDashboard';
 import OverviewDashboard from './components/dashboard/OverviewDashboard';
+import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView'; // NEW
 import LoginView from './components/auth/LoginView';
 import Sidebar from './components/layout/Sidebar';
 import Modal from './components/ui/Modal';
@@ -276,6 +277,7 @@ const AppContent: React.FC = () => {
         {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
 
         {currentView === 'overview' && ( <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} /> )}
+        {currentView === 'business_intelligence' && ( <BusinessIntelligenceView jobs={jobs} settings={appSettings} /> )}
         
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">

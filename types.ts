@@ -1,6 +1,20 @@
 
 import { Timestamp } from 'firebase/firestore';
 
+export interface ProductionLog {
+  stage: string;
+  timestamp: any;
+  user: string;
+  note?: string;
+  type: 'progress' | 'rework';
+}
+
+export interface MechanicAssignment {
+  name: string;
+  stage: string;
+  assignedAt: string;
+}
+
 export interface Settings {
   workshopName: string;
   workshopAddress: string;
@@ -164,7 +178,8 @@ export interface Job {
   
   woNumber?: string;
   namaSA?: string;
-  mechanicName?: string;
+  mechanicName?: string; // Deprecated but kept for safety
+  assignedMechanics?: MechanicAssignment[]; // NEW: Multi-PIC tracker
   
   estimateData?: EstimateData;
   hargaJasa?: number;
@@ -176,6 +191,9 @@ export interface Job {
   
   // Negotiation History
   insuranceNegotiationLog?: InsuranceLog[];
+  
+  // Production Tracking
+  productionLogs?: ProductionLog[]; // NEW: History of progress & re-work
   
   isClosed: boolean;
   closedAt?: any; // Timestamp

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet, ShieldCheck, PieChart, TrendingUp } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -20,17 +20,26 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = useMemo(() => {
     const items = [
-      { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+      // RESTRUCTURED: Overview Parent
+      { 
+          id: 'overview_root', 
+          label: 'Overview', 
+          icon: LayoutDashboard,
+          children: [
+              { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
+              { id: 'business_intelligence', label: 'Analisis Performa', icon: TrendingUp },
+          ]
+      },
+      
       { id: 'input_data', label: 'Input Data Unit', icon: PlusCircle },
       
-      // RESTRUCTURED: Estimasi & WO
       { 
           id: 'estimation_root', 
           label: 'Estimasi & WO', 
           icon: FileText,
           children: [
               { id: 'estimation_create', label: 'Buat Estimasi Baru', icon: PlusCircle },
-              { id: 'claims_control', label: 'Admin Control Claim', icon: ShieldCheck }, // NEW
+              { id: 'claims_control', label: 'Admin Control Claim', icon: ShieldCheck },
               { id: 'entry_data', label: 'Daftar Pekerjaan (List)', icon: List },
               { id: 'production_spkl', label: 'SPKL (Jasa Luar)', icon: ExternalLink },
           ]
