@@ -4,9 +4,10 @@ import { Job, Settings, UserPermissions, ProductionLog, MechanicAssignment } fro
 import { doc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
+// Added Calculator to the imports from lucide-react
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -18,6 +19,7 @@ interface JobControlViewProps {
 }
 
 const STAGES = [
+    "Persiapan Kendaraan",
     "Bongkar",
     "Las Ketok",
     "Dempul",
@@ -26,6 +28,14 @@ const STAGES = [
     "Poles",
     "Finishing",
     "Quality Control"
+];
+
+// Statuses that map specifically to "Persiapan Kendaraan"
+const ADMIN_HURDLE_STATUSES = [
+    "Banding Harga SPK",
+    "Tunggu Part",
+    "Tunggu SPK Asuransi",
+    "Tunggu Estimasi"
 ];
 
 const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNotification, userPermissions }) => {
@@ -46,7 +56,13 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           j.woNumber && 
           !j.isDeleted &&
           j.posisiKendaraan === 'Di Bengkel' && 
-          (j.statusKendaraan === 'Work In Progress' || j.statusKendaraan === 'Unit Rawat Jalan' || j.statusKendaraan === 'Booking Masuk') && 
+          // Extended filter to include administrative hurdles
+          (
+              j.statusKendaraan === 'Work In Progress' || 
+              j.statusKendaraan === 'Unit Rawat Jalan' || 
+              j.statusKendaraan === 'Booking Masuk' ||
+              ADMIN_HURDLE_STATUSES.includes(j.statusKendaraan)
+          ) && 
           (j.policeNumber.includes(term) || j.carModel.toUpperCase().includes(term) || j.customerName.toUpperCase().includes(term))
       );
   }, [jobs, searchTerm]);
@@ -57,7 +73,15 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       STAGES.forEach(s => columns[s] = []);
       
       activeProductionJobs.forEach(job => {
-          const status = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
+          let status = 'Bongkar';
+          
+          // Logic: If unit has admin hurdles, put in "Persiapan Kendaraan"
+          if (ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan)) {
+              status = "Persiapan Kendaraan";
+          } else {
+              status = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
+          }
+          
           if (columns[status]) columns[status].push(job);
       });
       return columns;
@@ -81,8 +105,21 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
   // --- HANDLERS ---
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
+      // If unit is in administrative hurdle, it must be moved to WIP first or handled by Admin
+      if (ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) && direction === 'next') {
+          if (!window.confirm(`Unit ini berstatus '${job.statusKendaraan}'. Paksa lanjut ke produksi (Bongkar)?`)) return;
+          
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+              statusKendaraan: 'Work In Progress',
+              statusPekerjaan: 'Bongkar',
+              updatedAt: serverTimestamp()
+          });
+          showNotification("Unit diaktifkan ke produksi.", "success");
+          return;
+      }
+
       let currentIndex = STAGES.indexOf(job.statusPekerjaan);
-      if (currentIndex === -1) currentIndex = 0;
+      if (currentIndex === -1) currentIndex = 1; // Default to Bongkar if status unrecognized
 
       let newIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
       
@@ -169,8 +206,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   };
 
   const handleAssignMechanic = async (job: Job, mechanicName: string) => {
-      const currentStage = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
-      
+      let currentStage = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
+      if (ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan)) currentStage = "Persiapan Kendaraan";
+
       try {
           const assignment: MechanicAssignment = {
               name: mechanicName,
@@ -244,7 +282,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Job Control Board</h1>
-                    <p className="text-sm text-gray-500 font-medium">Monitoring Produksi Multi-Mekanik & Re-work</p>
+                    <p className="text-sm text-gray-500 font-medium">Monitoring Produksi Multi-Mekanik & Administrasi Bengkel</p>
                 </div>
             </div>
             
@@ -276,7 +314,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                         <User size={14}/>
                     </div>
                     <div>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase">Load Stall</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Load Stall</p>
                         <p className="text-xs font-bold text-gray-800">{mech}</p>
                     </div>
                     <div className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${mechanicWorkload[mech] > 2 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -291,10 +329,15 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             <div className="flex gap-4 h-full min-w-max px-2">
                 {STAGES.map((stage) => {
                     const jobsInStage = boardData[stage] || [];
+                    const isPersiapan = stage === "Persiapan Kendaraan";
+                    
                     return (
-                        <div key={stage} className="w-80 flex flex-col h-full rounded-xl bg-gray-100 border border-gray-200 shadow-inner">
+                        <div key={stage} className={`w-80 flex flex-col h-full rounded-xl border border-gray-200 shadow-inner ${isPersiapan ? 'bg-amber-50/30' : 'bg-gray-100'}`}>
                             <div className="p-3 border-b border-gray-200 bg-white rounded-t-xl flex justify-between items-center sticky top-0 z-10">
-                                <h3 className="font-bold text-gray-700 text-sm uppercase">{stage}</h3>
+                                <div className="flex items-center gap-2">
+                                    {isPersiapan && <FileSearch size={16} className="text-amber-500"/>}
+                                    <h3 className={`font-bold text-sm uppercase ${isPersiapan ? 'text-amber-700' : 'text-gray-700'}`}>{stage}</h3>
+                                </div>
                                 <span className="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{jobsInStage.length}</span>
                             </div>
 
@@ -302,13 +345,15 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                 {jobsInStage.map(job => {
                                     const isBottleneck = checkBottleneck(job);
                                     const hasRework = job.productionLogs?.some(l => l.type === 'rework');
-                                    const currentPIC = job.assignedMechanics?.find(a => a.stage === (job.statusPekerjaan || 'Bongkar'))?.name;
+                                    const isAdminPending = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan);
+                                    const currentPIC = job.assignedMechanics?.find(a => a.stage === (isAdminPending ? 'Persiapan Kendaraan' : job.statusPekerjaan || 'Bongkar'))?.name;
                                     
                                     return (
-                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isBottleneck ? 'border-l-red-500 ring-1 ring-red-200' : hasRework ? 'border-l-orange-400' : 'border-l-blue-500'}`}>
+                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isBottleneck ? 'border-l-red-500 ring-1 ring-red-200' : hasRework ? 'border-l-orange-400' : 'border-l-blue-500'}`}>
                                             <div className="flex justify-between items-start mb-2">
                                                 <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
                                                 <div className="flex items-center gap-1.5">
+                                                    {isAdminPending && <AlertCircle size={14} className="text-amber-500" title={job.statusKendaraan}/>}
                                                     {hasRework && <RefreshCcw size={14} className="text-orange-500" title="Pernah Re-work"/>}
                                                     {isBottleneck && <AlertTriangle size={14} className="text-red-500 animate-pulse" title="Unit diam > 3 hari"/>}
                                                     <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors">
@@ -319,6 +364,13 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                             
                                             <p className="text-[11px] font-bold text-gray-500 mb-1 truncate uppercase">{job.carModel} | {job.customerName}</p>
                                             
+                                            {isAdminPending && (
+                                                <div className="mb-2 px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[9px] font-black text-amber-700 uppercase flex items-center gap-1">
+                                                    {job.statusKendaraan === 'Banding Harga SPK' ? <Calculator size={10}/> : job.statusKendaraan === 'Tunggu Part' ? <PackageSearch size={10}/> : <FileSearch size={10}/>}
+                                                    KENDALA: {job.statusKendaraan}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center justify-between mb-3">
                                                 <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px] font-black border border-gray-200 flex items-center gap-1">
                                                     <Calendar size={10}/> {job.tanggalMasuk ? new Date(job.tanggalMasuk).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'}) : '-'}
@@ -327,7 +379,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                             </div>
 
                                             <div className="mb-3">
-                                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">PIC {stage}:</label>
+                                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">PIC {isPersiapan ? 'Staging' : stage}:</label>
                                                 {currentPIC ? (
                                                     <div 
                                                         className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded p-1.5 cursor-pointer hover:bg-indigo-100"
@@ -363,8 +415,8 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                             <div className="flex justify-between items-center pt-2 border-t border-gray-100 mt-2">
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'prev')}
-                                                    disabled={stage === STAGES[0]}
-                                                    className={`p-1.5 rounded-lg border transition-all ${stage === STAGES[0] ? 'opacity-0' : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'}`}
+                                                    disabled={isPersiapan}
+                                                    className={`p-1.5 rounded-lg border transition-all ${isPersiapan ? 'opacity-0' : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'}`}
                                                     title="Mundur Stall (Re-Work)"
                                                 >
                                                     <ChevronRight size={18} className="rotate-180"/>
@@ -381,7 +433,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'next')}
                                                     className="bg-indigo-600 text-white rounded-lg p-1.5 hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all active:scale-95"
-                                                    title="Lanjut Stall"
+                                                    title={isAdminPending ? "Proses ke Produksi (Bongkar)" : "Lanjut Stall"}
                                                 >
                                                     <ChevronRight size={18}/>
                                                 </button>
