@@ -29,6 +29,14 @@ export const initialSettingsState: Settings = {
         { colorName: "Soul Red Crystal Metallic", surchargePerPanel: 1500000 },
         { colorName: "Machine Gray Metallic", surchargePerPanel: 1000000 }
     ],
+    // CSI Survey Points
+    csiIndicators: [
+        "Kualitas Hasil Perbaikan",
+        "Kecepatan Waktu Pengerjaan",
+        "Keramahan Petugas & SA",
+        "Kebersihan Kendaraan",
+        "Kejelasan Informasi Biaya"
+    ],
     // UPDATED FOR CONTROL LOGIC
     statusKendaraanOptions: [
         "Tunggu Estimasi", 

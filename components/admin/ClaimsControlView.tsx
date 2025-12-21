@@ -172,10 +172,32 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       }
   };
 
-  const getAgingDays = (date: any) => {
-      if (!date) return 0;
-      const ms = date.seconds ? date.seconds * 1000 : new Date(date).getTime();
-      return Math.floor((Date.now() - ms) / (1000 * 3600 * 24));
+  // ROBUST AGING CALCULATION
+  const getAgingDays = (job: Job) => {
+      // Prioritas field tanggal yang digunakan untuk hitung aging
+      const dateInput = job.updatedAt || job.createdAt || job.tanggalMasuk;
+      if (!dateInput) return 0;
+
+      let dateMs: number;
+      
+      // 1. Handle Firestore Timestamp Object
+      if (typeof dateInput === 'object' && 'seconds' in (dateInput as any)) {
+          dateMs = (dateInput as any).seconds * 1000;
+      } 
+      // 2. Handle JS Date Object
+      else if (dateInput instanceof Date) {
+          dateMs = dateInput.getTime();
+      }
+      // 3. Handle ISO String / Other String Formats
+      else {
+          const parsed = new Date(dateInput as string).getTime();
+          dateMs = isNaN(parsed) ? Date.now() : parsed;
+      }
+
+      const diff = Date.now() - dateMs;
+      // Gunakan Math.max agar tidak muncul angka negatif jika jam sistem tidak sinkron
+      const days = Math.max(0, Math.floor(diff / (1000 * 3600 * 24)));
+      return days;
   };
 
   return (
@@ -230,8 +252,9 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                             {/* Column Body */}
                             <div className="p-3 flex-grow overflow-y-auto space-y-4 scrollbar-hide">
                                 {jobsInStage.map(job => {
-                                    const aging = getAgingDays(job.updatedAt || job.createdAt);
+                                    const aging = getAgingDays(job);
                                     const isCritical = aging > 3;
+                                    const isWarning = aging >= 2 && aging <= 3;
                                     const hasNegotiation = job.insuranceNegotiationLog && job.insuranceNegotiationLog.length > 0;
                                     const logistik = job.logistik;
 
@@ -241,16 +264,20 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                             className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.statusKendaraan === 'Booking Masuk' ? 'border-indigo-600 ring-1 ring-indigo-50' : job.isReadyToCall && (stage === 'Unit di Pemilik (Tunggu Part)' || stage === 'Tunggu SPK Asuransi') ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
                                             onClick={() => openModal('create_estimation', job)}
                                         >
-                                            {/* Accent Line */}
-                                            {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div>}
-                                            {job.statusKendaraan === 'Booking Masuk' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600"></div>}
-                                            {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>}
+                                            {/* Accent Line Based on Urgency */}
+                                            {isCritical ? (
+                                                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-500"></div>
+                                            ) : isWarning ? (
+                                                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-400"></div>
+                                            ) : (
+                                                job.statusKendaraan === 'Booking Masuk' && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-indigo-600"></div>
+                                            )}
 
                                             <div className="flex justify-between items-start mb-3">
                                                 <span className="font-bold text-gray-900 text-sm tracking-tight">{job.policeNumber}</span>
                                                 <div className="flex items-center gap-1.5">
                                                     {hasNegotiation && <MessageSquare size={14} className="text-indigo-400"/>}
-                                                    {isCritical && <AlertTriangle size={14} className="text-red-400 animate-pulse"/>}
+                                                    {isCritical && <AlertTriangle size={14} className="text-red-500 animate-pulse"/>}
                                                 </div>
                                             </div>
                                             
@@ -297,7 +324,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                                         <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[8px]">SA</div> 
                                                         {job.namaSA || 'BELUM ADA'}
                                                     </span>
-                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isCritical ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${isCritical ? 'bg-red-50 text-red-600 border-red-200' : isWarning ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
                                                         {aging} HARI
                                                     </span>
                                                 </div>
@@ -346,8 +373,12 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
         {/* FOOTER INFO */}
         <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-wrap items-center gap-8 shadow-sm shrink-0">
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse"></div>
-                <span className="tracking-tight uppercase">Aging &gt; 3 Hari</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
+                <span className="tracking-tight uppercase">Outstanding &gt; 3 Hari</span>
+             </div>
+             <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
+                <div className="w-2.5 h-2.5 rounded-full bg-orange-400"></div>
+                <span className="tracking-tight uppercase">Menunggu (2-3 Hari)</span>
              </div>
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
                 <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>

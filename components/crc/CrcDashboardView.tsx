@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, InventoryItem } from '../../types';
-import { formatDateIndo, formatCurrency, formatWaNumber } from '../../utils/helpers';
+import { formatDateIndo, formatCurrency, formatWaNumber, cleanObject } from '../../utils/helpers';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { MessageSquare, Phone, CheckCircle, Calendar, Star, Send, XCircle, Clock, Search, User, Megaphone, CheckSquare, Square, Zap, Package, Wrench, Loader2, Save } from 'lucide-react';
+import { MessageSquare, Phone, CheckCircle, Calendar, Star, Send, XCircle, Clock, Search, User, Megaphone, CheckSquare, Square, Zap, Package, Wrench, Loader2, Save, Filter, Users, Trash2, ClipboardCheck, Info, AlertCircle } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface CrcDashboardViewProps {
@@ -18,9 +17,9 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const [activeTab, setActiveTab] = useState<'booking' | 'followup' | 'broadcast' | 'history'>('booking');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Feedback Modal
+  // Feedback Modal (Survey CSI Overlay)
   const [feedbackModal, setFeedbackModal] = useState<{ isOpen: boolean, job: Job | null }>({ isOpen: false, job: null });
-  const [rating, setRating] = useState(5);
+  const [csiRatings, setCsiRatings] = useState<Record<string, number>>({});
   const [feedbackNotes, setFeedbackNotes] = useState('');
   const [followUpStatus, setFollowUpStatus] = useState<'Contacted' | 'Unreachable'>('Contacted');
 
@@ -30,8 +29,8 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Broadcast State
-  const [broadcastMessage, setBroadcastMessage] = useState(settings.whatsappTemplates?.promoBroadcast || '');
-  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]); // Array of Job IDs
+  const [broadcastMessage, setBroadcastMessage] = useState(settings.whatsappTemplates?.promoBroadcast || 'Halo Bpk/Ibu {nama}, kami memiliki promo spesial untuk pemilik {mobil} di Mazda Ranger. Hubungi kami segera untuk info lebih lanjut!');
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [filterYear, setFilterYear] = useState('');
   const [filterModel, setFilterModel] = useState('');
 
@@ -39,21 +38,13 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const bookingJobs = useMemo(() => {
       const term = searchTerm.toLowerCase();
       const activeJobs = jobs.filter(j => !j.isClosed && j.woNumber && !j.isDeleted);
-      
-      activeJobs.sort((a, b) => {
-          const tA = a.createdAt?.seconds || 0;
-          const tB = b.createdAt?.seconds || 0;
-          return tA - tB; 
-      });
-
+      activeJobs.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
       const stockMap: Record<string, number> = {};
       inventoryItems.forEach(item => { stockMap[item.id] = item.stock; });
-
       const processedJobs = activeJobs.map(job => {
           const parts = job.estimateData?.partItems || [];
           const jasa = job.estimateData?.jasaItems || [];
           const isJasaOnly = parts.length === 0 && jasa.length > 0;
-          
           let allPartsReady = true;
           if (!isJasaOnly) {
               if (parts.length === 0) allPartsReady = false;
@@ -61,32 +52,19 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
                   parts.forEach(p => {
                       if (p.hasArrived) return;
                       const reqQty = p.qty || 1;
-                      if (p.inventoryId && stockMap[p.inventoryId] >= reqQty) {
-                          stockMap[p.inventoryId] -= reqQty;
-                      } else {
-                          allPartsReady = false;
-                      }
+                      if (p.inventoryId && stockMap[p.inventoryId] >= reqQty) stockMap[p.inventoryId] -= reqQty;
+                      else allPartsReady = false;
                   });
               }
           }
           return { ...job, isPartReady: allPartsReady, isJasaOnly };
       });
-
       return processedJobs.filter(j => {
+          if (j.posisiKendaraan !== 'Di Pemilik') return false;
           const matchesSearch = j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term);
           if (!matchesSearch) return false;
-          
-          // Logic: ONLY show units that are physically AT OWNER (Unit di Pemilik)
-          // Once they arrive (Di Bengkel), they should leave this list
-          if (j.posisiKendaraan !== 'Di Pemilik') return false;
-
-          if (j.statusKendaraan === 'Booking Masuk') return true;
-          if (j.isPartReady && !j.isJasaOnly) return true;
-          if (j.isJasaOnly) return true;
-
-          return false;
+          return j.statusKendaraan === 'Booking Masuk' || j.isPartReady || j.isJasaOnly;
       }).sort((a,b) => new Date(a.tanggalMasuk || '').getTime() - new Date(b.tanggalMasuk || '').getTime());
-
   }, [jobs, inventoryItems, searchTerm]);
 
   const followUpJobs = useMemo(() => {
@@ -100,10 +78,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
 
   const historyJobs = useMemo(() => {
       const term = searchTerm.toLowerCase();
-      return jobs.filter(j => 
-          j.crcFollowUpStatus && j.crcFollowUpStatus !== 'Pending' &&
-          (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term))
-      ).sort((a,b) => (b.crcFollowUpDate?.seconds || 0) - (a.crcFollowUpDate?.seconds || 0));
+      return jobs.filter(j => j.crcFollowUpStatus && j.crcFollowUpStatus !== 'Pending' && (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term))).sort((a,b) => (b.crcFollowUpDate?.seconds || 0) - (a.crcFollowUpDate?.seconds || 0));
   }, [jobs, searchTerm]);
 
   const broadcastCandidates = useMemo(() => {
@@ -118,12 +93,10 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
           const phone = formatWaNumber(job.customerPhone);
           if (phone) {
               const existing = uniqueMap.get(phone);
-              if (!existing || (job.createdAt?.seconds || 0) > (existing.createdAt?.seconds || 0)) {
-                  uniqueMap.set(phone, job);
-              }
+              if (!existing || (job.createdAt?.seconds || 0) > (existing.createdAt?.seconds || 0)) uniqueMap.set(phone, job);
           }
       });
-      return Array.from(uniqueMap.values());
+      return Array.from(uniqueMap.values()) as Job[];
   }, [jobs, filterModel, filterYear]);
 
   const avgRating = useMemo(() => {
@@ -138,21 +111,53 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const generateWaLink = (job: Job, type: 'booking' | 'followup' | 'promo', overrideBookingDate?: string) => {
       const phone = formatWaNumber(job.customerPhone);
       if (!phone) return null;
-
       let template = '';
       if (type === 'booking') template = settings.whatsappTemplates?.bookingReminder || '';
       else if (type === 'followup') template = settings.whatsappTemplates?.afterService || '';
       else template = broadcastMessage;
-
       const displayBookingDate = overrideBookingDate || job.tanggalBooking || '(Belum Ditentukan)';
-
-      const message = template
-          .replace('{nama}', job.customerName)
-          .replace('{mobil}', job.carModel)
-          .replace('{nopol}', job.policeNumber)
-          .replace('{tgl_booking}', displayBookingDate);
-      
+      const message = template.replace(/{nama}/g, job.customerName).replace(/{mobil}/g, job.carModel).replace(/{nopol}/g, job.policeNumber).replace(/{tgl_booking}/g, displayBookingDate);
       return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  };
+
+  const handleOpenFeedback = (job: Job) => {
+      setFeedbackModal({ isOpen: true, job });
+      setFollowUpStatus('Contacted');
+      setFeedbackNotes(job.customerFeedback || '');
+      const initial: Record<string, number> = {};
+      settings.csiIndicators.forEach(ind => {
+          initial[ind] = job.csiResults?.[ind] || 5;
+      });
+      setCsiRatings(initial);
+  };
+
+  const handleSaveFeedback = async () => {
+      if (!feedbackModal.job) return;
+      
+      const indicatorsCount = settings.csiIndicators.length;
+      let finalAvgRating = 0;
+      
+      if (followUpStatus === 'Contacted' && indicatorsCount > 0) {
+          // Fix: Ensure totalStars is treated as a number by providing explicit typing for reduce
+          const totalStars = Object.values(csiRatings).reduce((a: number, b: number) => a + b, 0);
+          // Fix Error line 143: Explicitly cast totalStars to number to fix "The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type"
+          finalAvgRating = Number(((totalStars as number) / indicatorsCount).toFixed(2));
+      }
+
+      try {
+          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, feedbackModal.job.id);
+          await updateDoc(jobRef, cleanObject({
+              crcFollowUpStatus: followUpStatus,
+              crcFollowUpDate: serverTimestamp(),
+              customerRating: followUpStatus === 'Contacted' ? finalAvgRating : null,
+              customerFeedback: feedbackNotes,
+              csiResults: followUpStatus === 'Contacted' ? csiRatings : null
+          }));
+          showNotification("Data Follow Up & Survey CSI disimpan.", "success");
+          setFeedbackModal({ isOpen: false, job: null });
+      } catch (e: any) {
+          showNotification("Gagal menyimpan: " + e.message, "error");
+      }
   };
 
   const executeBookingProcess = async () => {
@@ -160,26 +165,18 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
           showNotification("Tanggal booking wajib diisi.", "error");
           return;
       }
-
       setIsUpdating(true);
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, bookingModal.job.id);
-          
-          // CRITICAL TRIGGER:
-          // 1. Set the booking date
-          // 2. Move status to 'Booking Masuk'
           await updateDoc(jobRef, {
               tanggalBooking: bookingDateInput,
               statusKendaraan: 'Booking Masuk',
               updatedAt: serverTimestamp()
           });
-
           const link = generateWaLink(bookingModal.job, 'booking', bookingDateInput);
           if (link) window.open(link, '_blank');
-
           showNotification("Jadwal disimpan & Status pindah ke Papan Control.", "success");
           setBookingModal({ isOpen: false, job: null });
-          setBookingDateInput('');
       } catch (e: any) {
           showNotification("Gagal memproses booking.", "error");
       } finally {
@@ -187,42 +184,15 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       }
   };
 
-  const handleSingleWaAction = (job: Job, type: 'booking' | 'followup') => {
+  const handleSingleAction = (job: Job, type: 'booking' | 'followup' | 'promo') => {
       if (type === 'booking') {
-          // Open mandatory date modal instead of WA directly
           setBookingModal({ isOpen: true, job });
           setBookingDateInput(job.tanggalBooking || '');
           return;
       }
-
-      if (isApiMode) {
-          if (window.confirm(`Kirim pesan otomatis ke ${job.customerName}?`)) {
-              showNotification("Request dikirim ke Gateway API (Simulasi)", "success");
-          }
-      } else {
-          const link = generateWaLink(job, type);
-          if (link) window.open(link, '_blank');
-          else showNotification("Nomor HP tidak valid", "error");
-      }
-  };
-
-  const handleSaveFeedback = async () => {
-      if (!feedbackModal.job) return;
-      try {
-          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, feedbackModal.job.id);
-          await updateDoc(jobRef, {
-              crcFollowUpStatus: followUpStatus,
-              crcFollowUpDate: serverTimestamp(),
-              customerRating: followUpStatus === 'Contacted' ? rating : null,
-              customerFeedback: feedbackNotes
-          });
-          showNotification("Data Follow Up disimpan.", "success");
-          setFeedbackModal({ isOpen: false, job: null });
-          setRating(5);
-          setFeedbackNotes('');
-      } catch (e: any) {
-          showNotification("Gagal menyimpan: " + e.message, "error");
-      }
+      const link = generateWaLink(job, type);
+      if (link) window.open(link, '_blank');
+      else showNotification("Nomor HP tidak valid", "error");
   };
 
   const toggleRecipient = (id: string) => {
@@ -234,139 +204,55 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       else setSelectedRecipients(broadcastCandidates.map(c => c.id));
   };
 
-  const handleBroadcastExecution = () => {
-      if (selectedRecipients.length === 0) { showNotification("Pilih minimal 1 penerima.", "error"); return; }
-      if (!broadcastMessage) { showNotification("Isi pesan broadcast.", "error"); return; }
-      if (isApiMode) {
-          if (window.confirm(`Kirim pesan ke ${selectedRecipients.length} kontak via API?`)) {
-              showNotification(`Proses Blast dimulai untuk ${selectedRecipients.length} kontak...`, "success");
-              setSelectedRecipients([]);
-          }
-      } else {
-          showNotification("Silakan klik tombol 'Kirim' pada daftar di bawah satu per satu.", "info");
-      }
-  };
-
   return (
     <div className="space-y-6 animate-fade-in pb-12">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-600 rounded-xl shadow-sm text-white">
-                    <MessageSquare size={24}/>
-                </div>
+                <div className="p-3 bg-green-600 rounded-xl shadow-sm text-white"><MessageSquare size={24}/></div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">CRC / Customer Care</h1>
-                    <p className="text-sm text-gray-500 font-medium flex items-center gap-2">
-                        Mode WhatsApp: 
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isApiMode ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
-                            {isApiMode ? 'GATEWAY API (BOT)' : 'PERSONAL (MANUAL)'}
-                        </span>
-                    </p>
+                    <p className="text-sm text-gray-500 font-medium">Mode WhatsApp: <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isApiMode ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-green-100 text-green-700 border-green-200'}`}>{isApiMode ? 'GATEWAY API (BOT)' : 'PERSONAL (MANUAL)'}</span></p>
                 </div>
             </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
-                <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Potensi Booking</p>
-                    <h2 className="text-2xl font-black text-indigo-900">{bookingJobs.length} Unit</h2>
-                </div>
-                <div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Calendar size={24}/></div>
-            </div>
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
-                <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Perlu Follow Up</p>
-                    <h2 className="text-2xl font-black text-orange-600">{followUpJobs.length} Unit</h2>
-                </div>
-                <div className="p-3 bg-orange-50 rounded-full text-orange-600"><Phone size={24}/></div>
-            </div>
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
-                <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Avg. Rating (CSAT)</p>
-                    <h2 className="text-2xl font-black text-yellow-500 flex items-center gap-1">{avgRating} <Star fill="currentColor" size={20}/></h2>
-                </div>
-                <div className="p-3 bg-yellow-50 rounded-full text-yellow-600"><Star size={24}/></div>
-            </div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Potensi Booking</p><h2 className="text-2xl font-black text-indigo-900">{bookingJobs.length} Unit</h2></div><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Calendar size={24}/></div></div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Perlu Follow Up</p><h2 className="text-2xl font-black text-orange-600">{followUpJobs.length} Unit</h2></div><div className="p-3 bg-orange-50 rounded-full text-orange-600"><Phone size={24}/></div></div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Avg. Rating (CSI)</p><h2 className="text-2xl font-black text-yellow-500 flex items-center gap-1">{avgRating} <Star fill="currentColor" size={20}/></h2></div><div className="p-3 bg-yellow-50 rounded-full text-yellow-600"><Star size={24}/></div></div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
-                <button onClick={() => setActiveTab('booking')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'booking' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    <Calendar size={16}/> Potensi Booking
-                </button>
-                <button onClick={() => setActiveTab('followup')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'followup' ? 'border-orange-600 text-orange-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    <Phone size={16}/> Follow Up Service
-                </button>
-                <button onClick={() => setActiveTab('broadcast')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'broadcast' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    <Megaphone size={16}/> Broadcast & Promo
-                </button>
-                <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    <Star size={16}/> Riwayat Feedback
-                </button>
+                <button onClick={() => setActiveTab('booking')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'booking' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Calendar size={16}/> Potensi Booking</button>
+                <button onClick={() => setActiveTab('followup')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'followup' ? 'border-orange-600 text-orange-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Phone size={16}/> Follow Up Service</button>
+                <button onClick={() => setActiveTab('broadcast')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'broadcast' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Megaphone size={16}/> Broadcast & Promo</button>
+                <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Star size={16}/> Riwayat Feedback</button>
             </div>
 
             <div className="min-h-[400px]">
                 {activeTab === 'booking' && (
                     <div className="animate-fade-in">
                         <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                            <Search className="text-gray-400" size={20}/>
-                            <input type="text" placeholder="Cari..." className="w-full bg-transparent outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+                            <Search className="text-gray-400" size={20}/><input type="text" placeholder="Cari..." className="w-full bg-transparent outline-none font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
-                                    <tr>
-                                        <th className="px-6 py-4">Tgl Rencana</th>
-                                        <th className="px-6 py-4">Pelanggan</th>
-                                        <th className="px-6 py-4">Kendaraan</th>
-                                        <th className="px-6 py-4">Status Ketersediaan</th>
-                                        <th className="px-6 py-4 text-center">Aksi</th>
-                                    </tr>
-                                </thead>
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-black"><tr><th className="px-6 py-4">Tgl Rencana</th><th className="px-6 py-4">Pelanggan</th><th className="px-6 py-4">Kendaraan</th><th className="px-6 py-4">Status</th><th className="px-6 py-4 text-center">Aksi</th></tr></thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {bookingJobs.map((job: any) => (
                                         <tr key={job.id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 font-bold text-indigo-700">
-                                                {job.tanggalBooking ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="text-emerald-600 text-xs uppercase font-black tracking-tighter flex items-center gap-1"><CheckCircle size={10}/> TERJADWAL</span>
-                                                        <span>{formatDateIndo(job.tanggalBooking)}</span>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-gray-400 italic">Belum Set Jadwal</span>
-                                                )}
-                                            </td>
+                                            <td className="px-6 py-4 font-bold text-indigo-700">{job.tanggalBooking ? formatDateIndo(job.tanggalBooking) : '-'}</td>
+                                            <td className="px-6 py-4"><div><div className="font-bold text-gray-900">{job.customerName}</div><div className="text-xs text-gray-500">{job.customerPhone}</div></div></td>
+                                            <td className="px-6 py-4"><div><div className="font-medium text-gray-800">{job.policeNumber}</div><div className="text-xs text-gray-500">{job.carModel}</div></div></td>
                                             <td className="px-6 py-4">
-                                                <div className="font-bold text-gray-900">{job.customerName}</div>
-                                                <div className="text-xs text-gray-500 font-medium tracking-tight">{job.customerPhone}</div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="font-medium text-gray-800">{job.policeNumber}</div>
-                                                <div className="text-xs text-gray-500 truncate max-w-[120px]">{job.carModel}</div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-col gap-1">
-                                                    {job.isJasaOnly ? (
-                                                        <div className="flex items-center gap-1 text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200 w-fit uppercase">
-                                                            <Wrench size={10}/> Jasa Only
-                                                        </div>
-                                                    ) : job.isPartReady ? (
-                                                        <div className="flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit uppercase">
-                                                            <Package size={10}/> Parts Ready
-                                                        </div>
-                                                    ) : <span className="text-xs text-gray-400 italic">Waiting Stock</span>}
-                                                    <span className="text-[9px] text-gray-400 font-bold uppercase">{job.statusKendaraan}</span>
-                                                </div>
+                                                {job.isPartReady ? <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 uppercase">Part Ready</span> : <span className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200 uppercase">Waiting Part</span>}
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <button onClick={() => handleSingleWaAction(job, 'booking')} className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-xl border border-green-200 hover:bg-green-100 text-xs font-black transition-all shadow-sm transform active:scale-95">
-                                                    <Send size={14}/> WA REMINDER
-                                                </button>
+                                                <button onClick={() => handleSingleAction(job, 'booking')} title="Atur Jadwal & Kirim WA" className="inline-flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-xl border border-green-200 hover:bg-green-100 text-xs font-black shadow-sm transform active:scale-95"><Send size={14}/> WA REMINDER</button>
                                             </td>
                                         </tr>
                                     ))}
-                                    {bookingJobs.length === 0 && <tr><td colSpan={5} className="p-20 text-center text-gray-400 italic font-medium">Tidak ada potensi booking (Unit di pemilik yang partnya sudah siap).</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -376,110 +262,118 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
                 {activeTab === 'followup' && (
                     <div className="animate-fade-in">
                         <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                            <Search className="text-gray-400" size={20}/>
-                            <input type="text" placeholder="Cari..." className="w-full bg-transparent outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+                            <Search className="text-gray-400" size={20}/><input type="text" placeholder="Cari..." className="w-full bg-transparent outline-none font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
-                                    <tr>
-                                        <th className="px-6 py-4">Tgl Selesai</th>
-                                        <th className="px-6 py-4">Pelanggan</th>
-                                        <th className="px-6 py-4">Kendaraan</th>
-                                        <th className="px-6 py-4 text-center">Aksi</th>
-                                    </tr>
-                                </thead>
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-black"><tr><th className="px-6 py-4">Tgl Selesai</th><th className="px-6 py-4">Pelanggan</th><th className="px-6 py-4">Kendaraan</th><th className="px-6 py-4 text-center">Aksi</th></tr></thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {followUpJobs.map(job => (
-                                        <tr key={job.id} className="hover:bg-gray-50">
+                                        <tr key={job.id} className="hover:bg-gray-50 transition-colors">
                                             <td className="px-6 py-4 text-gray-600 font-bold">{formatDateIndo(job.closedAt)}</td>
-                                            <td className="px-6 py-4">
-                                                <div className="font-bold text-gray-900">{job.customerName}</div>
-                                                <div className="text-xs text-gray-500">{job.customerPhone}</div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="font-medium text-gray-800">{job.policeNumber}</div>
-                                                <div className="text-xs text-gray-500">{job.carModel}</div>
-                                            </td>
+                                            <td className="px-6 py-4"><div className="font-bold text-gray-900">{job.customerName}</div><div className="text-xs text-gray-500">{job.customerPhone}</div></td>
+                                            <td className="px-6 py-4"><div className="font-medium text-gray-800">{job.policeNumber}</div><div className="text-xs text-gray-500">{job.carModel}</div></td>
                                             <td className="px-6 py-4 text-center">
                                                 <div className="flex justify-center gap-3">
-                                                    <button onClick={() => handleSingleWaAction(job, 'followup')} className="p-2.5 bg-green-50 text-green-600 rounded-full border border-green-100 hover:bg-green-100 transition-colors shadow-sm">
-                                                        <MessageSquare size={18}/>
-                                                    </button>
-                                                    <button onClick={() => setFeedbackModal({ isOpen: true, job })} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors shadow-sm">
-                                                        <CheckCircle size={18}/>
-                                                    </button>
+                                                    <button onClick={() => handleSingleAction(job, 'followup')} title="Kirim WA Follow Up Service" className="p-2.5 bg-green-50 text-green-600 rounded-full border border-green-100 hover:bg-green-100 transition-colors shadow-sm"><MessageSquare size={18}/></button>
+                                                    <button onClick={() => handleOpenFeedback(job)} title="Input Point Survey Pelanggan (CSI)" className="p-2.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors shadow-sm"><CheckCircle size={18}/></button>
                                                 </div>
                                             </td>
                                         </tr>
                                     ))}
-                                    {followUpJobs.length === 0 && <tr><td colSpan={4} className="p-20 text-center text-gray-400 italic">Semua unit selesai sudah di-follow up.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 )}
-                {/* OTHERS: Broadcast & History remain same logic but improved visuals if needed */}
+
+                {activeTab === 'broadcast' && (
+                    <div className="p-6 space-y-6 animate-fade-in">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-1 space-y-4">
+                                <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                                    <h3 className="font-black text-blue-900 mb-4 flex items-center gap-2 uppercase tracking-widest text-xs"><Megaphone size={18}/> Pesan Promo / Blast</h3>
+                                    <textarea className="w-full p-4 border border-blue-200 rounded-xl text-sm min-h-[200px] focus:ring-4 focus:ring-blue-50 transition-all font-medium" placeholder="Tulis pesan..." value={broadcastMessage} onChange={e => setBroadcastMessage(e.target.value)}/>
+                                    <button onClick={() => showNotification("Fitur blast siap digunakan per unit.", "info")} className="w-full mt-6 bg-blue-600 text-white py-4 rounded-xl font-black shadow-xl hover:bg-blue-700 transition-all transform active:scale-95 flex items-center justify-center gap-2"><Zap size={20}/> SIAPKAN LINK WA</button>
+                                </div>
+                            </div>
+                            <div className="lg:col-span-2 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                                <div className="p-4 bg-gray-50 border-b flex flex-col md:flex-row justify-between gap-4">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><Users size={18} className="text-indigo-500"/> Daftar Pelanggan</h3>
+                                    <div className="flex gap-2"><input type="text" placeholder="Filter Model..." value={filterModel} onChange={e => setFilterModel(e.target.value)} className="p-2 border rounded-lg text-xs w-32"/><input type="text" placeholder="Tahun..." value={filterYear} onChange={e => setFilterYear(e.target.value)} className="p-2 border rounded-lg text-xs w-20"/></div>
+                                </div>
+                                <div className="max-h-[400px] overflow-y-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gray-100 text-gray-500 uppercase text-[10px] font-black sticky top-0"><tr><th className="px-4 py-3 w-10 text-center"><button onClick={toggleAllRecipients}><Square size={16}/></button></th><th className="px-4 py-3">Nama / Mobil</th><th className="px-4 py-3 text-center">Aksi</th></tr></thead>
+                                        <tbody className="divide-y">{broadcastCandidates.map(job => (
+                                            <tr key={job.id} className={`hover:bg-gray-50 ${selectedRecipients.includes(job.id) ? 'bg-indigo-50' : ''}`}><td className="px-4 py-3 text-center"><button onClick={() => toggleRecipient(job.id)}>{selectedRecipients.includes(job.id) ? <CheckSquare size={16} className="text-indigo-600"/> : <Square size={16}/>}</button></td><td className="px-4 py-3"><div className="font-bold text-gray-900">{job.customerName}</div><div className="text-[10px] text-indigo-600 font-bold uppercase">{job.carModel} - {job.policeNumber}</div></td><td className="px-4 py-3 text-center"><button onClick={() => handleSingleAction(job, 'promo')} title="Kirim Pesan Promo WA Personal" className="p-2 text-green-600 hover:bg-green-50 rounded-full"><Send size={16}/></button></td></tr>
+                                        ))}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'history' && (
+                    <div className="animate-fade-in">
+                        <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                            <Search className="text-gray-400" size={20}/><input type="text" placeholder="Cari..." className="w-full bg-transparent outline-none font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-black"><tr><th className="px-6 py-4">Tgl Follow Up</th><th className="px-6 py-4">Pelanggan / Unit</th><th className="px-6 py-4 text-center">Indeks CSI</th><th className="px-6 py-4 text-center">Aksi</th></tr></thead>
+                                <tbody className="divide-y divide-gray-100">{historyJobs.map(job => (
+                                    <tr key={job.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 text-gray-500 font-medium">{formatDateIndo(job.crcFollowUpDate)}<div className="text-[10px] font-black text-indigo-400 uppercase">{job.crcFollowUpStatus}</div></td>
+                                        <td className="px-6 py-4"><div><div className="font-bold text-gray-900">{job.customerName}</div><div className="text-xs text-gray-500">{job.policeNumber} - {job.carModel}</div></div></td>
+                                        <td className="px-6 py-4 text-center"><div className="flex flex-col items-center"><div className="text-xs font-black text-yellow-600">{job.customerRating || 0} / 5</div><div className="flex gap-0.5 text-yellow-400">{[...Array(5)].map((_, i) => (<Star key={i} size={10} fill={i < Math.floor(job.customerRating || 0) ? "currentColor" : "none"} stroke="currentColor"/>))}</div></div></td>
+                                        <td className="px-6 py-4 text-center"><button onClick={() => handleOpenFeedback(job)} title="Lihat Detail Survey CSI" className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-full"><ClipboardCheck size={16}/></button></td>
+                                    </tr>
+                                ))}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
 
-        {/* BOOKING DATE MODAL */}
-        <Modal 
-            isOpen={bookingModal.isOpen} 
-            onClose={() => !isUpdating && setBookingModal({ isOpen: false, job: null })}
-            title="Penetapan Jadwal Booking"
-        >
+        {/* BOOKING MODAL */}
+        <Modal isOpen={bookingModal.isOpen} onClose={() => !isUpdating && setBookingModal({ isOpen: false, job: null })} title="Penetapan Jadwal Booking">
             <div className="space-y-6">
                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-indigo-600 shadow-sm">
-                        <Calendar size={24}/>
-                    </div>
-                    <div>
-                        <h4 className="font-black text-gray-900 leading-none">{bookingModal.job?.policeNumber}</h4>
-                        <p className="text-sm text-gray-500 mt-1">{bookingModal.job?.customerName} | {bookingModal.job?.carModel}</p>
-                    </div>
+                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-indigo-600 shadow-sm"><Calendar size={24}/></div>
+                    <div><h4 className="font-black text-gray-900 leading-none">{bookingModal.job?.policeNumber}</h4><p className="text-sm text-gray-500 mt-1">{bookingModal.job?.customerName} | {bookingModal.job?.carModel}</p></div>
                 </div>
-
-                <div className="space-y-2">
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Pilih Tanggal Rencana Masuk Bengkel *</label>
-                    <input 
-                        type="date" 
-                        required
-                        className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl text-lg font-black text-indigo-900 transition-all outline-none"
-                        value={bookingDateInput}
-                        onChange={e => setBookingDateInput(e.target.value)}
-                    />
-                    <p className="text-[10px] text-indigo-400 font-bold flex items-center gap-1 mt-1">
-                        <Zap size={10}/> Mengisi tanggal ini akan otomatis memindahkan unit ke Papan Control Claim.
-                    </p>
-                </div>
-
-                <div className="pt-4 flex gap-3">
-                    <button 
-                        onClick={() => setBookingModal({ isOpen: false, job: null })}
-                        disabled={isUpdating}
-                        className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors"
-                    >
-                        BATAL
-                    </button>
-                    <button 
-                        onClick={executeBookingProcess}
-                        disabled={isUpdating || !bookingDateInput}
-                        className="flex-[2] flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all transform active:scale-95 disabled:opacity-50"
-                    >
-                        {isUpdating ? <Loader2 size={20} className="animate-spin"/> : <><Save size={20}/> SIMPAN & KIRIM WA</>}
-                    </button>
-                </div>
+                <div className="space-y-2"><label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Pilih Tanggal Rencana Masuk *</label><input type="date" required className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl text-lg font-black text-indigo-900 outline-none" value={bookingDateInput} onChange={e => setBookingDateInput(e.target.value)}/></div>
+                <div className="pt-4 flex gap-3"><button onClick={() => setBookingModal({ isOpen: false, job: null })} disabled={isUpdating} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button onClick={executeBookingProcess} disabled={isUpdating || !bookingDateInput} className="flex-[2] flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all transform active:scale-95 disabled:opacity-50">{isUpdating ? <Loader2 size={20} className="animate-spin"/> : <><Save size={20}/> SIMPAN & KIRIM WA</>}</button></div>
             </div>
         </Modal>
 
-        {/* FEEDBACK MODAL (EXISTING) */}
-        <Modal isOpen={feedbackModal.isOpen} onClose={() => setFeedbackModal({ isOpen: false, job: null })} title="Input Hasil Follow Up">
-            <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg flex items-center gap-3"><User className="text-gray-400"/><div><p className="font-bold text-gray-800">{feedbackModal.job?.customerName}</p><p className="text-sm text-gray-500">{feedbackModal.job?.policeNumber} - {feedbackModal.job?.carModel}</p></div></div>
-                <div><label className="block text-sm font-bold text-gray-700 mb-2">Status Panggilan</label><div className="flex gap-2"><button onClick={() => setFollowUpStatus('Contacted')} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-all ${followUpStatus === 'Contacted' ? 'bg-green-50 border-green-500 text-green-700' : 'bg-white border-gray-200 text-gray-500'}`}>Berhasil Terhubung</button><button onClick={() => setFollowUpStatus('Unreachable')} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-all ${followUpStatus === 'Unreachable' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-500'}`}>Tidak Terhubung</button></div></div>
-                {followUpStatus === 'Contacted' && (<div className="animate-fade-in space-y-4"><div><label className="block text-sm font-bold text-gray-700 mb-2">Rating Kepuasan Pelanggan</label><div className="flex gap-2 justify-center py-4 bg-yellow-50 rounded-xl border border-yellow-100">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setRating(star)} className="transition-transform hover:scale-110 focus:outline-none"><Star size={32} className={star <= rating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"} /></button>))}</div></div><div><label className="block text-sm font-bold text-gray-700 mb-2">Feedback / Komentar</label><textarea value={feedbackNotes} onChange={e => setFeedbackNotes(e.target.value)} rows={3} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="Tulis komentar..."/></div></div>)}
-                <div className="pt-4 flex justify-end gap-2"><button onClick={() => setFeedbackModal({ isOpen: false, job: null })} className="px-4 py-2 border rounded-lg text-gray-600 font-medium">Batal</button><button onClick={handleSaveFeedback} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-md">Simpan Data</button></div>
+        {/* SURVEY CSI MODAL (OVERLAY FORM) */}
+        <Modal isOpen={feedbackModal.isOpen} onClose={() => setFeedbackModal({ isOpen: false, job: null })} title="Point Survey Kepuasan Pelanggan (CSI)" maxWidth="max-w-3xl">
+            <div className="space-y-6">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex items-center justify-between">
+                    <div className="flex items-center gap-4"><div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-gray-400 border border-gray-100 shadow-sm"><User size={20}/></div><div><p className="font-black text-gray-900 leading-tight">{feedbackModal.job?.customerName}</p><p className="text-xs text-gray-500">{feedbackModal.job?.policeNumber}</p></div></div>
+                    <div className="flex gap-2"><button onClick={() => setFollowUpStatus('Contacted')} className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${followUpStatus === 'Contacted' ? 'bg-green-600 text-white' : 'bg-white text-gray-400 border-gray-200'}`}>Tersambung</button><button onClick={() => setFollowUpStatus('Unreachable')} className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${followUpStatus === 'Unreachable' ? 'bg-red-600 text-white' : 'bg-white text-gray-400 border-gray-200'}`}>Gagal Hubungi</button></div>
+                </div>
+                {followUpStatus === 'Contacted' && (
+                    <div className="animate-fade-in space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {settings.csiIndicators.map((indicator, idx) => (
+                                <div key={idx} className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-col gap-3">
+                                    <p className="text-xs font-black text-gray-800 uppercase tracking-tight">{indicator}</p>
+                                    <div className="flex gap-2 justify-center bg-white py-2 rounded-lg border border-indigo-50">
+                                        {[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setCsiRatings(prev => ({ ...prev, [indicator]: star }))} className="transition-transform hover:scale-125">{star <= (csiRatings[indicator] || 0) ? <Star size={24} className="text-yellow-400 fill-yellow-400"/> : <Star size={24} className="text-gray-200"/>}</button>))}
+                                    </div>
+                                </div>
+                            ))}
+                            {settings.csiIndicators.length === 0 && <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-300 col-span-2"><AlertCircle size={24} className="mx-auto text-gray-300 mb-2"/><p className="text-xs text-gray-400">Belum ada indikator survey yang diatur.</p></div>}
+                        </div>
+                        <div className="space-y-2"><label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Komentar / Feedback Pelanggan</label><textarea value={feedbackNotes} onChange={e => setFeedbackNotes(e.target.value)} rows={3} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white text-sm" placeholder="Saran atau keluhan..."/></div>
+                    </div>
+                )}
+                <div className="pt-4 border-t flex gap-3"><button onClick={() => setFeedbackModal({ isOpen: false, job: null })} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button onClick={handleSaveFeedback} title="Simpan hasil survey & CSI ke riwayat" className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"><Save size={20}/> SIMPAN HASIL SURVEY</button></div>
             </div>
         </Modal>
     </div>

@@ -14,7 +14,7 @@ export interface Settings {
   mechanicNames: string[];
   serviceAdvisors: string[];
   insuranceOptions: { name: string; jasa: number; part: number }[];
-  specialColorRates: { colorName: string; surchargePerPanel: number }[]; // NEW
+  specialColorRates: { colorName: string; surchargePerPanel: number }[]; 
   statusKendaraanOptions: string[];
   statusPekerjaanOptions: string[];
   userRoles: Record<string, string>;
@@ -26,6 +26,7 @@ export interface Settings {
     readyForPickup: string;
     promoBroadcast?: string;
   };
+  csiIndicators: string[]; // NEW: For dynamic CSI survey points
   whatsappConfig?: {
     mode: 'API' | 'MANUAL';
   };
@@ -156,7 +157,7 @@ export interface Job {
   
   tanggalMasuk: string; // YYYY-MM-DD
   tanggalEstimasiSelesai?: string;
-  tanggalBooking?: string; // NEW: Triggers appearance in Admin Control
+  tanggalBooking?: string; 
   
   woNumber?: string;
   namaSA?: string;
@@ -185,6 +186,7 @@ export interface Job {
   crcFollowUpDate?: any;
   customerRating?: number;
   customerFeedback?: string;
+  csiResults?: Record<string, number>; // NEW: Stores detailed rating per indicator
 }
 
 export interface Vehicle {

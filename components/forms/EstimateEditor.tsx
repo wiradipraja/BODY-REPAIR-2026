@@ -127,7 +127,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           ...newItems[index],
           number: part.code,
           name: part.name,
-          price: part.sellPrice, // Initially take the current market price
+          price: part.sellPrice, 
           inventoryId: part.id,
           qty: newItems[index].qty || 1
       };
@@ -275,8 +275,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               <h4 className="font-black text-gray-800 tracking-tight">A. JASA PERBAIKAN</h4>
               <button onClick={() => addItem('jasa')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> TAMBAH JASA</button>
           </div>
-          <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left border-separate border-spacing-y-2">
+          <div className="relative"> {/* Removed overflow-x-auto to allow picker to overlay */}
+              <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[700px]">
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           <th className="px-4 py-2 w-10 text-center">No</th>
@@ -292,23 +292,34 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                       {jasaItems.map((item, i) => (
                           <tr key={i} className="group hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
-                              <td className="px-4 py-3 relative border-y border-gray-100">
+                              <td className="px-4 py-3 border-y border-gray-100">
                                   <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
                               </td>
                               <td className="px-4 py-3 text-center border-y border-gray-100">
-                                  <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black border ${item.workType === 'KC' ? 'bg-orange-50 text-orange-600 border-orange-200' : item.workType === 'GTC' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{item.workType || '-'}</span>
+                                  <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black border ${item.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : item.workType === 'GTC' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>{item.workType || '-'}</span>
                               </td>
-                              <td className="px-4 py-3 relative border-y border-gray-100">
+                              <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
                                       <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all" placeholder="KETIK NAMA PEKERJAAN..." disabled={job.isClosed} />
                                       {activeSearch?.type === 'jasa' && activeSearch.index === i && (
-                                          <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[450px] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
+                                          <div ref={searchRef} className={`absolute left-0 ${i > jasaItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-indigo-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
+                                              <div className="p-3 bg-indigo-50/50 border-b border-indigo-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
+                                                  <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Pilih Item Jasa</span>
+                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full text-indigo-400"><X size={14}/></button>
+                                              </div>
                                               {filteredServices.map(s => (
-                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item">
-                                                      <div><span className="font-black text-xs text-indigo-600 font-mono bg-indigo-50 px-1.5 py-0.5 rounded">{s.serviceCode}</span><p className="text-sm font-bold text-gray-800 uppercase">{s.serviceName}</p></div>
-                                                      <div className="text-right"><p className="text-[10px] font-black text-gray-400 uppercase">{s.panelValue} PANEL</p><p className="text-sm font-black text-emerald-600">{formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}</p></div>
+                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
+                                                      <div>
+                                                          <span className="font-black text-[10px] text-indigo-600 font-mono bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{s.serviceCode}</span>
+                                                          <p className="text-sm font-bold text-gray-800 uppercase mt-1">{s.serviceName}</p>
+                                                      </div>
+                                                      <div className="text-right">
+                                                          <p className="text-[10px] font-black text-gray-400 uppercase">{s.panelValue} PANEL</p>
+                                                          <p className="text-sm font-black text-emerald-600">{formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}</p>
+                                                      </div>
                                                   </div>
                                               ))}
+                                              {filteredServices.length === 0 && <div className="p-10 text-center text-gray-400 text-sm italic">Master jasa tidak ditemukan.</div>}
                                           </div>
                                       )}
                                   </div>
@@ -329,8 +340,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               <h4 className="font-black text-gray-800 tracking-tight">B. SPAREPART & BAHAN</h4>
               <button onClick={() => addItem('part')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-4 py-1.5 rounded-xl font-black hover:bg-orange-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> TAMBAH PART</button>
           </div>
-          <div className="overflow-x-visible relative">
-              <table className="w-full text-sm text-left border-separate border-spacing-y-2">
+          <div className="relative"> {/* Removed overflow to allow picker overlay */}
+              <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[800px]">
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           <th className="px-4 py-2 w-10 text-center">No</th>
@@ -350,20 +361,31 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                           return (
                           <tr key={i} className="group hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
-                              <td className="px-4 py-3 relative border-y border-gray-100">
+                              <td className="px-4 py-3 border-y border-gray-100">
                                   <input type="text" value={item.number} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
                               </td>
-                              <td className="px-4 py-3 relative border-y border-gray-100">
+                              <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
                                       <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" placeholder="KETIK NAMA BARANG..." disabled={job.isClosed} />
                                       {activeSearch?.type === 'part' && activeSearch.index === i && (
-                                          <div ref={searchRef} className="absolute left-0 top-full mt-2 w-[550px] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[999] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin">
+                                          <div ref={searchRef} className={`absolute left-0 ${i > partItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[550px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-orange-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
+                                              <div className="p-3 bg-orange-50/50 border-b border-orange-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
+                                                  <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Katalog Sparepart</span>
+                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full text-orange-400"><X size={14}/></button>
+                                              </div>
                                               {filteredParts.map(p => (
-                                                  <div key={p.id} onClick={() => selectPart(i, p)} className="p-4 hover:bg-orange-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item">
-                                                      <div className="flex-1"><span className="font-black text-xs text-orange-600 font-mono bg-orange-50 px-1.5 py-0.5 rounded">{p.code}</span><p className="text-sm font-bold text-gray-800 uppercase">{p.name}</p></div>
-                                                      <div className="text-right"><p className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${p.stock > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{p.stock} {p.unit}</p><p className="text-sm font-black text-indigo-900">{formatCurrency(p.sellPrice)}</p></div>
+                                                  <div key={p.id} onClick={() => selectPart(i, p)} className="p-4 hover:bg-orange-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
+                                                      <div className="flex-1">
+                                                          <span className="font-black text-[10px] text-orange-600 font-mono bg-orange-50 px-2 py-0.5 rounded border border-orange-100">{p.code}</span>
+                                                          <p className="text-sm font-bold text-gray-800 uppercase mt-1">{p.name}</p>
+                                                      </div>
+                                                      <div className="text-right">
+                                                          <p className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${p.stock > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{p.stock} {p.unit}</p>
+                                                          <p className="text-sm font-black text-indigo-900 mt-1">{formatCurrency(p.sellPrice)}</p>
+                                                      </div>
                                                   </div>
                                               ))}
+                                              {filteredParts.length === 0 && <div className="p-10 text-center text-gray-400 text-sm italic">Suku cadang tidak ditemukan.</div>}
                                           </div>
                                       )}
                                   </div>
@@ -411,7 +433,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           {!job.isClosed && (
               <>
                   <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting} className="px-8 py-3 border-2 border-indigo-600 text-indigo-700 rounded-2xl hover:bg-indigo-50 font-black transition-all">SIMPAN ESTIMASI</button>
-                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-12 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 font-black shadow-xl transition-all transform active:scale-95"><Save size={20}/> {job.woNumber ? 'UPDATE WORK ORDER' : 'TERBITKAN WO'}</button>
+                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-12 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 font-black shadow-xl hover:bg-indigo-700 transition-all transform active:scale-95"><Save size={20}/> {job.woNumber ? 'UPDATE WORK ORDER' : 'TERBITKAN WO'}</button>
               </>
           )}
       </div>
