@@ -144,8 +144,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             icon: BarChart3,
             children: [
                 { id: 'finance_invoice', label: t('invoice'), icon: FileCheck },
+                { id: 'finance_cashier', label: t('cashier'), icon: Banknote }, // Moved UP
                 { id: 'finance_tax', label: t('tax'), icon: Landmark },
-                { id: 'finance_cashier', label: t('cashier'), icon: Banknote },
                 { id: 'finance_debt', label: t('debt'), icon: Scale },
                 { id: 'finance_dashboard', label: t('reports'), icon: BarChart3 },
             ]

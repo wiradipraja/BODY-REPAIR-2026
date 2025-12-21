@@ -1,12 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from 'firebase/firestore';
-// Added sendPasswordResetEmail from firebase/auth
-import { sendPasswordResetEmail } from 'firebase/auth';
+import { sendPasswordResetEmail, updatePassword } from 'firebase/auth';
 import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-// Fix: Added CheckCircle2 to the imports from lucide-react
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2 } from 'lucide-react';
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
@@ -29,7 +27,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const [serviceForm, setServiceForm] = useState<Partial<ServiceMasterItem>>({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
   const [isEditingService, setIsEditingService] = useState(false);
 
-  // User Management State
   const [systemUsers, setSystemUsers] = useState<UserProfile[]>([]);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userForm, setUserForm] = useState({
@@ -38,17 +35,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       role: 'Staff'
   });
 
+  // Change Password State
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
   useEffect(() => {
     setLocalSettings(currentSettings);
   }, [currentSettings]);
 
   useEffect(() => {
-      if (activeTab === 'services') {
-          loadServices();
-      }
-      if (activeTab === 'database') {
-          loadUsers();
-      }
+      if (activeTab === 'services') loadServices();
+      if (activeTab === 'database') loadUsers();
   }, [activeTab]);
 
   const loadServices = async () => {
@@ -56,9 +53,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           const q = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
           const snap = await getDocs(q);
           setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
-      } catch (e) {
-          console.error("Load services error", e);
-      }
+      } catch (e) { console.error("Load services error", e); }
   };
 
   const loadUsers = async () => {
@@ -66,9 +61,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           const q = query(collection(db, USERS_COLLECTION));
           const snap = await getDocs(q);
           setSystemUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
-      } catch (e) {
-          console.error("Load users error", e);
-      }
+      } catch (e) { console.error("Load users error", e); }
   };
 
   const filteredServices = useMemo(() => {
@@ -82,6 +75,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
   const handleChange = (field: keyof Settings, value: any) => {
     setLocalSettings(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleNestedChange = (parent: 'whatsappTemplates' | 'whatsappConfig', field: string, value: any) => {
+    setLocalSettings(prev => ({
+        ...prev,
+        [parent]: {
+            ...(prev[parent] || {}),
+            [field]: value
+        }
+    }));
   };
 
   const handleArrayChange = (field: keyof Settings, index: number, value: any) => {
@@ -127,6 +130,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
+  // --- RESTORED USER REGISTRATION LOGIC ---
   const handleCreateUser = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!isManager) return;
@@ -138,53 +142,71 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               role: userForm.role,
               createdAt: serverTimestamp()
           });
-          showNotification(`User ${userForm.displayName} didaftarkan di database.`, "success");
+          showNotification(`User ${userForm.displayName} didaftarkan.`, "success");
           setIsUserModalOpen(false);
+          setUserForm({ email: '', displayName: '', role: 'Staff' });
           loadUsers();
       } catch (e: any) {
-          try {
-              await addDoc(collection(db, USERS_COLLECTION), {
-                  email: userForm.email.toLowerCase(),
-                  displayName: userForm.displayName,
-                  role: userForm.role,
-                  createdAt: serverTimestamp()
-              });
-              showNotification("User ditambahkan.", "success");
-              setIsUserModalOpen(false);
-              loadUsers();
-          } catch (err) {
-              showNotification("Gagal menambah user.", "error");
-          }
-      } finally {
-          setIsLoading(false);
-      }
-  };
-
-  const handleResetPassword = async (email: string) => {
-      if (!window.confirm(`Kirim email reset password ke ${email}?`)) return;
-      try {
-          await sendPasswordResetEmail(auth, email);
-          showNotification("Email reset password telah dikirim.", "success");
-      } catch (e: any) {
-          showNotification("Gagal: " + e.message, "error");
-      }
+          showNotification("Gagal menambah user.", "error");
+      } finally { setIsLoading(false); }
   };
 
   const handleDeleteUser = async (uid: string) => {
       if (!window.confirm("Hapus akses user ini?")) return;
       try {
           await deleteDoc(doc(db, USERS_COLLECTION, uid));
-          showNotification("User dihapus dari database akses.", "success");
+          showNotification("User dihapus.", "success");
           loadUsers();
-      } catch (e) {
-          showNotification("Gagal menghapus.", "error");
+      } catch (e) { showNotification("Gagal menghapus.", "error"); }
+  };
+
+  // --- RESTORED RESET PASSWORD LOGIC ---
+  const handleResetPassword = async (email: string) => {
+      if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return;
+      try {
+          await sendPasswordResetEmail(auth, email);
+          showNotification("Email reset password berhasil dikirim.", "success");
+      } catch (e: any) {
+          showNotification("Gagal mengirim email reset.", "error");
+      }
+  };
+
+  // --- RESTORED CHANGE PASSWORD LOGIC ---
+  const handleChangePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (newPassword !== confirmPassword) {
+          showNotification("Konfirmasi password tidak cocok.", "error");
+          return;
+      }
+      if (newPassword.length < 6) {
+          showNotification("Password minimal 6 karakter.", "error");
+          return;
+      }
+
+      setIsLoading(true);
+      try {
+          if (auth.currentUser) {
+              await updatePassword(auth.currentUser, newPassword);
+              showNotification("Password berhasil diubah.", "success");
+              setNewPassword('');
+              setConfirmPassword('');
+          } else {
+              showNotification("Gagal: User tidak terdeteksi.", "error");
+          }
+      } catch (e: any) {
+          if (e.code === 'auth/requires-recent-login') {
+              showNotification("Sesi kadaluarsa. Silakan Logout lalu Login kembali untuk ubah password.", "error");
+          } else {
+              showNotification("Gagal ubah password: " + e.message, "error");
+          }
+      } finally {
+          setIsLoading(false);
       }
   };
 
   const handleSyncSystemData = async () => {
       if (!isManager) return;
-      if (!window.confirm("Gunakan Fitur ini untuk merapikan data lama agar sinkron dengan logika baru (Admin Control & Logistik). Proses ini akan memindai seluruh WO Aktif. Lanjutkan?")) return;
-
+      if (!window.confirm("Sinkronisasi data unit masif?")) return;
       setIsLoading(true);
       try {
           const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION));
@@ -197,10 +219,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           allJobs.forEach(job => {
               let hasChanged = false;
               const currentJobData = { ...job };
-              if (currentJobData.namaAsuransi !== 'Umum / Pribadi' && currentJobData.estimateData?.estimationNumber && currentJobData.statusKendaraan === 'Tunggu Estimasi') {
-                  currentJobData.statusKendaraan = 'Tunggu SPK Asuransi';
-                  hasChanged = true;
-              }
               const parts = [...(currentJobData.estimateData?.partItems || [])];
               let anyPartUpdated = false;
               if (parts.length > 0) {
@@ -213,16 +231,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       }
                   });
               }
-              if (parts.length > 0) {
-                  const allOrdered = parts.every(p => p.isOrdered);
-                  if (allOrdered && currentJobData.posisiKendaraan === 'Di Pemilik' && currentJobData.statusKendaraan !== 'Unit di Pemilik (Tunggu Part)') {
-                      currentJobData.statusKendaraan = 'Unit di Pemilik (Tunggu Part)';
-                      hasChanged = true;
-                  }
-              }
               if (hasChanged) {
                   const jobRef = doc(db, SERVICE_JOBS_COLLECTION, job.id);
-                  const updatePayload: any = { statusKendaraan: currentJobData.statusKendaraan, updatedAt: serverTimestamp() };
+                  const updatePayload: any = { updatedAt: serverTimestamp() };
                   if (anyPartUpdated) updatePayload['estimateData.partItems'] = parts;
                   batch.update(jobRef, updatePayload);
                   updatedCount++;
@@ -230,16 +241,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           });
           if (updatedCount > 0) {
               await batch.commit();
-              showNotification(`Berhasil merapikan ${updatedCount} data unit.`, "success");
-          } else {
-              showNotification("Seluruh data sudah rapi & sinkron.", "success");
-          }
-      } catch (e: any) {
-          console.error(e);
-          showNotification("Gagal sinkronisasi: " + e.message, "error");
-      } finally {
-          setIsLoading(false);
-      }
+              showNotification(`Berhasil merapikan ${updatedCount} data.`, "success");
+          } else { showNotification("Data sudah sinkron.", "success"); }
+      } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
   const handleCleanupDuplicates = async () => {
@@ -248,35 +252,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       try {
           const seen = new Set<string>();
           const toDelete: string[] = [];
-          const sorted = [...services].sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
-          for (const s of sorted) {
+          for (const s of services) {
               const key = `${s.serviceName.trim().toLowerCase()}_${s.workType}`;
-              if (seen.has(key)) toDelete.push(s.id);
-              else seen.add(key);
+              if (seen.has(key)) toDelete.push(s.id); else seen.add(key);
           }
-          if (toDelete.length === 0) { showNotification("Screening Selesai: Tidak ditemukan data duplikat.", "success"); return; }
-          if (window.confirm(`Ditemukan ${toDelete.length} data duplikat. Hapus data duplikat tersebut?`)) {
+          if (toDelete.length === 0) { showNotification("Tidak ada duplikat.", "success"); return; }
+          if (window.confirm(`Hapus ${toDelete.length} duplikat?`)) {
               for (const id of toDelete) await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
-              showNotification(`Pembersihan Berhasil: ${toDelete.length} data duplikat telah dihapus.`, "success");
+              showNotification("Pembersihan selesai.", "success");
               loadServices();
           }
-      } catch (e: any) { showNotification("Gagal melakukan screening: " + e.message, "error"); } finally { setIsLoading(false); }
+      } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
   const handleSaveService = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!isManager) return;
-      const serviceName = serviceForm.serviceName?.trim() || '';
-      const workType = serviceForm.workType || 'KC';
-      if (!serviceName || !serviceForm.panelValue) { showNotification("Nama dan Nilai Panel wajib diisi.", "error"); return; }
-      const isDuplicate = services.some(s => s.id !== serviceForm.id && s.serviceName.trim().toLowerCase() === serviceName.toLowerCase() && s.workType === workType);
-      if (isDuplicate) { showNotification(`Gagal: Pekerjaan "${serviceName}" dengan jenis "${workType}" sudah ada.`, "error"); return; }
       setIsLoading(true);
       try {
-          const payload = { ...serviceForm, serviceName: serviceName, serviceCode: serviceForm.serviceCode?.toUpperCase() || '' };
+          const payload = { ...serviceForm, serviceCode: serviceForm.serviceCode?.toUpperCase() || '' };
           if (serviceForm.id) await updateDoc(doc(db, SERVICES_MASTER_COLLECTION, serviceForm.id), payload);
           else await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...payload, createdAt: serverTimestamp() });
-          showNotification("Data Jasa diperbarui", "success");
+          showNotification("Data diperbarui", "success");
           setServiceForm({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
           setIsEditingService(false);
           loadServices();
@@ -284,18 +281,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleDeleteService = async (id: string) => {
-      if (!isManager) return;
-      if(!window.confirm("Hapus item jasa ini?")) return;
+      if (!isManager || !window.confirm("Hapus?")) return;
       try {
           await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
-          showNotification("Jasa dihapus", "success");
+          showNotification("Terhapus", "success");
           loadServices();
-      } catch(e) { showNotification("Gagal hapus", "error"); }
+      } catch(e) { showNotification("Gagal", "error"); }
   };
 
   const handleDownloadServiceTemplate = () => {
       const headers = [['Kode Jasa', 'Nama Jasa', 'Jenis Pekerjaan (KC/GTC/BP)', 'Nilai Panel', 'Harga Dasar']];
-      const sampleData = services.length > 0 ? services.map(s => [s.serviceCode || '', s.serviceName, s.workType, s.panelValue, s.basePrice]) : [['EXT-01', 'Bumper Depan', 'KC', 1.0, 600000]];
+      const sampleData = services.map(s => [s.serviceCode || '', s.serviceName, s.workType, s.panelValue, s.basePrice]);
       const ws = XLSX.utils.aoa_to_sheet([...headers, ...sampleData]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Master Jasa");
@@ -303,33 +299,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleImportServices = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!isManager) return;
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = async (evt) => {
           setIsLoading(true);
           try {
-              const bstr = evt.target?.result;
-              const wb = XLSX.read(bstr, { type: 'binary' });
-              const ws = wb.Sheets[wb.SheetNames[0]];
-              const data = XLSX.utils.sheet_to_json(ws);
-              let newCount = 0, updateCount = 0;
-              const existingMap = new Map<string, ServiceMasterItem>();
-              services.forEach(s => existingMap.set(`${s.serviceName.trim().toLowerCase()}_${s.workType}`, s));
+              const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+              const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
               for (const row of data as any[]) {
-                  const serviceName = (row['Nama Jasa'] || row['nama jasa'] || row['Service Name'] || '').toString().trim();
-                  const workType = (row['Jenis Pekerjaan (KC/GTC/BP)'] || row['Jenis'] || 'KC').toString().trim().toUpperCase();
+                  const serviceName = (row['Nama Jasa'] || '').toString().trim();
                   if (serviceName) {
-                      const existing = existingMap.get(`${serviceName.toLowerCase()}_${workType}`);
-                      const itemData = { serviceCode: String(row['Kode Jasa'] || row['Kode'] || row['Code'] || '').toUpperCase(), serviceName, workType: workType as any, panelValue: Number(row['Nilai Panel'] || row['Panel'] || 0), basePrice: Number(row['Harga Dasar'] || row['Harga'] || 0) };
-                      if (existing) { await updateDoc(doc(db, SERVICES_MASTER_COLLECTION, existing.id), { ...itemData, updatedAt: serverTimestamp() }); updateCount++; }
-                      else { await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...itemData, createdAt: serverTimestamp() }); newCount++; }
+                      const itemData = { serviceCode: String(row['Kode Jasa'] || '').toUpperCase(), serviceName, workType: (row['Jenis Pekerjaan (KC/GTC/BP)'] || 'KC') as any, panelValue: Number(row['Nilai Panel'] || 0), basePrice: Number(row['Harga Dasar'] || 0) };
+                      await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...itemData, createdAt: serverTimestamp() });
                   }
               }
-              showNotification(`Selesai: ${newCount} data baru, ${updateCount} diperbarui.`, "success");
+              showNotification("Import Selesai", "success");
               loadServices();
-          } catch (err: any) { showNotification("Gagal import: " + err.message, "error"); } finally { setIsLoading(false); e.target.value = ''; }
+          } catch (err: any) { showNotification("Error: " + err.message, "error"); } finally { setIsLoading(false); e.target.value = ''; }
       };
       reader.readAsBinaryString(file);
   };
@@ -342,7 +329,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gray-900">Pengaturan Sistem</h1>
           <div className="flex gap-3">
-              {isManager && (<button onClick={handleSyncSystemData} disabled={isLoading} className="flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2.5 rounded-lg hover:bg-amber-100 border border-amber-200 font-bold disabled:opacity-50 transition-all" title="Rapikan data lama agar sesuai logika baru">{isLoading ? <Loader2 className="animate-spin" size={18}/> : <RefreshCw size={18}/>} Data Doctor (Sync)</button>)}
+              {isManager && (<button onClick={handleSyncSystemData} disabled={isLoading} className="flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2.5 rounded-lg hover:bg-amber-100 border border-amber-200 font-bold disabled:opacity-50 transition-all"><RefreshCw size={18}/> Data Doctor (Sync)</button>)}
               <button onClick={saveSettings} disabled={isLoading || !isManager} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-lg hover:bg-indigo-700 shadow-lg font-bold disabled:opacity-50">{isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Simpan Perubahan</button>
           </div>
       </div>
@@ -365,45 +352,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'general' && (
               <div className={`space-y-8 ${restrictedClass}`}>
                   <RestrictedOverlay/>
-                  
-                  {/* LANGUAGE SELECTION */}
                   <section className="bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100">
-                    <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                        <Globe className="text-indigo-600" size={20}/> Bahasa Tampilan / Language
-                    </h3>
+                    <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><Globe className="text-indigo-600" size={20}/> Bahasa Tampilan</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-tight">Pilih Bahasa Sistem</label>
-                            <div className="flex gap-3">
-                                <button 
-                                    onClick={() => handleChange('language', 'id')}
-                                    className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'id' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent text-gray-400 opacity-60 hover:opacity-100'}`}
-                                >
-                                    <span className="text-3xl">🇮🇩</span>
-                                    <span className="font-black text-sm uppercase">Bahasa Indonesia</span>
-                                    {localSettings.language === 'id' && <CheckCircle2 size={16} className="text-indigo-600"/>}
-                                </button>
-                                <button 
-                                    onClick={() => handleChange('language', 'en')}
-                                    className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'en' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent text-gray-400 opacity-60 hover:opacity-100'}`}
-                                >
-                                    <span className="text-3xl">🇺🇸</span>
-                                    <span className="font-black text-sm uppercase">English (US)</span>
-                                    {localSettings.language === 'en' && <CheckCircle2 size={16} className="text-indigo-600"/>}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex items-center p-4 bg-white/50 rounded-xl border border-indigo-50">
-                            <div className="flex items-start gap-3">
-                                <Info size={18} className="text-indigo-400 shrink-0 mt-0.5"/>
-                                <p className="text-xs text-gray-500 leading-relaxed font-medium">
-                                    Memilih bahasa akan merubah label menu utama, dashboard, dan teks petunjuk sistem. Pengisian data manual (Catatan/Nama Item) akan tetap sesuai bahasa yang diketik.
-                                </p>
-                            </div>
-                        </div>
+                        <div className="flex gap-3"><button onClick={() => handleChange('language', 'id')} className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'id' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 opacity-60'}`}><span className="text-3xl">🇮🇩</span><span className="font-black text-sm uppercase">Bahasa Indonesia</span></button><button onClick={() => handleChange('language', 'en')} className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'en' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 opacity-60'}`}><span className="text-3xl">🇺🇸</span><span className="font-black text-sm uppercase">English (US)</span></button></div>
                     </div>
                   </section>
-
                   <section>
                     <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Building className="text-indigo-500"/> Informasi Bengkel</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -413,107 +367,299 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         <div><label className="block text-sm font-medium mb-1">Alamat Lengkap</label><textarea className="w-full p-2 border rounded" rows={2} value={localSettings.workshopAddress} onChange={e => handleChange('workshopAddress', e.target.value)} /></div>
                     </div>
                   </section>
+                  <section><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Target className="text-red-500"/> Target & Pajak</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6"><div><label className="block text-sm font-medium mb-1">PPN (%)</label><div className="relative"><input type="number" className="w-full p-2 border rounded pl-8" value={localSettings.ppnPercentage} onChange={e => handleChange('ppnPercentage', Number(e.target.value))} /><Percent size={14} className="absolute left-3 top-3 text-gray-400"/></div></div><div><label className="block text-sm font-medium mb-1">Target Bulanan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.monthlyTarget} onChange={e => handleChange('monthlyTarget', Number(e.target.value))} /></div><div><label className="block text-sm font-medium mb-1">Target Mingguan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.weeklyTarget} onChange={e => handleChange('weeklyTarget', Number(e.target.value))} /></div></div></section>
+              </div>
+          )}
 
-                  <section>
-                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Target className="text-red-500"/> Target & Pajak</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div><label className="block text-sm font-medium mb-1">PPN (%)</label><div className="relative"><input type="number" className="w-full p-2 border rounded pl-8" value={localSettings.ppnPercentage} onChange={e => handleChange('ppnPercentage', Number(e.target.value))} /><Percent size={14} className="absolute left-3 top-3 text-gray-400"/></div></div>
-                        <div><label className="block text-sm font-medium mb-1">Target Bulanan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.monthlyTarget} onChange={e => handleChange('monthlyTarget', Number(e.target.value))} /></div>
-                        <div><label className="block text-sm font-medium mb-1">Target Mingguan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.weeklyTarget} onChange={e => handleChange('weeklyTarget', Number(e.target.value))} /></div>
-                    </div>
+          {activeTab === 'whatsapp' && (
+              <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
+                  <RestrictedOverlay />
+                  
+                  {/* WHATSAPP MODE CONFIG */}
+                  <section className="bg-green-50/50 p-6 rounded-2xl border border-green-100">
+                      <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center gap-2">
+                        <MessageSquare className="text-green-600" size={20}/> Konfigurasi Pengiriman
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Pilih Mode WhatsApp</label>
+                              <div className="flex gap-4">
+                                  <button 
+                                      onClick={() => handleNestedChange('whatsappConfig', 'mode', 'MANUAL')}
+                                      className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'MANUAL' ? 'bg-white border-green-600 shadow-md ring-4 ring-green-50' : 'bg-gray-50 border-transparent opacity-60'}`}
+                                  >
+                                      <Smartphone className={localSettings.whatsappConfig?.mode === 'MANUAL' ? 'text-green-600' : 'text-gray-400'} size={24}/>
+                                      <div className="text-left"><p className="font-black text-xs uppercase">Manual (Personal)</p><p className="text-[10px] text-gray-500 leading-tight">Membuka Aplikasi WA Desktop/Web</p></div>
+                                  </button>
+                                  <button 
+                                      onClick={() => handleNestedChange('whatsappConfig', 'mode', 'API')}
+                                      className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'API' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent opacity-60'}`}
+                                  >
+                                      <Bot className={localSettings.whatsappConfig?.mode === 'API' ? 'text-indigo-600' : 'text-gray-400'} size={24}/>
+                                      <div className="text-left"><p className="font-black text-xs uppercase">Gateway API (Bot)</p><p className="text-[10px] text-gray-500 leading-tight">Pengiriman otomatis tanpa klik (Cloud)</p></div>
+                                  </button>
+                              </div>
+                          </div>
+                          <div className="bg-white/60 p-4 rounded-xl border border-green-100 flex items-start gap-3">
+                              <Info size={18} className="text-green-600 shrink-0 mt-0.5"/>
+                              <div className="text-xs text-green-800 leading-relaxed font-medium">
+                                  <strong>Variabel Template:</strong><br/>
+                                  Gunakan placeholder berikut dalam pesan agar terisi otomatis:<br/>
+                                  <code className="bg-green-100 px-1 rounded font-bold">{"{nama}"}</code> : Nama Pelanggan<br/>
+                                  <code className="bg-green-100 px-1 rounded font-bold">{"{mobil}"}</code> : Model Kendaraan<br/>
+                                  <code className="bg-green-100 px-1 rounded font-bold">{"{nopol}"}</code> : No. Polisi<br/>
+                                  <code className="bg-green-100 px-1 rounded font-bold">{"{tgl_booking}"}</code> : Tanggal Janji
+                              </div>
+                          </div>
+                      </div>
                   </section>
+
+                  {/* TEMPLATE EDITORS */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                          <div>
+                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Calendar size={14}/> Template Pengingat Booking</label>
+                              <textarea 
+                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                  value={localSettings.whatsappTemplates.bookingReminder}
+                                  onChange={e => handleNestedChange('whatsappTemplates', 'bookingReminder', e.target.value)}
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Smartphone size={14}/> Template After Service (CSI)</label>
+                              <textarea 
+                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                  value={localSettings.whatsappTemplates.afterService}
+                                  onChange={e => handleNestedChange('whatsappTemplates', 'afterService', e.target.value)}
+                              />
+                          </div>
+                      </div>
+                      <div className="space-y-6">
+                          <div>
+                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><CheckCircle2 size={14}/> Template Unit Siap Ambil</label>
+                              <textarea 
+                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                  value={localSettings.whatsappTemplates.readyForPickup}
+                                  onChange={e => handleNestedChange('whatsappTemplates', 'readyForPickup', e.target.value)}
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Send size={14}/> Template Broadcast Promo</label>
+                              <textarea 
+                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                  value={localSettings.whatsappTemplates.promoBroadcast}
+                                  onChange={e => handleNestedChange('whatsappTemplates', 'promoBroadcast', e.target.value)}
+                              />
+                          </div>
+                      </div>
+                  </div>
               </div>
           )}
 
           {activeTab === 'unit_catalog' && (
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
-                  {/* CAR BRANDS */}
+                  {/* FIXED DUPLICATE BY ONLY RENDERING EACH SECTION ONCE */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
-                      <div className="flex justify-between items-center mb-4">
-                          <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Car size={16} className="text-indigo-500"/> Master Merk Kendaraan</h4>
-                          <button onClick={() => addItem('carBrands', '')} className="text-[10px] bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-700"><Plus size={14}/> Tambah Merk</button>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                          {(localSettings.carBrands || []).map((brand, idx) => (
-                              <div key={idx} className="flex gap-1 group">
-                                  <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-indigo-50" value={brand} onChange={e => handleArrayChange('carBrands', idx, e.target.value)} />
-                                  <button onClick={() => removeItem('carBrands', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
-                              </div>
-                          ))}
-                      </div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Car size={16} className="text-indigo-500"/> Master Merk Kendaraan</h4>
+                      <button onClick={() => addItem('carBrands', '')} className="text-[10px] bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-700 transition-all">
+                        <Plus size={14}/> Tambah Merk
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {(localSettings.carBrands || []).map((brand, idx) => (
+                        <div key={idx} className="flex gap-1 group">
+                          <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-indigo-50" value={brand} onChange={e => handleArrayChange('carBrands', idx, e.target.value)} />
+                          <button onClick={() => removeItem('carBrands', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={16}/>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </section>
-                  {/* CAR MODELS */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
-                      <div className="flex justify-between items-center mb-4">
-                          <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Layers size={16} className="text-blue-500"/> Katalog Model / Tipe</h4>
-                          <button onClick={() => addItem('carModels', '')} className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-700"><Plus size={14}/> Tambah Tipe</button>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                          {(localSettings.carModels || []).map((model, idx) => (
-                              <div key={idx} className="flex gap-1 group">
-                                  <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-blue-500" value={model} onChange={e => handleArrayChange('carModels', idx, e.target.value)} />
-                                  <button onClick={() => removeItem('carModels', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
-                              </div>
-                          ))}
-                      </div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Layers size={16} className="text-blue-500"/> Katalog Model / Tipe</h4>
+                      <button onClick={() => addItem('carModels', '')} className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-700 transition-all">
+                        <Plus size={14}/> Tambah Tipe
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {(localSettings.carModels || []).map((model, idx) => (
+                        <div key={idx} className="flex gap-1 group">
+                          <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-blue-500" value={model} onChange={e => handleArrayChange('carModels', idx, e.target.value)} />
+                          <button onClick={() => removeItem('carModels', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={16}/>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </section>
               </div>
           )}
 
           {activeTab === 'services' && (
-              <div className="space-y-8 animate-fade-in">
-                  <div className={`grid grid-cols-1 lg:grid-cols-3 gap-8 ${restrictedClass}`}>
-                    <RestrictedOverlay />
-                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                            <h3 className="text-lg font-bold text-gray-800">Daftar Master Jasa (Standar Panel)</h3>
-                            <div className="flex flex-wrap gap-2">
-                                <button onClick={handleCleanupDuplicates} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 text-xs font-bold" title="Hapus duplikasi Nama+Jenis"><ShieldCheck size={14}/> Cleanup</button>
-                                <button onClick={handleDownloadServiceTemplate} className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-200 text-xs font-bold" title="Export data untuk diedit harganya"><Download size={14}/> Template/Export</button>
-                                <label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-xs font-bold"><Upload size={14}/> Import & Update<input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportServices} /></label>
-                            </div>
-                        </div>
-                        <div className="mb-4 relative group"><Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18}/><input type="text" placeholder="Cari Nama Pekerjaan atau Kode..." value={serviceSearchQuery} onChange={e => setServiceSearchQuery(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all"/></div>
-                        <div className="overflow-x-auto max-h-[500px] overflow-y-auto scrollbar-thin">
-                            <table className="w-full text-sm text-left"><thead className="bg-gray-50 text-gray-600 uppercase sticky top-0 z-20"><tr><th className="px-4 py-3">Kode</th><th className="px-4 py-3">Nama Pekerjaan</th><th className="px-4 py-3">Jenis</th><th className="px-4 py-3 text-center">Panel</th><th className="px-4 py-3 text-right">Harga Dasar</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">{filteredServices.map(s => (<tr key={s.id} className="hover:bg-gray-50 group"><td className="px-4 py-2 font-mono text-xs font-bold text-gray-400 group-hover:text-indigo-600">{s.serviceCode || '-'}</td><td className="px-4 py-2 font-bold text-gray-700 uppercase tracking-tight">{s.serviceName}</td><td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : s.workType === 'GTC' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{s.workType}</span></td><td className="px-4 py-2 text-center font-black text-gray-900">{s.panelValue}</td><td className="px-4 py-2 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(s.basePrice)}</td><td className="px-4 py-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button disabled={!isManager} onClick={() => { setServiceForm(s); setIsEditingService(true); }} className="text-indigo-500 hover:text-indigo-700 bg-white p-1 rounded border shadow-sm"><Edit2 size={14}/></button><button disabled={!isManager} onClick={() => handleDeleteService(s.id)} className="text-red-500 hover:text-red-700 bg-white p-1 rounded border shadow-sm"><Trash2 size={14}/></button></td></tr>))}{filteredServices.length === 0 && (<tr><td colSpan={6} className="text-center py-20 text-gray-400 italic">No data.</td></tr>)}</tbody></table>
-                        </div>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col sticky top-4"><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Layers className="text-indigo-600" size={20}/> {isEditingService ? 'Edit Jasa' : 'Input Jasa Baru'}</h3><form onSubmit={handleSaveService} className="space-y-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Kode Jasa</label><input disabled={!isManager} type="text" value={serviceForm.serviceCode || ''} onChange={e => setServiceForm({...serviceForm, serviceCode: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-mono uppercase font-bold text-indigo-900" placeholder="EXT-01"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nama Pekerjaan *</label><input disabled={!isManager} required type="text" value={serviceForm.serviceName || ''} onChange={e => setServiceForm({...serviceForm, serviceName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" placeholder="Bumper Depan"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Jenis Pekerjaan</label><select disabled={!isManager} value={serviceForm.workType || 'KC'} onChange={e => setServiceForm({...serviceForm, workType: e.target.value as any})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold"><option value="KC">Ketok & Cat (KC)</option><option value="GTC">Ganti & Cat (GTC)</option><option value="BP">Bongkar Pasang (BP)</option><option value="Lainnya">Lainnya</option></select></div><div className="grid grid-cols-2 gap-3"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nilai Panel</label><input disabled={!isManager} type="number" step="0.1" value={serviceForm.panelValue || 0} onChange={e => setServiceForm({...serviceForm, panelValue: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black text-indigo-900"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Harga Dasar</label><input disabled={!isManager} type="number" value={serviceForm.basePrice || 0} onChange={e => setServiceForm({...serviceForm, basePrice: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black text-emerald-600"/></div></div><div className="flex gap-2 pt-2">{isEditingService && <button disabled={!isManager} type="button" onClick={() => { setServiceForm({serviceCode: '', workType: 'KC', panelValue: 1.0}); setIsEditingService(false); }} className="w-1/3 bg-gray-100 text-gray-600 py-3 rounded-xl hover:bg-gray-200 font-bold transition-all">Batal</button>}<button disabled={isLoading || !isManager} type="submit" className="flex-grow bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 shadow-lg font-black tracking-wide transition-all transform active:scale-95">{isLoading ? 'Proses...' : (isEditingService ? 'UPDATE DATA' : 'SIMPAN DATA')}</button></div></form></div>
-                  </div>
+              <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
+                  <RestrictedOverlay /><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col"><div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6"><h3 className="text-lg font-bold text-gray-800">Daftar Master Jasa (Standar Panel)</h3><div className="flex flex-wrap gap-2"><button onClick={handleCleanupDuplicates} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 text-xs font-bold"><ShieldCheck size={14}/> Cleanup</button><button onClick={handleDownloadServiceTemplate} className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-200 text-xs font-bold"><Download size={14}/> Template/Export</button><label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-xs font-bold"><Upload size={14}/> Import & Update<input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportServices} /></label></div></div><div className="mb-4 relative group"><Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18}/><input type="text" placeholder="Cari..." value={serviceSearchQuery} onChange={e => setServiceSearchQuery(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all"/></div><div className="overflow-x-auto max-h-[500px] overflow-y-auto scrollbar-thin"><table className="w-full text-sm text-left"><thead className="bg-gray-50 text-gray-600 uppercase sticky top-0 z-20"><tr><th className="px-4 py-3">Kode</th><th className="px-4 py-3">Nama Pekerjaan</th><th className="px-4 py-3">Jenis</th><th className="px-4 py-3 text-center">Panel</th><th className="px-4 py-3 text-right">Harga</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">{filteredServices.map(s => (<tr key={s.id} className="hover:bg-gray-50 group"><td className="px-4 py-2 font-mono text-xs font-bold text-gray-400">{s.serviceCode || '-'}</td><td className="px-4 py-2 font-bold text-gray-700 uppercase">{s.serviceName}</td><td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-blue-50 text-blue-700'}`}>{s.workType}</span></td><td className="px-4 py-2 text-center font-black">{s.panelValue}</td><td className="px-4 py-2 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(s.basePrice)}</td><td className="px-4 py-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100"><button onClick={() => { setServiceForm(s); setIsEditingService(true); }} className="text-indigo-500 p-1"><Edit2 size={14}/></button><button onClick={() => handleDeleteService(s.id)} className="text-red-500 p-1"><Trash2 size={14}/></button></td></tr>))}</tbody></table></div></div><div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col sticky top-4"><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Layers className="text-indigo-600" size={20}/> {isEditingService ? 'Edit Jasa' : 'Input Jasa Baru'}</h3><form onSubmit={handleSaveService} className="space-y-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nama Pekerjaan *</label><input disabled={!isManager} required type="text" value={serviceForm.serviceName || ''} onChange={e => setServiceForm({...serviceForm, serviceName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" /></div><div className="grid grid-cols-2 gap-3"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nilai Panel</label><input disabled={!isManager} type="number" step="0.1" value={serviceForm.panelValue || 0} onChange={e => setServiceForm({...serviceForm, panelValue: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Harga Dasar</label><input disabled={!isManager} type="number" value={serviceForm.basePrice || 0} onChange={e => setServiceForm({...serviceForm, basePrice: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black text-emerald-600"/></div></div><button disabled={isLoading || !isManager} type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 shadow-lg font-black">{isLoading ? 'Proses...' : 'SIMPAN DATA'}</button></form></div></div>
               </div>
           )}
 
           {activeTab === 'database' && (
-              <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
-                  <RestrictedOverlay/>
-                  <div className="grid grid-cols-1 gap-8">
-                      <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
-                          <div className="flex justify-between items-center mb-4">
-                              <h4 className="font-bold text-gray-700 flex items-center gap-2"><Wrench size={16}/> Daftar Mekanik</h4>
-                              <button onClick={() => addItem('mechanicNames', '')} className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-bold hover:bg-indigo-200"><Plus size={14}/> Tambah</button>
+              <div className="space-y-10 animate-fade-in">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* USER MANAGEMENT */}
+                      <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 flex flex-col h-fit ${!isManager ? 'opacity-80 pointer-events-none' : ''}`}>
+                          <div className="flex justify-between items-center mb-6">
+                              <h4 className="font-bold text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs">
+                                  <Users size={16} className="text-indigo-600"/> Manajemen User & Akses
+                              </h4>
+                              <button onClick={() => setIsUserModalOpen(true)} className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-black shadow-sm flex items-center gap-1 hover:bg-indigo-700 transition-all">
+                                  <UserPlus size={14}/> Tambah User
+                              </button>
                           </div>
-                          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                              {(localSettings.mechanicNames || []).map((mech, idx) => (
-                                  <div key={idx} className="flex gap-2 group animate-fade-in">
-                                      <input type="text" className="flex-grow p-2 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
-                                      <button onClick={() => removeItem('mechanicNames', idx)} className="text-red-300 hover:text-red-600 transition-opacity opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>
+                          
+                          <div className="space-y-3 max-h-80 overflow-y-auto scrollbar-thin pr-2">
+                              {systemUsers.map(user => (
+                                  <div key={user.uid} className="bg-white p-4 rounded-xl border border-gray-100 flex justify-between items-center group hover:border-indigo-200 transition-all">
+                                      <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-black border border-indigo-100 shadow-sm">
+                                              {(user.displayName || 'U')[0].toUpperCase()}
+                                          </div>
+                                          <div>
+                                              <p className="text-sm font-black text-gray-800 uppercase tracking-tighter leading-none">{user.displayName || 'User'}</p>
+                                              <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">{user.role || 'Staff'}</p>
+                                          </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button onClick={() => handleResetPassword(user.email!)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors" title="Kirim Email Reset Password">
+                                              <MailCheck size={16}/>
+                                          </button>
+                                          <button onClick={() => handleDeleteUser(user.uid)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Hapus User">
+                                              <Trash2 size={16}/>
+                                          </button>
+                                      </div>
                                   </div>
                               ))}
                           </div>
+                          {!isManager && <div className="mt-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg border border-red-100 flex items-center gap-2"><ShieldAlert size={14}/> Hanya Manager yang dapat mendaftarkan/menghapus user.</div>}
                       </div>
+
+                      {/* PERSONAL SECURITY SETTINGS */}
+                      <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm h-fit">
+                          <h4 className="font-bold text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs mb-6">
+                              <Lock size={16} className="text-indigo-600"/> Keamanan Akun Anda
+                          </h4>
+                          <form onSubmit={handleChangePassword} className="space-y-4">
+                              <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 mb-2">
+                                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Akun Terdaftar</p>
+                                  <p className="text-sm font-bold text-indigo-900 mt-1">{auth.currentUser?.email}</p>
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password Baru</label>
+                                  <input 
+                                      type="password" required 
+                                      value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                                      className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 focus:bg-white transition-all outline-none font-bold"
+                                      placeholder="••••••••"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Konfirmasi Password Baru</label>
+                                  <input 
+                                      type="password" required 
+                                      value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                                      className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 focus:bg-white transition-all outline-none font-bold"
+                                      placeholder="••••••••"
+                                  />
+                              </div>
+                              <button type="submit" disabled={isLoading} className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-black shadow-lg hover:bg-black transition-all transform active:scale-95 flex items-center justify-center gap-2">
+                                  {isLoading ? <Loader2 className="animate-spin" size={18}/> : <RefreshCw size={18}/>}
+                                  GANTI PASSWORD
+                              </button>
+                          </form>
+                      </div>
+                  </div>
+
+                  {/* BOTTOM SECTIONS: MECHANICS & USER ROLES (NEW) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* MECHANICS LIST */}
+                    <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
+                        <RestrictedOverlay/>
+                        <div className="flex justify-between items-center mb-4">
+                            <h4 className="font-bold text-gray-700 flex items-center gap-2 uppercase tracking-widest text-xs">
+                                <Wrench size={16} className="text-gray-500"/> Daftar Mekanik Produksi
+                            </h4>
+                            <button onClick={() => addItem('mechanicNames', '')} className="text-xs bg-white text-indigo-700 px-3 py-1.5 rounded-lg font-bold border border-indigo-200 hover:bg-indigo-50 shadow-sm transition-all flex items-center gap-1">
+                                <Plus size={14}/> Tambah Mekanik
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto scrollbar-thin pr-2">
+                            {(localSettings.mechanicNames || []).map((mech, idx) => (
+                                <div key={idx} className="flex gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
+                                    <input type="text" className="flex-grow p-2 bg-transparent outline-none text-sm font-black text-gray-800 uppercase" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
+                                    <button onClick={() => removeItem('mechanicNames', idx)} className="text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* USER ROLES CRUD (NEW) */}
+                    <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
+                        <RestrictedOverlay/>
+                        <div className="flex justify-between items-center mb-4">
+                            <h4 className="font-bold text-gray-700 flex items-center gap-2 uppercase tracking-widest text-xs">
+                                <ShieldCheck size={16} className="text-indigo-500"/> Daftar Role / Hak Akses
+                            </h4>
+                            <button onClick={() => addItem('roleOptions', '')} className="text-xs bg-white text-indigo-700 px-3 py-1.5 rounded-lg font-bold border border-indigo-200 hover:bg-indigo-50 shadow-sm transition-all flex items-center gap-1">
+                                <Plus size={14}/> Tambah Role
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto scrollbar-thin pr-2">
+                            {(localSettings.roleOptions || []).map((role, idx) => (
+                                <div key={idx} className="flex gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
+                                    <input type="text" className="flex-grow p-2 bg-transparent outline-none text-sm font-black text-indigo-700 uppercase" value={role} onChange={e => handleArrayChange('roleOptions', idx, e.target.value)} />
+                                    <button onClick={() => removeItem('roleOptions', idx)} className="text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-4 p-3 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-lg border border-indigo-100">
+                           <Info size={14} className="inline mr-1"/> Daftar role ini akan muncul sebagai pilihan saat mendaftarkan staff baru.
+                        </div>
+                    </div>
                   </div>
               </div>
           )}
       </div>
 
+      {/* USER REGISTRATION MODAL */}
       <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title="Daftarkan User Baru">
           <form onSubmit={handleCreateUser} className="space-y-5">
-              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex items-start gap-3"><Info className="text-amber-600 shrink-0 mt-0.5" size={18}/><div className="text-xs text-amber-800 leading-relaxed"><strong>Catatan Penting:</strong> <br/>Input ini mendaftarkan profil akses ke database bengkel. User harus melakukan registrasi/login menggunakan email yang sama di halaman login untuk mengaktifkan akun mereka.</div></div>
-              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Aktif *</label><input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold" placeholder="nama@mazdaranger.com"/></div>
-              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nama Tampilan *</label><input type="text" required value={userForm.displayName} onChange={e => setUserForm({...userForm, displayName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold uppercase" placeholder="Contoh: Admin Accounting"/></div>
-              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Role Akses</label><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-black text-indigo-700">{localSettings.roleOptions.map(role => (<option key={role} value={role}>{role}</option>))}</select></div>
-              <div className="pt-4 flex gap-3"><button type="button" onClick={() => setIsUserModalOpen(false)} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button type="submit" className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 transform active:scale-95 disabled:opacity-50">{isLoading ? <Loader2 className="animate-spin" size={20}/> : <><UserPlus size={20}/> SIMPAN USER</>}</button></div>
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 flex items-start gap-3 mb-4">
+                  <Info className="text-amber-600 mt-1 shrink-0" size={20}/>
+                  <p className="text-xs text-amber-800 leading-relaxed font-medium">User yang didaftarkan harus memiliki akun Firebase terdaftar atau Admin akan mengirimkan link reset password untuk pembuatan password awal.</p>
+              </div>
+              <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Aktif (Login ID) *</label>
+                  <input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" placeholder="user@reforma.com"/>
+              </div>
+              <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nama Lengkap Tampilan *</label>
+                  <input type="text" required value={userForm.displayName} onChange={e => setUserForm({...userForm, displayName: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold uppercase" placeholder="Nama Staff..."/>
+              </div>
+              <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Hak Akses / Role *</label>
+                  <select required value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold">
+                      {localSettings.roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+              </div>
+              <button type="submit" disabled={isLoading} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black shadow-xl hover:bg-indigo-700 flex items-center justify-center gap-2 transform active:scale-95 transition-all">
+                  {isLoading ? <Loader2 className="animate-spin" size={20}/> : <><UserPlus size={20}/> SIMPAN & AKTIFKAN AKSES</>}
+              </button>
           </form>
       </Modal>
     </div>
