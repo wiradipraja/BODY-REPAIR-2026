@@ -29,7 +29,6 @@ export const initialSettingsState: Settings = {
         { colorName: "Soul Red Crystal Metallic", surchargePerPanel: 1500000 },
         { colorName: "Machine Gray Metallic", surchargePerPanel: 1000000 }
     ],
-    // CSI Survey Points
     csiIndicators: [
         "Kualitas Hasil Perbaikan",
         "Kecepatan Waktu Pengerjaan",
@@ -37,7 +36,9 @@ export const initialSettingsState: Settings = {
         "Kebersihan Kendaraan",
         "Kejelasan Informasi Biaya"
     ],
-    // UPDATED FOR CONTROL LOGIC
+    carBrands: [...carBrands],
+    carModels: [...mazdaModels],
+    carColors: [...mazdaColors],
     statusKendaraanOptions: [
         "Tunggu Estimasi", 
         "Tunggu SPK Asuransi", 

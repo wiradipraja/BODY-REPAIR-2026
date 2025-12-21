@@ -26,7 +26,10 @@ export interface Settings {
     readyForPickup: string;
     promoBroadcast?: string;
   };
-  csiIndicators: string[]; // NEW: For dynamic CSI survey points
+  csiIndicators: string[]; 
+  carBrands: string[]; // NEW: Dynamic brands
+  carModels: string[]; // NEW: Dynamic models
+  carColors: string[]; // NEW: Dynamic colors
   whatsappConfig?: {
     mode: 'API' | 'MANUAL';
   };

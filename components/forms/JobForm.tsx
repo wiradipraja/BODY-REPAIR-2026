@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Job, Settings } from '../../types';
-import { carBrands, mazdaColors } from '../../utils/constants';
 import { formatPoliceNumber } from '../../utils/helpers';
-import { Save, Loader2, User, Car, Shield, Search, Info, Zap, Wallet, Calendar, MapPin } from 'lucide-react';
+import { Save, Loader2, User, Car, Shield, Search, Info, Zap, Wallet, Calendar, MapPin, Tag } from 'lucide-react';
 
 interface JobFormProps {
   initialData?: Job | null;
@@ -29,9 +28,9 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
     customerKota: '',
     customerProvinsi: '',
     policeNumber: '',
-    carBrand: 'Mazda',
+    carBrand: settings.carBrands?.[0] || 'Mazda',
     carModel: '',
-    warnaMobil: 'Soul Red Crystal Metallic',
+    warnaMobil: settings.carColors?.[0] || 'Soul Red Crystal Metallic',
     nomorRangka: '',
     nomorMesin: '',
     tahunPembuatan: '',
@@ -162,19 +161,30 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Merk Kendaraan</label>
                 <select name="carBrand" value={formData.carBrand} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
-                    {carBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                    {(settings.carBrands || []).map(b => <option key={b} value={b}>{b}</option>)}
                 </select>
             </div>
 
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tipe / Model</label>
-                <input type="text" name="carModel" value={formData.carModel} onChange={handleChange} placeholder="CX-5, Mazda 3, dll..." className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700" />
+                <div className="relative group">
+                    <input 
+                      list="car-models-list"
+                      type="text" name="carModel" value={formData.carModel} onChange={handleChange} 
+                      placeholder="CX-5, Mazda 3, dll..." 
+                      className="w-full p-3 pl-11 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700" 
+                    />
+                    <Tag size={16} className="absolute left-4 top-3.5 text-gray-300" />
+                    <datalist id="car-models-list">
+                      {(settings.carModels || []).map(m => <option key={m} value={m}/>)}
+                    </datalist>
+                </div>
             </div>
 
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Warna Utama</label>
                 <select name="warnaMobil" value={formData.warnaMobil} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
-                    {mazdaColors.map(c => <option key={c} value={c}>{c}</option>)}
+                    {(settings.carColors || []).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
             </div>
 
