@@ -10,7 +10,9 @@ import { cleanObject } from './utils/helpers';
 // Components
 import MainDashboard from './components/dashboard/MainDashboard';
 import OverviewDashboard from './components/dashboard/OverviewDashboard';
-import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView'; // NEW
+import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView'; 
+import KPIPerformanceView from './components/dashboard/KPIPerformanceView';
+import AIAssistantView from './components/dashboard/AIAssistantView'; // NEW
 import LoginView from './components/auth/LoginView';
 import Sidebar from './components/layout/Sidebar';
 import Modal from './components/ui/Modal';
@@ -134,7 +136,6 @@ const AppContent: React.FC = () => {
               await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(formData));
               showNotification("Database Unit diperbarui.", "success");
           } else {
-              // Automatically assign namaSA if not present (only for new units)
               const payload = {
                   ...formData,
                   namaSA: (formData as any).namaSA || userData.displayName,
@@ -171,7 +172,7 @@ const AppContent: React.FC = () => {
           isClosed: false,
           hargaJasa: 0,
           hargaPart: 0,
-          namaSA: vehicle.namaAsuransi === 'Umum / Pribadi' ? userData.displayName || '' : '', // Placeholder
+          namaSA: vehicle.namaAsuransi === 'Umum / Pribadi' ? userData.displayName || '' : '', 
           costData: { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
           estimateData: { grandTotal: 0, jasaItems: [], partItems: [], discountJasa: 0, discountPart: 0, discountJasaAmount: 0, discountPartAmount: 0, ppnAmount: 0, subtotalJasa: 0, subtotalPart: 0 }
       };
@@ -221,14 +222,12 @@ const AppContent: React.FC = () => {
           };
           delete basePayload.id;
 
-          // AUTOMATION: Move status to 'Tunggu SPK Asuransi' if saved as estimate and it's an insurance job
           if (saveType === 'estimate' && basePayload.namaAsuransi !== 'Umum / Pribadi') {
               if (basePayload.statusKendaraan === 'Tunggu Estimasi') {
                   basePayload.statusKendaraan = 'Tunggu SPK Asuransi';
               }
           }
 
-          // AUTOMATION: Move status to 'Work In Progress' if WO is issued
           if (woNumber) { 
               basePayload.woNumber = woNumber; 
               basePayload.statusKendaraan = 'Work In Progress'; 
@@ -282,6 +281,8 @@ const AppContent: React.FC = () => {
 
         {currentView === 'overview' && ( <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} /> )}
         {currentView === 'business_intelligence' && ( <BusinessIntelligenceView jobs={jobs} settings={appSettings} /> )}
+        {currentView === 'kpi_performance' && ( <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} /> )}
+        {currentView === 'ai_insight' && ( <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={inventoryItems} /> )}
         
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet, ShieldCheck, PieChart, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, List, LogOut, User, Menu, PlusCircle, FileText, Settings, Package, ChevronDown, ChevronRight, Truck, Wrench, PaintBucket, ShoppingCart, ClipboardList, BarChart3, Banknote, Scale, FileCheck, Landmark, ExternalLink, Briefcase, Phone, MessageSquare, Hammer, FileSpreadsheet, ShieldCheck, PieChart, TrendingUp, Trophy, Sparkles } from 'lucide-react';
 import { UserProfile, UserPermissions } from '../../types';
 
 interface SidebarProps {
@@ -20,7 +20,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = useMemo(() => {
     const items = [
-      // RESTRUCTURED: Overview Parent
       { 
           id: 'overview_root', 
           label: 'Overview', 
@@ -28,6 +27,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           children: [
               { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
               { id: 'business_intelligence', label: 'Analisis Performa', icon: TrendingUp },
+              { id: 'kpi_performance', label: 'KPI Performa Staff', icon: Trophy },
+              { id: 'ai_insight', label: 'AI Strategic Insight', icon: Sparkles },
           ]
       },
       
@@ -204,7 +205,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
           </div>
           
-          <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-all w-full border border-transparent hover:border-red-100">
+          <button onLogout={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-all w-full border border-transparent hover:border-red-100">
             <LogOut size={16}/> Logout
           </button>
         </div>
