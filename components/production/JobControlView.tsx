@@ -6,7 +6,7 @@ import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -69,11 +69,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       (settings.mechanicNames || []).forEach(m => workload[m] = 0);
       
       activeProductionJobs.forEach((j: Job) => {
-          // Get current PIC for the current stage
           const currentStage = j.statusPekerjaan || 'Bongkar';
           const currentPIC = j.assignedMechanics?.find(a => a.stage === currentStage)?.name;
           
-          // Fix Error: Type 'unknown' cannot be used as an index type (casting currentPIC as string)
           if (currentPIC && workload[currentPIC as string] !== undefined) {
               workload[currentPIC as string]++;
           }
@@ -144,6 +142,32 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       }
   };
 
+  const handleRequestAddition = async (job: Job) => {
+      const detail = window.prompt("Detail Tambahan Jasa/Part yang diminta tim produksi:");
+      if (!detail || !detail.trim()) return;
+
+      if (!window.confirm("Kirim request tambahan ke Admin Klaim? Unit akan dipindahkan ke status 'Banding Harga SPK'.")) return;
+
+      try {
+          const logEntry: ProductionLog = {
+              stage: job.statusPekerjaan || 'Bongkar',
+              timestamp: new Date().toISOString(),
+              user: userPermissions.role,
+              note: `REQUEST TAMBAHAN: ${detail}`,
+              type: 'rework'
+          };
+
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+              statusKendaraan: 'Banding Harga SPK',
+              productionLogs: arrayUnion(logEntry),
+              updatedAt: serverTimestamp()
+          });
+          showNotification("Request dikirim. Unit pindah ke Antrian Banding.", "success");
+      } catch (e) {
+          showNotification("Gagal mengirim request.", "error");
+      }
+  };
+
   const handleAssignMechanic = async (job: Job, mechanicName: string) => {
       const currentStage = STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar';
       
@@ -154,7 +178,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
               assignedAt: new Date().toISOString()
           };
 
-          // Update assignedMechanics: Replace if same stage exists, or append
           const currentAssignments = [...(job.assignedMechanics || [])];
           const existingIdx = currentAssignments.findIndex(a => a.stage === currentStage);
           
@@ -166,7 +189,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
               assignedMechanics: currentAssignments,
-              mechanicName: mechanicName // Kept for legacy compatibility
+              mechanicName: mechanicName
           });
           
           setAssigningJobId(null);
@@ -184,7 +207,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       return diffDays > 3;
   };
 
-  // --- REFINED REPORT DATA (MULTI-MECHANIC SUPPORT) ---
   const productivityData = useMemo(() => {
       const completedJobs = jobs.filter(j => {
           if (!j.isClosed || !j.closedAt) return false;
@@ -198,15 +220,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       });
 
       completedJobs.forEach(j => {
-          // Identify all mechanics involved in this WO
-          // Fix Error: Explicitly cast uniqueMechanics to string[] to ensure it's not unknown[] from Array.from(Set)
           const uniqueMechanics = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || [])) as string[];
-          
-          // Logic: Each mechanic involved in a WO gets full credit for the WO panels 
-          // (or split based on stall if complexity needed later)
           const panels = j.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
 
-          // Fix Error: Explicitly type mName as string to resolve 'unknown' index type error on lines 209-212
           uniqueMechanics.forEach((mName: string) => {
               if (report[mName]) {
                   report[mName].totalJobs += 1;
@@ -277,13 +293,11 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                     const jobsInStage = boardData[stage] || [];
                     return (
                         <div key={stage} className="w-80 flex flex-col h-full rounded-xl bg-gray-100 border border-gray-200 shadow-inner">
-                            {/* Column Header */}
                             <div className="p-3 border-b border-gray-200 bg-white rounded-t-xl flex justify-between items-center sticky top-0 z-10">
                                 <h3 className="font-bold text-gray-700 text-sm uppercase">{stage}</h3>
                                 <span className="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{jobsInStage.length}</span>
                             </div>
 
-                            {/* Column Body */}
                             <div className="p-2 flex-grow overflow-y-auto space-y-3 scrollbar-thin">
                                 {jobsInStage.map(job => {
                                     const isBottleneck = checkBottleneck(job);
@@ -312,7 +326,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 <span className="text-[10px] font-bold text-indigo-600">{(job.estimateData?.jasaItems?.reduce((a,b) => a+(b.panelCount||0),0)||0).toFixed(1)} PNL</span>
                                             </div>
 
-                                            {/* MECHANIC ASSIGNMENT (PIC PER STALL) */}
                                             <div className="mb-3">
                                                 <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">PIC {stage}:</label>
                                                 {currentPIC ? (
@@ -347,7 +360,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 )}
                                             </div>
 
-                                            {/* ACTION BUTTONS */}
                                             <div className="flex justify-between items-center pt-2 border-t border-gray-100 mt-2">
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'prev')}
@@ -358,9 +370,13 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                     <ChevronRight size={18} className="rotate-180"/>
                                                 </button>
                                                 
-                                                <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">
-                                                    {stage}
-                                                </span>
+                                                <button 
+                                                    onClick={() => handleRequestAddition(job)}
+                                                    className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-200 transition-all"
+                                                    title="Request Tambah Jasa/Part"
+                                                >
+                                                    <AlertCircle size={18}/>
+                                                </button>
 
                                                 <button 
                                                     onClick={() => handleMoveStage(job, 'next')}
@@ -452,7 +468,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                         <select value={reportMonth} onChange={e => setReportMonth(Number(e.target.value))} className="p-2 border rounded text-sm font-bold">{["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map((m, i) => (<option key={i} value={i}>{m}</option>))}</select>
                         <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} className="p-2 border rounded text-sm font-bold">{[2023, 2024, 2025, 2026].map(y => (<option key={y} value={y}>{y}</option>))}</select>
                     </div>
-                    {/* Fix Error: Cannot find name 'Info' (added to imports) */}
                     <div className="md:ml-auto text-xs text-indigo-500 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
                         <Info size={14}/> Hitungan berdasarkan seluruh mekanik yang terlibat dalam tiap stall (PIC) di unit yang sudah Closed.
                     </div>
@@ -460,9 +475,8 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {Object.entries(productivityData).map(([mechanic, rawData]) => {
-                        // Fix Error: Property 'totalJobs' does not exist on type 'unknown' (casting rawData as specific type)
                         const data = rawData as { totalJobs: number, totalPanels: number, jobList: Job[] };
-                        if (data.totalJobs === 0) return null; // Only show mechanics with contribution
+                        if (data.totalJobs === 0) return null;
                         
                         return (
                         <div key={mechanic} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col">

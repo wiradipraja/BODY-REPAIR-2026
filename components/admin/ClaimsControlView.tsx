@@ -43,7 +43,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
           (j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term))
       );
 
-      // FIFO SORTING: Priority for allocation
       filtered.sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
       const stockMap: Record<string, number> = {};
@@ -72,7 +71,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                   }
               });
           } else {
-              // Jasa only is considered ready for production immediately
               allPartsReady = (job.estimateData?.jasaItems?.length || 0) > 0;
           }
 
@@ -172,30 +170,21 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       }
   };
 
-  // ROBUST AGING CALCULATION
   const getAgingDays = (job: Job) => {
-      // Prioritas field tanggal yang digunakan untuk hitung aging
       const dateInput = job.updatedAt || job.createdAt || job.tanggalMasuk;
       if (!dateInput) return 0;
 
       let dateMs: number;
-      
-      // 1. Handle Firestore Timestamp Object
       if (typeof dateInput === 'object' && 'seconds' in (dateInput as any)) {
           dateMs = (dateInput as any).seconds * 1000;
-      } 
-      // 2. Handle JS Date Object
-      else if (dateInput instanceof Date) {
+      } else if (dateInput instanceof Date) {
           dateMs = dateInput.getTime();
-      }
-      // 3. Handle ISO String / Other String Formats
-      else {
+      } else {
           const parsed = new Date(dateInput as string).getTime();
           dateMs = isNaN(parsed) ? Date.now() : parsed;
       }
 
       const diff = Date.now() - dateMs;
-      // Gunakan Math.max agar tidak muncul angka negatif jika jam sistem tidak sinkron
       const days = Math.max(0, Math.floor(diff / (1000 * 3600 * 24)));
       return days;
   };
@@ -233,7 +222,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                     const jobsInStage = boardData[stage] || [];
                     return (
                         <div key={stage} className="w-72 flex flex-col h-full rounded-2xl bg-gray-50/50 border border-gray-200 shadow-sm">
-                            {/* Column Header */}
                             <div className="p-4 flex justify-between items-center sticky top-0 z-10">
                                 <div className="flex flex-col">
                                     <h3 className="font-bold text-gray-800 text-[11px] uppercase tracking-widest">{stage}</h3>
@@ -249,7 +237,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                 )}
                             </div>
 
-                            {/* Column Body */}
                             <div className="p-3 flex-grow overflow-y-auto space-y-4 scrollbar-hide">
                                 {jobsInStage.map(job => {
                                     const aging = getAgingDays(job);
@@ -257,6 +244,9 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                     const isWarning = aging >= 2 && aging <= 3;
                                     const hasNegotiation = job.insuranceNegotiationLog && job.insuranceNegotiationLog.length > 0;
                                     const logistik = job.logistik;
+                                    
+                                    // Check for production requests
+                                    const latestProdRequest = job.productionLogs?.filter(l => l.note?.startsWith('REQUEST TAMBAHAN:')).reverse()[0];
 
                                     return (
                                         <div 
@@ -264,7 +254,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                             className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.statusKendaraan === 'Booking Masuk' ? 'border-indigo-600 ring-1 ring-indigo-50' : job.isReadyToCall && (stage === 'Unit di Pemilik (Tunggu Part)' || stage === 'Tunggu SPK Asuransi') ? 'border-emerald-500 bg-emerald-50/10' : 'border-gray-100 hover:border-indigo-200'}`}
                                             onClick={() => openModal('create_estimation', job)}
                                         >
-                                            {/* Accent Line Based on Urgency */}
                                             {isCritical ? (
                                                 <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-500"></div>
                                             ) : isWarning ? (
@@ -285,7 +274,16 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                                 <p className="text-[12px] font-bold text-gray-700 truncate uppercase">{job.carModel}</p>
                                                 <p className="text-[11px] text-gray-400 font-medium truncate">{job.namaAsuransi}</p>
                                                 
-                                                {/* BOOKING INFO SPECIAL DISPLAY */}
+                                                {/* PRODUCTION REQUEST DISPLAY */}
+                                                {stage === 'Banding Harga SPK' && latestProdRequest && (
+                                                    <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded-lg animate-fade-in">
+                                                        <p className="text-[8px] font-black text-red-400 uppercase leading-none">Request Produksi (Stall {latestProdRequest.stage})</p>
+                                                        <p className="text-[10px] font-bold text-red-700 mt-1 line-clamp-3">
+                                                            {latestProdRequest.note?.replace('REQUEST TAMBAHAN: ', '')}
+                                                        </p>
+                                                    </div>
+                                                )}
+
                                                 {job.statusKendaraan === 'Booking Masuk' && job.tanggalBooking && (
                                                     <div className="mt-2 p-2 bg-indigo-50 rounded-lg border border-indigo-100 flex items-center gap-2">
                                                         <Calendar size={14} className="text-indigo-600"/>
@@ -370,7 +368,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
             </div>
         </div>
         
-        {/* FOOTER INFO */}
         <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-wrap items-center gap-8 shadow-sm shrink-0">
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
@@ -390,7 +387,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
              </div>
         </div>
 
-        {/* RE-ENTRY MODAL */}
         <Modal 
             isOpen={isReEntryModalOpen} 
             onClose={() => { setIsReEntryModalOpen(false); setReEntrySearch(''); }}

@@ -40,12 +40,12 @@ const Sidebar: React.FC<SidebarProps> = ({
           icon: FileText,
           children: [
               { id: 'estimation_create', label: 'Buat Estimasi Baru', icon: PlusCircle },
-              { id: 'claims_control', label: 'Admin Control Claim', icon: ShieldCheck },
               { id: 'entry_data', label: 'Daftar Pekerjaan (List)', icon: List },
               { id: 'production_spkl', label: 'SPKL (Jasa Luar)', icon: ExternalLink },
           ]
       },
 
+      { id: 'claims_control', label: 'Admin Claim Control', icon: ShieldCheck },
       { id: 'crc_dashboard', label: 'CRC / Customer Care', icon: MessageSquare },
       
       { 
@@ -205,7 +205,10 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
           </div>
           
-          <button onLogout={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-all w-full border border-transparent hover:border-red-100">
+          <button 
+            onClick={onLogout} 
+            className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-all w-full border border-transparent hover:border-red-100"
+          >
             <LogOut size={16}/> Logout
           </button>
         </div>

@@ -33,7 +33,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
 
       switch (type) {
           case 'VEHICLE_DATABASE':
-              // MASTER DATABASE EXPORT WITH DEDUPLICATION (LATEST RECORD ONLY)
               const uniqueVehiclesMap = new Map<string, Vehicle>();
               const sortedVehicles = [...vehicles].sort((a, b) => {
                   const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
@@ -53,9 +52,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                   'Merk': v.carBrand,
                   'Tipe / Model': v.carModel,
                   'Warna': v.warnaMobil,
-                  'Nomor Rangka (VIN)': v.nomorRangka || '-',
-                  'Nomor Mesin': v.nomorMesin || '-',
-                  'Tahun Pembuatan': v.tahunPembuatan || '-',
                   'Pihak Penjamin (Asuransi)': v.namaAsuransi,
                   'Tanggal Terdaftar': v.createdAt ? formatDateIndo(v.createdAt) : '-'
               }));
@@ -63,27 +59,31 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               break;
 
           case 'TAX_REPORT':
-              // TAX IN & OUT REPORT
               data = transactions
                 .filter(t => t.category.includes('Pajak') || t.description?.toLowerCase().includes('ppn') || t.description?.toLowerCase().includes('pph'))
                 .filter(t => isInRange(t.date))
                 .map(t => ({
-                    'Tanggal': formatDateIndo(t.date),
+                    'Tanggal Transaksi': formatDateIndo(t.date),
                     'Tipe Pajak': t.type === 'IN' ? 'Pajak Masuk / Potongan' : 'Setoran Pajak / Keluar',
-                    'Kategori': t.category,
-                    'Ref Dokumen': t.refNumber || '-',
-                    'Nama Pihak': t.customerName || '-',
-                    'Nominal': t.amount,
+                    'Kategori Pajak': t.category,
+                    'Ref Dokumen (WO/PO)': t.refNumber || '-',
+                    'Nama Pihak Terkait': t.customerName || '-',
+                    'Nominal (Rp)': t.amount,
                     'No. Bukti Potong': t.taxCertificateNumber || '-',
-                    'Keterangan': t.description,
-                    'Metode': t.paymentMethod,
-                    'Bank': t.bankName || '-'
+                    'Keterangan / Catatan': t.description || '-',
+                    'Metode Pembayaran': t.paymentMethod,
+                    'Bank / Kas': t.bankName || 'KAS TUNAI',
+                    'Admin Input': t.createdBy || '-'
                 }));
+              
+              if (data.length > 0) {
+                  const total = data.reduce((acc, curr) => acc + (curr['Nominal (Rp)'] || 0), 0);
+                  data.push({ 'Tanggal Transaksi': 'TOTAL KESELURUHAN', 'Nominal (Rp)': total });
+              }
               filename = `Laporan_Pajak_${startDate}_to_${endDate}.xlsx`;
               break;
 
           case 'RECEIVABLE_REPORT':
-              // PIUTANG (INVOICE OUTSTANDING)
               data = jobs
                 .filter(j => j.woNumber && !j.isDeleted)
                 .map(job => {
@@ -95,21 +95,29 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     return {
                         'No. WO': job.woNumber,
                         'No. Polisi': job.policeNumber,
-                        'Pelanggan': job.customerName,
-                        'Asuransi': job.namaAsuransi,
-                        'Tgl Masuk': formatDateIndo(job.tanggalMasuk),
-                        'Total Tagihan': totalBill,
-                        'Sudah Dibayar': paidAmount,
-                        'Sisa Piutang': remaining,
-                        'Status Unit': job.isClosed ? 'Closed' : 'Open'
+                        'Nama Pelanggan': job.customerName,
+                        'Asuransi / Penjamin': job.namaAsuransi,
+                        'Tgl Masuk Unit': formatDateIndo(job.tanggalMasuk),
+                        'Total Tagihan (Rp)': totalBill,
+                        'Sudah Dibayar (Rp)': paidAmount,
+                        'Sisa Piutang (Rp)': remaining,
+                        'Status Dokumen': job.isClosed ? 'Closed' : 'Open',
+                        'SA Penanggungjawab': job.namaSA || '-'
                     };
                 })
-                .filter(r => r['Sisa Piutang'] > 100); // Only outstanding
+                .filter(r => r['Sisa Piutang (Rp)'] > 100);
+              
+              if (data.length > 0) {
+                  const tBill = data.reduce((acc, curr) => acc + curr['Total Tagihan (Rp)'], 0);
+                  const tPaid = data.reduce((acc, curr) => acc + curr['Sudah Dibayar (Rp)'], 0);
+                  const tRem = data.reduce((acc, curr) => acc + curr['Sisa Piutang (Rp)'], 0);
+                  data.push({ 'No. WO': 'TOTAL KESELURUHAN', 'Total Tagihan (Rp)': tBill, 'Sudah Dibayar (Rp)': tPaid, 'Sisa Piutang (Rp)': tRem });
+              }
               filename = `Laporan_Piutang_Unit_${new Date().toISOString().split('T')[0]}.xlsx`;
               break;
 
           case 'DEBT_REPORT':
-              // HUTANG SUPPLIER (PO OUTSTANDING)
+              // IMPROVED DEBT REPORT with explicit date field
               data = purchaseOrders
                 .filter(po => ['Received', 'Partial', 'Ordered'].includes(po.status))
                 .map(po => {
@@ -120,74 +128,150 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     const remaining = totalBill - paidAmount;
                     return {
                         'No. PO': po.poNumber,
-                        'Supplier': po.supplierName,
-                        'Tanggal PO': formatDateIndo(po.createdAt),
+                        'Tanggal PO': po.date ? formatDateIndo(po.date) : formatDateIndo(po.createdAt || po.approvedAt), // Improved logic
+                        'Nama Supplier': po.supplierName,
                         'Status Barang': po.status,
-                        'Total Hutang': totalBill,
-                        'Sudah Bayar': paidAmount,
-                        'Sisa Hutang': remaining
+                        'Total Hutang (Rp)': totalBill,
+                        'Sudah Dibayar (Rp)': paidAmount,
+                        'Sisa Hutang (Rp)': remaining,
+                        'Catatan / Keterangan PO': po.notes || '-',
+                        'Admin Pembuat PO': po.createdBy || '-'
                     };
                 })
-                .filter(p => p['Sisa Hutang'] > 100);
+                .filter(p => p['Sisa Hutang (Rp)'] > 100);
+              
+              if (data.length > 0) {
+                  const tBill = data.reduce((acc, curr) => acc + curr['Total Hutang (Rp)'], 0);
+                  const tPaid = data.reduce((acc, curr) => acc + curr['Sudah Dibayar (Rp)'], 0);
+                  const tRem = data.reduce((acc, curr) => acc + curr['Sisa Hutang (Rp)'], 0);
+                  data.push({ 'No. PO': 'TOTAL KESELURUHAN', 'Total Hutang (Rp)': tBill, 'Sudah Dibayar (Rp)': tPaid, 'Sisa Hutang (Rp)': tRem });
+              }
               filename = `Laporan_Hutang_Supplier_${new Date().toISOString().split('T')[0]}.xlsx`;
               break;
 
-          case 'BI_ANALYSIS':
-              // BUSINESS INTELLIGENCE MULTI-SHEET
-              const periodJobs = jobs.filter(j => (isInRange(j.closedAt) || isInRange(j.createdAt)) && !j.isDeleted && j.woNumber);
-              if (periodJobs.length === 0) { alert("Data kosong."); return; }
-              const insCount = periodJobs.filter(j => j.namaAsuransi !== 'Umum / Pribadi').length;
-              const priCount = periodJobs.filter(j => j.namaAsuransi === 'Umum / Pribadi').length;
-              const summaryData = [{ 'Kategori': 'Total Unit', 'Nilai': periodJobs.length }, { 'Kategori': 'Asuransi', 'Nilai': insCount }, { 'Kategori': 'Pribadi', 'Nilai': priCount }];
-              XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Summary");
-              XLSX.writeFile(wb, `Analisa_Performa_${startDate}_to_${endDate}.xlsx`);
-              return;
-
           case 'UNIT_FLOW':
               data = jobs.filter(j => isInRange(j.createdAt) || isInRange(j.closedAt)).map(j => ({
-                  'Tgl Masuk': formatDateIndo(j.tanggalMasuk), 'No. WO': j.woNumber || '-', 'Nopol': j.policeNumber, 'Nama': j.customerName, 'Status': j.statusKendaraan, 'SA': j.namaSA, 'Panel': j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0
+                  'Tgl Masuk': formatDateIndo(j.tanggalMasuk), 
+                  'No. WO': j.woNumber || '-', 
+                  'No. Polisi': j.policeNumber, 
+                  'Nama Pelanggan': j.customerName, 
+                  'Status Unit': j.statusKendaraan, 
+                  'Service Advisor': j.namaSA, 
+                  'Total Panel (Pcs)': j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0,
+                  'Catatan Progress': j.statusPekerjaan
               }));
+              
+              if (data.length > 0) {
+                  const totalPanel = data.reduce((acc, curr) => acc + curr['Total Panel (Pcs)'], 0);
+                  data.push({ 'Tgl Masuk': 'TOTAL REKAPITULASI', 'No. WO': `Total Unit: ${data.length}`, 'Total Panel (Pcs)': totalPanel });
+              }
               break;
 
           case 'PROFIT_LOSS_UNIT':
               data = jobs.filter(j => j.isClosed && isInRange(j.closedAt)).map(j => {
                   const rev = (j.hargaJasa || 0) + (j.hargaPart || 0);
                   const cogs = (j.costData?.hargaModalBahan || 0) + (j.costData?.hargaBeliPart || 0) + (j.costData?.jasaExternal || 0);
-                  return { 'No. WO': j.woNumber, 'Nopol': j.policeNumber, 'Revenue': rev, 'HPP': cogs, 'Gross Profit': rev - cogs };
+                  return { 
+                      'No. WO': j.woNumber, 
+                      'No. Polisi': j.policeNumber, 
+                      'Asuransi / Penjamin': j.namaAsuransi,
+                      'Revenue (Rp)': rev, 
+                      'HPP (Bahan+Part+Sublet)': cogs, 
+                      'Gross Profit (Rp)': rev - cogs,
+                      'Tgl Closing': formatDateIndo(j.closedAt)
+                  };
               });
+
+              if (data.length > 0) {
+                  const tRev = data.reduce((acc, curr) => acc + curr['Revenue (Rp)'], 0);
+                  const tCogs = data.reduce((acc, curr) => acc + curr['HPP (Bahan+Part+Sublet)'], 0);
+                  const tGp = data.reduce((acc, curr) => acc + curr['Gross Profit (Rp)'], 0);
+                  data.push({ 'No. WO': 'TOTAL KESELURUHAN', 'Revenue (Rp)': tRev, 'HPP (Bahan+Part+Sublet)': tCogs, 'Gross Profit (Rp)': tGp });
+              }
               break;
 
           case 'CASHIER':
-              data = transactions.filter(t => isInRange(t.date)).map(t => ({ 'Tgl': formatDateIndo(t.date), 'Ref': t.refNumber || '-', 'Tipe': t.type, 'Kategori': t.category, 'Nominal': t.amount, 'Customer': t.customerName }));
-              break;
-
-          case 'PURCHASING':
-              data = purchaseOrders.filter(po => isInRange(po.createdAt)).map(po => ({ 'No PO': po.poNumber, 'Supplier': po.supplierName, 'Status': po.status, 'Total': po.totalAmount }));
+              data = transactions
+                .filter(t => isInRange(t.date))
+                .map(t => ({ 
+                    'Tanggal': formatDateIndo(t.date), 
+                    'No. Ref (WO/PO)': t.refNumber || '-', 
+                    'Tipe Arus': t.type === 'IN' ? 'UANG MASUK' : 'UANG KELUAR', 
+                    'Kategori': t.category, 
+                    'Nama Pihak (Customer/Vendor)': t.customerName || '-',
+                    'Nominal (Rp)': t.amount, 
+                    'Keterangan / Log Transaksi': t.description || '-', 
+                    'Metode': t.paymentMethod,
+                    'Bank / Sumber Dana': t.bankName || 'KAS TUNAI',
+                    'Admin/Petugas': t.createdBy || '-'
+                }));
+              
+              if (data.length > 0) {
+                  const totalIn = data.filter(d => d['Tipe Arus'] === 'UANG MASUK').reduce((acc, curr) => acc + curr['Nominal (Rp)'], 0);
+                  const totalOut = data.filter(d => d['Tipe Arus'] === 'UANG KELUAR').reduce((acc, curr) => acc + curr['Nominal (Rp)'], 0);
+                  data.push({ 'Tanggal': 'TOTAL MASUK', 'Nominal (Rp)': totalIn });
+                  data.push({ 'Tanggal': 'TOTAL KELUAR', 'Nominal (Rp)': totalOut });
+                  data.push({ 'Tanggal': 'SALDO PERIODE', 'Nominal (Rp)': totalIn - totalOut });
+              }
+              filename = `Laporan_Arus_Kasir_${startDate}_to_${endDate}.xlsx`;
               break;
 
           case 'INVENTORY_STOCK':
-              data = inventoryItems.map(i => ({ 'Kode': i.code, 'Nama': i.name, 'Stok': i.stock, 'Unit': i.unit, 'Nilai': i.stock * i.buyPrice }));
+              data = inventoryItems.map(i => ({ 
+                  'Kode Item': i.code, 
+                  'Nama Barang': i.name, 
+                  'Merk': i.brand || '-',
+                  'Stok Akhir': i.stock, 
+                  'Satuan': i.unit, 
+                  'Harga Beli Satuan (Rp)': i.buyPrice,
+                  'Total Nilai Stok (Rp)': i.stock * i.buyPrice 
+              }));
+
+              if (data.length > 0) {
+                  const totalValue = data.reduce((acc, curr) => acc + curr['Total Nilai Stok (Rp)'], 0);
+                  data.push({ 'Kode Item': 'TOTAL VALUASI GUDANG', 'Total Nilai Stok (Rp)': totalValue });
+              }
+              filename = `Valuasi_Stok_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`;
               break;
             
           case 'MECHANIC_PROD':
               const mStats: any = {};
-              jobs.filter(j => j.isClosed && isInRange(j.closedAt)).forEach(j => {
-                  if (j.mechanicName) {
-                      if (!mStats[j.mechanicName]) mStats[j.mechanicName] = { name: j.mechanicName, units: 0, panels: 0 };
-                      mStats[j.mechanicName].units++;
-                      mStats[j.mechanicName].panels += j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
-                  }
+              const filteredJobs = jobs.filter(j => j.isClosed && isInRange(j.closedAt));
+              filteredJobs.forEach(j => {
+                  const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
+                  involvedMechs.forEach((mName: any) => {
+                      if (!mStats[mName]) mStats[mName] = { 'Nama Mekanik': mName, 'Total Unit Selesai': 0, 'Total Produksi Panel': 0 };
+                      mStats[mName]['Total Unit Selesai']++;
+                      mStats[mName]['Total Produksi Panel'] += j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
+                  });
               });
               data = Object.values(mStats);
+
+              if (data.length > 0) {
+                  const tUnit = data.reduce((acc, curr) => acc + curr['Total Unit Selesai'], 0);
+                  const tPanel = data.reduce((acc, curr) => acc + curr['Total Produksi Panel'], 0);
+                  data.push({ 'Nama Mekanik': 'TOTAL PRODUKSI TIM', 'Total Unit Selesai': tUnit, 'Total Produksi Panel': tPanel });
+              }
+              filename = `Produktivitas_Mekanik_${startDate}_to_${endDate}.xlsx`;
               break;
       }
 
       if (data.length === 0) {
-          alert("Tidak ada data pada periode/kriteria yang dipilih.");
+          alert("Tidak ada data pada periode atau kriteria yang dipilih.");
           return;
       }
 
+      // EXCEL GENERATION WITH ENHANCED TABULAR LAYOUT (AUTO-WIDTH SIMULATES BORDERS)
       const ws = XLSX.utils.json_to_sheet(data);
+      
+      // Auto-fit Column Widths for a clean "bordered" table feel
+      const colWidths = Object.keys(data[0]).map(key => {
+          const lengths = data.map(d => (d[key] ? d[key].toString().length : 0));
+          const maxLen = Math.max(key.length, ...lengths);
+          return { wch: maxLen + 4 }; // Extra padding for visual clarity
+      });
+      ws['!cols'] = colWidths;
+
       XLSX.utils.book_append_sheet(wb, ws, "Data Report");
       XLSX.writeFile(wb, filename);
   };
@@ -201,7 +285,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Pusat Laporan</h1>
-                    <p className="text-sm text-gray-500 font-medium">Download Data & Analisis Bisnis (Excel)</p>
+                    <p className="text-sm text-gray-500 font-medium">Data Audit, Finansial & Produksi dengan Rekapitulasi TOTAL</p>
                 </div>
             </div>
             
@@ -214,7 +298,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* MASTER DATABASE UNIT */}
             <div className="bg-white p-6 rounded-xl border border-indigo-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-indigo-50/50">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-indigo-900 text-white rounded-lg"><Database size={20}/></div>
@@ -226,70 +309,56 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 </button>
             </div>
 
-            {/* TAX REPORT */}
             <div className="bg-white p-6 rounded-xl border border-rose-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-rose-50/50">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-rose-600 text-white rounded-lg"><Landmark size={20}/></div>
-                    <h3 className="font-bold text-gray-800">Laporan Pajak (In/Out)</h3>
+                    <h3 className="font-bold text-gray-800">Laporan Pajak (Audit)</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Rekapitulasi PPN Masukan/Keluaran, PPh 23, dan PPh 25 dalam periode terpilih.</p>
+                <p className="text-xs text-gray-500 mb-6 h-10">Rekapitulasi PPN Masukan/Keluaran, PPh 23, dan PPh 25 lengkap dengan TOTAL nominal.</p>
                 <button onClick={() => handleExport('TAX_REPORT')} className="w-full py-2 bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 flex items-center justify-center gap-2">
-                    <Download size={16}/> Download Laporan Pajak
+                    <Download size={16}/> Download Data Pajak
                 </button>
             </div>
 
-            {/* RECEIVABLES REPORT */}
             <div className="bg-white p-6 rounded-xl border border-emerald-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-emerald-50/50">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-emerald-600 text-white rounded-lg"><Wallet size={20}/></div>
-                    <h3 className="font-bold text-gray-800">Laporan Piutang (User)</h3>
+                    <h3 className="font-bold text-gray-800">Laporan Piutang Unit</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Daftar sisa tagihan per WO yang belum lunas (Receivables Aging).</p>
+                <p className="text-xs text-gray-500 mb-6 h-10">Daftar sisa tagihan per WO yang belum lunas dilengkapi ringkasan TOTAL piutang.</p>
                 <button onClick={() => handleExport('RECEIVABLE_REPORT')} className="w-full py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2">
                     <Download size={16}/> Download Data Piutang
                 </button>
             </div>
 
-            {/* DEBT REPORT */}
             <div className="bg-white p-6 rounded-xl border border-orange-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-orange-50/50">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-orange-600 text-white rounded-lg"><Scale size={20}/></div>
                     <h3 className="font-bold text-gray-800">Laporan Hutang Supplier</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Daftar sisa hutang ke vendor/supplier atas PO yang sudah diterima (Payables).</p>
+                <p className="text-xs text-gray-500 mb-6 h-10">Daftar sisa hutang PO (Received) lengkap dengan Tgl PO, Catatan, dan TOTAL hutang.</p>
                 <button onClick={() => handleExport('DEBT_REPORT')} className="w-full py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 flex items-center justify-center gap-2">
                     <Download size={16}/> Download Data Hutang
                 </button>
             </div>
 
-            {/* PERFORMANCE ANALYSIS */}
-            <div className="bg-white p-6 rounded-xl border border-indigo-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-indigo-50">
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-indigo-600 text-white rounded-lg"><TrendingUp size={20}/></div>
-                    <h3 className="font-bold text-gray-800">Analisa Performa & Pasar</h3>
-                </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Analisa market share asuransi, demografi, dan tren unit (Multi-Sheet).</p>
-                <button onClick={() => handleExport('BI_ANALYSIS')} className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2">
-                    <Download size={16}/> Download Business BI
-                </button>
-            </div>
-
-            {/* OTHER REPORTS (STANDARD) */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Activity size={20}/></div>
                     <h3 className="font-bold text-gray-800">Log Unit & Produksi</h3>
                 </div>
+                <p className="text-xs text-gray-500 mb-6 h-10">Rekapitulasi unit masuk, status progress, dan rekap TOTAL panel produksi.</p>
                 <button onClick={() => handleExport('UNIT_FLOW')} className="w-full py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2">
                     <Download size={16}/> Download .xlsx
                 </button>
             </div>
 
-            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white p-6 rounded-xl border border-emerald-200 shadow-sm hover:shadow-md transition-shadow ring-2 ring-emerald-50">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><DollarSign size={20}/></div>
-                    <h3 className="font-bold text-gray-800">Laporan Arus Kasir</h3>
+                    <h3 className="font-bold text-gray-800">Arus Kasir (Audit Log)</h3>
                 </div>
+                <p className="text-xs text-gray-500 mb-6 h-10">Histori uang masuk/keluar lengkap dengan Catatan, Admin, dan TOTAL saldo periode.</p>
                 <button onClick={() => handleExport('CASHIER')} className="w-full py-2 bg-white border border-emerald-200 text-emerald-700 font-bold rounded-lg hover:bg-emerald-50 flex items-center justify-center gap-2">
                     <Download size={16}/> Download .xlsx
                 </button>
@@ -300,7 +369,8 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><BarChart3 size={20}/></div>
                     <h3 className="font-bold text-gray-800">Laba Rugi per WO</h3>
                 </div>
-                <button onClick={() => handleExport('PROFIT_LOSS_UNIT')} className="w-full py-2 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-lg hover:bg-indigo-50 flex items-center justify-center gap-2">
+                <p className="text-xs text-gray-500 mb-6 h-10">Analisa revenue, HPP, dan Gross Profit per WO lengkap dengan TOTAL laba kotor.</p>
+                <button onClick={() => handleExport('PROFIT_LOSS_UNIT')} className="w-full py-2 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2">
                     <Download size={16}/> Download .xlsx
                 </button>
             </div>
@@ -310,7 +380,19 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     <div className="p-2 bg-cyan-100 text-cyan-600 rounded-lg"><Package size={20}/></div>
                     <h3 className="font-bold text-gray-800">Valuasi Stok Opname</h3>
                 </div>
-                <button onClick={() => handleExport('INVENTORY_STOCK')} className="w-full py-2 bg-white border border-cyan-200 text-cyan-700 font-bold rounded-lg hover:bg-cyan-50 flex items-center justify-center gap-2">
+                <p className="text-xs text-gray-500 mb-6 h-10">Daftar stok akhir inventory lengkap dengan harga beli dan TOTAL valuasi gudang.</p>
+                <button onClick={() => handleExport('INVENTORY_STOCK')} className="w-full py-2 bg-white border border-cyan-200 text-cyan-700 font-bold rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2">
+                    <Download size={16}/> Download .xlsx
+                </button>
+            </div>
+            
+            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-slate-100 text-slate-600 rounded-lg"><User size={20}/></div>
+                    <h3 className="font-bold text-gray-800">Produktivitas Mekanik</h3>
+                </div>
+                <p className="text-xs text-gray-500 mb-6 h-10">Rekap performa mekanik (Unit & Panel) lengkap dengan TOTAL pencapaian tim.</p>
+                <button onClick={() => handleExport('MECHANIC_PROD')} className="w-full py-2 bg-white border border-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
                     <Download size={16}/> Download .xlsx
                 </button>
             </div>

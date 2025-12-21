@@ -5,7 +5,7 @@ import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTI
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock, Calendar } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -32,11 +32,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const [receiveQtyMap, setReceiveQtyMap] = useState<Record<number, number>>({});
 
   const [poCreationMode, setPoCreationMode] = useState<'manual' | 'wo'>('manual');
-  const [poForm, setPoForm] = useState<Partial<PurchaseOrder>>({
+  const [poForm, setPoForm] = useState<any>({
       supplierId: '',
       items: [],
       notes: '',
-      hasPpn: false 
+      hasPpn: false,
+      date: new Date().toISOString().split('T')[0] // Default today
   });
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -62,7 +63,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     fetchSettings();
   }, []);
 
-  // Handle click outside to close picker
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
           if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
@@ -78,7 +78,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const updated = realTimePOs.find(p => p.id === selectedPO.id);
           if (updated) setSelectedPO(updated);
       }
-  }, [realTimePOs]);
+  }, [realTimePOs, selectedPO]);
 
   useEffect(() => {
       if (selectedPO && (selectedPO.status === 'Ordered' || selectedPO.status === 'Partial')) {
@@ -231,7 +231,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       if (!woSearchTerm) return;
       const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
       
-      // Filter ALL matching active (non-closed) jobs
       const matches = jobs.filter(j => 
           !j.isClosed && !j.isDeleted &&
           ((j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) || 
@@ -240,7 +239,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       );
 
       if (matches.length > 0) {
-          // Sort by newest first
           matches.sort((a, b) => {
               const getTime = (val: any) => val?.seconds || 0;
               return getTime(b.createdAt) - getTime(a.createdAt);
@@ -318,11 +316,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           return;
       }
 
-      setPoForm(prev => ({
+      setPoForm((prev: any) => ({
           ...prev,
           items: [...(prev.items || []), ...itemsToAdd]
       }));
-      if (!poForm.notes) setPoForm(prev => ({ ...prev, notes: `PO WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
+      if (!poForm.notes) setPoForm((prev: any) => ({ ...prev, notes: `PO WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
 
       showNotification(`${itemsToAdd.length} item masuk ke Draft PO.`, "success");
       setFoundJob(null);
@@ -330,7 +328,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   };
 
   const handleAddItem = () => {
-      setPoForm(prev => ({
+      setPoForm((prev: any) => ({
           ...prev,
           items: [...(prev.items || []), { 
               code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0, isStockManaged: true
@@ -362,16 +360,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           newItems[index] = { ...newItems[index], [field]: value };
       }
       newItems[index].total = (newItems[index].qty || 0) * (newItems[index].price || 0);
-      setPoForm(prev => ({ ...prev, items: newItems }));
+      setPoForm((prev: any) => ({ ...prev, items: newItems }));
   };
 
   const handleRemoveItem = (index: number) => {
-      const newItems = poForm.items?.filter((_, i) => i !== index);
-      setPoForm(prev => ({ ...prev, items: newItems }));
+      const newItems = poForm.items?.filter((_: any, i: number) => i !== index);
+      setPoForm((prev: any) => ({ ...prev, items: newItems }));
   };
 
   const calculateFinancials = () => {
-      const subtotal = poForm.items?.reduce((acc, item) => acc + item.total, 0) || 0;
+      const subtotal = poForm.items?.reduce((acc: number, item: any) => acc + item.total, 0) || 0;
       const ppnAmount = poForm.hasPpn ? subtotal * 0.11 : 0;
       const totalAmount = subtotal + ppnAmount;
       return { subtotal, ppnAmount, totalAmount };
@@ -385,13 +383,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const supplier = suppliers.find(s => s.id === poForm.supplierId);
       if (!supplier) return;
 
-      const date = new Date();
-      const prefix = `PO-${date.getFullYear().toString().substr(-2)}${(date.getMonth()+1).toString().padStart(2,'0')}`;
+      const dateObj = new Date();
+      const prefix = `PO-${dateObj.getFullYear().toString().substr(-2)}${(dateObj.getMonth()+1).toString().padStart(2,'0')}`;
       const random = Math.floor(1000 + Math.random() * 9000);
       const poNumber = `${prefix}-${random}`;
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
-      const sanitizedItems = (poForm.items || []).map(item => ({
+      const sanitizedItems = (poForm.items || []).map((item: any) => ({
           ...item,
           code: item.code.toUpperCase(),
           qtyReceived: 0,
@@ -403,6 +401,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           items: sanitizedItems,
           notes: poForm.notes || '',
           hasPpn: poForm.hasPpn || false,
+          date: poForm.date, // NEW EXPLICIT DATE
           poNumber,
           supplierName: supplier.name,
           status,
@@ -431,7 +430,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           }
           showNotification(`PO ${poNumber} Berhasil Diterbitkan!`, "success");
           setViewMode('list');
-          setPoForm({ supplierId: '', items: [], notes: '', hasPpn: false });
+          setPoForm({ supplierId: '', items: [], notes: '', hasPpn: false, date: new Date().toISOString().split('T')[0] });
           setPoCreationMode('manual');
       } catch (e: any) {
           showNotification("Gagal menyimpan PO.", "error");
@@ -567,16 +566,23 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex items-center gap-4 mb-6 border-b pb-4">
-                  <button onClick={() => { setViewMode('list'); setPoForm({supplierId: '', items: [], hasPpn: false}); }} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <button onClick={() => { setViewMode('list'); setPoForm({supplierId: '', items: [], hasPpn: false, date: new Date().toISOString().split('T')[0]}); }} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                   <h2 className="text-2xl font-bold text-gray-800">Buat Purchase Order Baru</h2>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                   <div>
                       <label className="block text-sm font-bold mb-1">Supplier *</label>
                       <select className="w-full p-2 border rounded" value={poForm.supplierId} onChange={e => setPoForm({ ...poForm, supplierId: e.target.value })}>
                           <option value="">-- Pilih Supplier --</option>
                           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
+                  </div>
+                  <div>
+                      <label className="block text-sm font-bold mb-1">Tanggal PO *</label>
+                      <div className="relative">
+                        <input type="date" className="w-full p-2 border rounded pl-10 font-bold" value={poForm.date} onChange={e => setPoForm({...poForm, date: e.target.value})} />
+                        <Calendar className="absolute left-3 top-2.5 text-indigo-500" size={18}/>
+                      </div>
                   </div>
                   <div>
                       <label className="block text-sm font-bold mb-1">Metode Input</label>
@@ -604,7 +610,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                   onKeyDown={e => e.key === 'Enter' && handleSearchWO()}
                               />
                               
-                              {/* FLOATING PICKER OVERLAY */}
                               {isWoPickerOpen && (
                                   <div ref={pickerRef} className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl shadow-2xl border border-indigo-100 z-[100] max-h-72 overflow-y-auto animate-pop-in backdrop-blur-md bg-white/98">
                                       <div className="p-2 bg-indigo-50 border-b border-indigo-100 sticky top-0 z-10 flex justify-between items-center">
@@ -692,7 +697,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                             </tr>
                         </thead>
                         <tbody>
-                            {(poForm.items || []).map((item, idx) => (
+                            {(poForm.items || []).map((item: any, idx: number) => (
                                 <tr key={idx} className={item.refJobId ? "bg-blue-50/50" : ""}>
                                     <td className="p-2 border">
                                         <select className="w-full p-2 border rounded text-xs" value={item.category} onChange={e => handleUpdateItem(idx, 'category', e.target.value)}>
@@ -742,7 +747,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <div className="flex flex-col items-end">
                       <div className="w-full max-w-xs space-y-1">
                           <div className="flex justify-between text-sm"><span>Subtotal</span><span className="font-bold">{formatCurrency(subtotal)}</span></div>
-                          <div className="flex justify-between items-center text-sm"><label className="flex items-center gap-2 cursor-pointer"><div onClick={() => setPoForm(prev => ({...prev, hasPpn: !prev.hasPpn}))} className={`w-4 h-4 rounded border flex items-center justify-center ${poForm.hasPpn ? 'bg-indigo-600' : 'bg-white'}`}>{poForm.hasPpn && <CheckSquare size={12} className="text-white"/>}</div><span>PPN 11%</span></label><span>{formatCurrency(ppnAmount)}</span></div>
+                          <div className="flex justify-between items-center text-sm"><label className="flex items-center gap-2 cursor-pointer"><div onClick={() => setPoForm((prev: any) => ({...prev, hasPpn: !prev.hasPpn}))} className={`w-4 h-4 rounded border flex items-center justify-center ${poForm.hasPpn ? 'bg-indigo-600' : 'bg-white'}`}>{poForm.hasPpn && <CheckSquare size={12} className="text-white"/>}</div><span>PPN 11%</span></label><span>{formatCurrency(ppnAmount)}</span></div>
                           <div className="flex justify-between text-xl font-black text-indigo-900 border-t pt-2"><span>Total</span><span>{formatCurrency(totalAmount)}</span></div>
                       </div>
                       <div className="flex gap-3 mt-6 justify-end w-full">
