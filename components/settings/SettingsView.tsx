@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from 'firebase/firestore';
+// Added sendPasswordResetEmail from firebase/auth
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck } from 'lucide-react';
+// Fix: Added CheckCircle2 to the imports from lucide-react
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
@@ -125,13 +127,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
-  // --- USER MANAGEMENT HANDLERS ---
   const handleCreateUser = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!isManager) return;
       setIsLoading(true);
       try {
-          const userRef = doc(collection(db, USERS_COLLECTION));
           await updateDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
               email: userForm.email.toLowerCase(),
               displayName: userForm.displayName,
@@ -143,7 +143,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           loadUsers();
       } catch (e: any) {
           try {
-              const uRef = doc(db, USERS_COLLECTION, userForm.email.toLowerCase());
               await addDoc(collection(db, USERS_COLLECTION), {
                   email: userForm.email.toLowerCase(),
                   displayName: userForm.displayName,
@@ -363,10 +362,72 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       </div>
 
       <div className="bg-white p-6 rounded-b-xl border border-t-0 border-gray-200 shadow-sm relative min-h-[500px]">
+          {activeTab === 'general' && (
+              <div className={`space-y-8 ${restrictedClass}`}>
+                  <RestrictedOverlay/>
+                  
+                  {/* LANGUAGE SELECTION */}
+                  <section className="bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100">
+                    <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                        <Globe className="text-indigo-600" size={20}/> Bahasa Tampilan / Language
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-tight">Pilih Bahasa Sistem</label>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => handleChange('language', 'id')}
+                                    className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'id' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent text-gray-400 opacity-60 hover:opacity-100'}`}
+                                >
+                                    <span className="text-3xl">🇮🇩</span>
+                                    <span className="font-black text-sm uppercase">Bahasa Indonesia</span>
+                                    {localSettings.language === 'id' && <CheckCircle2 size={16} className="text-indigo-600"/>}
+                                </button>
+                                <button 
+                                    onClick={() => handleChange('language', 'en')}
+                                    className={`flex-1 py-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${localSettings.language === 'en' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent text-gray-400 opacity-60 hover:opacity-100'}`}
+                                >
+                                    <span className="text-3xl">🇺🇸</span>
+                                    <span className="font-black text-sm uppercase">English (US)</span>
+                                    {localSettings.language === 'en' && <CheckCircle2 size={16} className="text-indigo-600"/>}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex items-center p-4 bg-white/50 rounded-xl border border-indigo-50">
+                            <div className="flex items-start gap-3">
+                                <Info size={18} className="text-indigo-400 shrink-0 mt-0.5"/>
+                                <p className="text-xs text-gray-500 leading-relaxed font-medium">
+                                    Memilih bahasa akan merubah label menu utama, dashboard, dan teks petunjuk sistem. Pengisian data manual (Catatan/Nama Item) akan tetap sesuai bahasa yang diketik.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Building className="text-indigo-500"/> Informasi Bengkel</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label className="block text-sm font-medium mb-1">Nama Bengkel</label><input type="text" className="w-full p-2 border rounded" value={localSettings.workshopName} onChange={e => handleChange('workshopName', e.target.value)} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Email</label><input type="email" className="w-full p-2 border rounded" value={localSettings.workshopEmail} onChange={e => handleChange('workshopEmail', e.target.value)} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Nomor Telepon</label><input type="text" className="w-full p-2 border rounded" value={localSettings.workshopPhone} onChange={e => handleChange('workshopPhone', e.target.value)} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Alamat Lengkap</label><textarea className="w-full p-2 border rounded" rows={2} value={localSettings.workshopAddress} onChange={e => handleChange('workshopAddress', e.target.value)} /></div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Target className="text-red-500"/> Target & Pajak</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div><label className="block text-sm font-medium mb-1">PPN (%)</label><div className="relative"><input type="number" className="w-full p-2 border rounded pl-8" value={localSettings.ppnPercentage} onChange={e => handleChange('ppnPercentage', Number(e.target.value))} /><Percent size={14} className="absolute left-3 top-3 text-gray-400"/></div></div>
+                        <div><label className="block text-sm font-medium mb-1">Target Bulanan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.monthlyTarget} onChange={e => handleChange('monthlyTarget', Number(e.target.value))} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Target Mingguan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.weeklyTarget} onChange={e => handleChange('weeklyTarget', Number(e.target.value))} /></div>
+                    </div>
+                  </section>
+              </div>
+          )}
+
           {activeTab === 'unit_catalog' && (
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
-                  
                   {/* CAR BRANDS */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
                       <div className="flex justify-between items-center mb-4">
@@ -376,13 +437,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
                           {(localSettings.carBrands || []).map((brand, idx) => (
                               <div key={idx} className="flex gap-1 group">
-                                  <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-indigo-500" value={brand} onChange={e => handleArrayChange('carBrands', idx, e.target.value)} />
+                                  <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-indigo-50" value={brand} onChange={e => handleArrayChange('carBrands', idx, e.target.value)} />
                                   <button onClick={() => removeItem('carBrands', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
                               </div>
                           ))}
                       </div>
                   </section>
-
                   {/* CAR MODELS */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
                       <div className="flex justify-between items-center mb-4">
@@ -394,22 +454,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                               <div key={idx} className="flex gap-1 group">
                                   <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-blue-500" value={model} onChange={e => handleArrayChange('carModels', idx, e.target.value)} />
                                   <button onClick={() => removeItem('carModels', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
-                              </div>
-                          ))}
-                      </div>
-                  </section>
-
-                  {/* CAR COLORS */}
-                  <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
-                      <div className="flex justify-between items-center mb-4">
-                          <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Palette size={16} className="text-rose-500"/> Katalog Warna Kendaraan</h4>
-                          <button onClick={() => addItem('carColors', '')} className="text-[10px] bg-rose-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-rose-700"><Plus size={14}/> Tambah Warna</button>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                          {(localSettings.carColors || []).map((color, idx) => (
-                              <div key={idx} className="flex gap-1 group">
-                                  <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-rose-500" value={color} onChange={e => handleArrayChange('carColors', idx, e.target.value)} />
-                                  <button onClick={() => removeItem('carColors', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
                               </div>
                           ))}
                       </div>
@@ -439,18 +483,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   </div>
               </div>
           )}
-          
-          {activeTab === 'general' && (
-              <div className={`space-y-8 ${restrictedClass}`}>
-                  <RestrictedOverlay/><section><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Building className="text-indigo-500"/> Informasi Bengkel</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label className="block text-sm font-medium mb-1">Nama Bengkel</label><input type="text" className="w-full p-2 border rounded" value={localSettings.workshopName} onChange={e => handleChange('workshopName', e.target.value)} /></div><div><label className="block text-sm font-medium mb-1">Email</label><input type="email" className="w-full p-2 border rounded" value={localSettings.workshopEmail} onChange={e => handleChange('workshopEmail', e.target.value)} /></div><div><label className="block text-sm font-medium mb-1">Nomor Telepon</label><input type="text" className="w-full p-2 border rounded" value={localSettings.workshopPhone} onChange={e => handleChange('workshopPhone', e.target.value)} /></div><div><label className="block text-sm font-medium mb-1">Alamat Lengkap</label><textarea className="w-full p-2 border rounded" rows={2} value={localSettings.workshopAddress} onChange={e => handleChange('workshopAddress', e.target.value)} /></div></div></section><section><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Target className="text-red-500"/> Target & Pajak</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6"><div><label className="block text-sm font-medium mb-1">PPN (%)</label><div className="relative"><input type="number" className="w-full p-2 border rounded pl-8" value={localSettings.ppnPercentage} onChange={e => handleChange('ppnPercentage', Number(e.target.value))} /><Percent size={14} className="absolute left-3 top-3 text-gray-400"/></div></div><div><label className="block text-sm font-medium mb-1">Target Bulanan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.monthlyTarget} onChange={e => handleChange('monthlyTarget', Number(e.target.value))} /></div><div><label className="block text-sm font-medium mb-1">Target Mingguan (Rp)</label><input type="number" className="w-full p-2 border rounded" value={localSettings.weeklyTarget} onChange={e => handleChange('weeklyTarget', Number(e.target.value))} /></div></div></section>
-              </div>
-          )}
 
           {activeTab === 'database' && (
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay/>
-                  
-                  {/* EXISTING: MECHANIC */}
                   <div className="grid grid-cols-1 gap-8">
                       <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
                           <div className="flex justify-between items-center mb-4">
@@ -467,183 +503,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           </div>
                       </div>
                   </div>
-
-                  {/* RESTORED: USER MANAGEMENT SECTION */}
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                      <div className="p-5 bg-gray-50 border-b flex justify-between items-center">
-                          <div>
-                              <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Users size={18} className="text-indigo-600"/> Manajemen Akses User</h4>
-                              <p className="text-[10px] text-gray-400 font-bold mt-1">Daftar Akun yang memiliki akses ke sistem bengkel</p>
-                          </div>
-                          <button 
-                            onClick={() => setIsUserModalOpen(true)}
-                            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95"
-                          >
-                              <UserPlus size={16}/> DAFTARKAN USER
-                          </button>
-                      </div>
-                      
-                      <div className="overflow-x-auto">
-                          <table className="w-full text-left text-sm">
-                              <thead className="bg-white border-b text-gray-400 uppercase text-[10px] font-black">
-                                  <tr>
-                                      <th className="px-6 py-4">Informasi User</th>
-                                      <th className="px-6 py-4">Role Akses</th>
-                                      <th className="px-6 py-4">Status</th>
-                                      <th className="px-6 py-4 text-center">Aksi</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100">
-                                  {systemUsers.map(u => (
-                                      <tr key={u.uid} className="hover:bg-gray-50 transition-colors group">
-                                          <td className="px-6 py-4">
-                                              <div className="flex items-center gap-3">
-                                                  <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black">
-                                                      {(u.displayName || 'U')[0].toUpperCase()}
-                                                  </div>
-                                                  <div>
-                                                      <p className="font-bold text-gray-900 leading-none">{u.displayName || 'Tanpa Nama'}</p>
-                                                      <p className="text-[10px] text-gray-400 font-mono mt-1">{u.email}</p>
-                                                  </div>
-                                              </div>
-                                          </td>
-                                          <td className="px-6 py-4">
-                                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-tighter ${u.role === 'Manager' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                                                  {u.role || 'Staff'}
-                                              </span>
-                                          </td>
-                                          <td className="px-6 py-4">
-                                              <div className="flex items-center gap-1.5 text-emerald-600 font-black text-[10px]">
-                                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                                                  ACTIVE
-                                              </div>
-                                          </td>
-                                          <td className="px-6 py-4">
-                                              <div className="flex justify-center gap-2">
-                                                  <button 
-                                                    onClick={() => handleResetPassword(u.email!)}
-                                                    className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg transition-colors border border-transparent hover:border-amber-100"
-                                                    title="Reset Password (Kirim Email)"
-                                                  >
-                                                      <Key size={16}/>
-                                                  </button>
-                                                  <button 
-                                                    onClick={() => handleDeleteUser(u.uid)}
-                                                    className="p-2 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="Hapus Akses"
-                                                  >
-                                                      <Trash2 size={16}/>
-                                                  </button>
-                                              </div>
-                                          </td>
-                                      </tr>
-                                  ))}
-                                  {systemUsers.length === 0 && (
-                                      <tr><td colSpan={4} className="p-12 text-center text-gray-400 italic">Memuat data user...</td></tr>
-                                  )}
-                              </tbody>
-                          </table>
-                      </div>
-                  </div>
-              </div>
-          )}
-
-          {activeTab === 'whatsapp' && (
-              <div className={`space-y-6 ${restrictedClass}`}>
-                  <RestrictedOverlay/>
-                  <div className="bg-green-50 p-4 rounded-xl border border-green-200">
-                      <h3 className="font-bold text-green-800 mb-4 flex items-center gap-2"><MessageSquare size={18}/> Konfigurasi Pesan</h3>
-                      <div className="space-y-4">
-                          <div><label className="block text-sm font-bold text-gray-700 mb-1">Template: Reminder Booking</label><textarea className="w-full p-2 border rounded text-sm" rows={2} value={localSettings.whatsappTemplates.bookingReminder} onChange={e => setLocalSettings(prev => ({ ...prev, whatsappTemplates: { ...prev.whatsappTemplates, bookingReminder: e.target.value } }))} /></div>
-                          <div><label className="block text-sm font-bold text-gray-700 mb-1">Template: Follow Up (After Service)</label><textarea className="w-full p-2 border rounded text-sm" rows={2} value={localSettings.whatsappTemplates.afterService} onChange={e => setLocalSettings(prev => ({ ...prev, whatsappTemplates: { ...prev.whatsappTemplates, afterService: e.target.value } }))} /></div>
-                          <div><label className="block text-sm font-bold text-gray-700 mb-1">Template: Unit Selesai (Ready)</label><textarea className="w-full p-2 border rounded text-sm" rows={2} value={localSettings.whatsappTemplates.readyForPickup} onChange={e => setLocalSettings(prev => ({ ...prev, whatsappTemplates: { ...prev.whatsappTemplates, readyForPickup: e.target.value } }))} /></div>
-                      </div>
-                  </div>
-
-                  <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 mt-6">
-                      <h3 className="font-bold text-indigo-800 mb-4 flex items-center gap-2"><ClipboardCheck size={18}/> Indikator Survey CSI / CSAT</h3>
-                      <div className="bg-white p-4 rounded-lg border border-indigo-100">
-                          <div className="flex justify-between items-center mb-4">
-                              <p className="text-xs text-gray-500 font-medium">Poin-poin di bawah ini akan muncul saat CRC melakukan input hasil survey pelanggan.</p>
-                              <button onClick={() => addItem('csiIndicators', '')} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-700"><Plus size={14}/> Tambah Poin</button>
-                          </div>
-                          <div className="space-y-2">
-                              {(localSettings.csiIndicators || []).map((indicator, idx) => (
-                                  <div key={idx} className="flex gap-2 group">
-                                      <div className="flex-grow relative">
-                                          <input type="text" placeholder="Contoh: Kualitas Hasil Cat..." className="w-full p-2.5 border border-gray-200 rounded-lg text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500" value={indicator} onChange={e => handleArrayChange('csiIndicators', idx, e.target.value)} />
-                                          <span className="absolute right-3 top-2.5 text-[10px] font-black text-gray-300">#{idx+1}</span>
-                                      </div>
-                                      <button onClick={() => removeItem('csiIndicators', idx)} className="text-red-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button>
-                                  </div>
-                              ))}
-                              {(localSettings.csiIndicators || []).length === 0 && <div className="text-center py-6 text-gray-400 italic text-sm">Belum ada indikator survey.</div>}
-                          </div>
-                      </div>
-                  </div>
               </div>
           )}
       </div>
 
-      {/* USER CREATION MODAL */}
-      <Modal 
-        isOpen={isUserModalOpen} 
-        onClose={() => setIsUserModalOpen(false)} 
-        title="Daftarkan User Baru"
-      >
+      <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title="Daftarkan User Baru">
           <form onSubmit={handleCreateUser} className="space-y-5">
-              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex items-start gap-3">
-                  <Info className="text-amber-600 shrink-0 mt-0.5" size={18}/>
-                  <div className="text-xs text-amber-800 leading-relaxed">
-                      <strong>Catatan Penting:</strong> <br/>
-                      Input ini mendaftarkan profil akses ke database bengkel. User harus melakukan registrasi/login menggunakan email yang sama di halaman login untuk mengaktifkan akun mereka.
-                  </div>
-              </div>
-
-              <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Aktif *</label>
-                  <input 
-                    type="email" required 
-                    value={userForm.email} 
-                    onChange={e => setUserForm({...userForm, email: e.target.value})}
-                    className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold"
-                    placeholder="nama@mazdaranger.com"
-                  />
-              </div>
-
-              <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nama Tampilan *</label>
-                  <input 
-                    type="text" required 
-                    value={userForm.displayName} 
-                    onChange={e => setUserForm({...userForm, displayName: e.target.value})}
-                    className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold uppercase"
-                    placeholder="Contoh: Admin Accounting"
-                  />
-              </div>
-
-              <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Role Akses</label>
-                  <select 
-                    value={userForm.role} 
-                    onChange={e => setUserForm({...userForm, role: e.target.value})}
-                    className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-black text-indigo-700"
-                  >
-                      {localSettings.roleOptions.map(role => (
-                          <option key={role} value={role}>{role}</option>
-                      ))}
-                  </select>
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                  <button type="button" onClick={() => setIsUserModalOpen(false)} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button>
-                  <button 
-                    type="submit" disabled={isLoading}
-                    className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 transform active:scale-95 disabled:opacity-50"
-                  >
-                      {isLoading ? <Loader2 className="animate-spin" size={20}/> : <><UserPlus size={20}/> SIMPAN USER</>}
-                  </button>
-              </div>
+              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex items-start gap-3"><Info className="text-amber-600 shrink-0 mt-0.5" size={18}/><div className="text-xs text-amber-800 leading-relaxed"><strong>Catatan Penting:</strong> <br/>Input ini mendaftarkan profil akses ke database bengkel. User harus melakukan registrasi/login menggunakan email yang sama di halaman login untuk mengaktifkan akun mereka.</div></div>
+              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Aktif *</label><input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold" placeholder="nama@mazdaranger.com"/></div>
+              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nama Tampilan *</label><input type="text" required value={userForm.displayName} onChange={e => setUserForm({...userForm, displayName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-bold uppercase" placeholder="Contoh: Admin Accounting"/></div>
+              <div><label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Role Akses</label><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 font-black text-indigo-700">{localSettings.roleOptions.map(role => (<option key={role} value={role}>{role}</option>))}</select></div>
+              <div className="pt-4 flex gap-3"><button type="button" onClick={() => setIsUserModalOpen(false)} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button type="submit" className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 transform active:scale-95 disabled:opacity-50">{isLoading ? <Loader2 className="animate-spin" size={20}/> : <><UserPlus size={20}/> SIMPAN USER</>}</button></div>
           </form>
       </Modal>
     </div>

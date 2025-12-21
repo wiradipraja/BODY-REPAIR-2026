@@ -1,9 +1,11 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, InventoryItem } from '../../types';
 import { formatDateIndo, formatCurrency, formatWaNumber, cleanObject } from '../../utils/helpers';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { MessageSquare, Phone, CheckCircle, Calendar, Star, Send, XCircle, Clock, Search, User, Megaphone, CheckSquare, Square, Zap, Package, Wrench, Loader2, Save, Filter, Users, Trash2, ClipboardCheck, Info, AlertCircle } from 'lucide-react';
+// Added Car to imports to fix "Cannot find name 'Car'" error
+import { MessageSquare, Phone, CheckCircle, Calendar, Star, Send, XCircle, Clock, Search, User, Megaphone, CheckSquare, Square, Zap, Package, Wrench, Loader2, Save, Filter, Users, Trash2, ClipboardCheck, Info, AlertCircle, CheckCircle2, Ticket, Car } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface CrcDashboardViewProps {
@@ -13,11 +15,39 @@ interface CrcDashboardViewProps {
   showNotification: (msg: string, type: string) => void;
 }
 
+const DICTIONARY: Record<string, Record<string, string>> = {
+    id: {
+        tab_ready: "Unit Siap Ambil",
+        tab_booking: "Potensi Booking",
+        tab_followup: "Follow Up Service",
+        tab_broadcast: "Broadcast & Promo",
+        tab_history: "Riwayat Feedback",
+        ready_title: "Daftar Unit Selesai Perbaikan",
+        ready_subtitle: "Hubungi pelanggan untuk mengonfirmasi pengambilan unit.",
+        btn_wa_ready: "Kirim Pesan Siap Ambil",
+        stats_ready: "Unit Selesai"
+    },
+    en: {
+        tab_ready: "Ready for Pickup",
+        tab_booking: "Booking Potential",
+        tab_followup: "Service Follow Up",
+        tab_broadcast: "Broadcast & Promo",
+        tab_history: "Feedback History",
+        ready_title: "Completed Vehicle List",
+        ready_subtitle: "Contact customers to confirm vehicle collection.",
+        btn_wa_ready: "Send Pickup Message",
+        stats_ready: "Finished Units"
+    }
+};
+
 const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItems = [], settings, showNotification }) => {
-  const [activeTab, setActiveTab] = useState<'booking' | 'followup' | 'broadcast' | 'history'>('booking');
+  const [activeTab, setActiveTab] = useState<'ready' | 'booking' | 'followup' | 'broadcast' | 'history'>('ready');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Feedback Modal (Survey CSI Overlay)
+  const lang = settings.language || 'id';
+  const t = (key: string) => DICTIONARY[lang][key] || key;
+
+  // Feedback Modal State
   const [feedbackModal, setFeedbackModal] = useState<{ isOpen: boolean, job: Job | null }>({ isOpen: false, job: null });
   const [csiRatings, setCsiRatings] = useState<Record<string, number>>({});
   const [feedbackNotes, setFeedbackNotes] = useState('');
@@ -34,7 +64,19 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const [filterYear, setFilterYear] = useState('');
   const [filterModel, setFilterModel] = useState('');
 
-  // --- DATA PROCESSING: FIFO ALLOCATION FOR BOOKING POTENTIAL ---
+  // --- DATA PROCESSING ---
+  
+  // NEW: Filter for Ready for Pickup units
+  const readyPickupJobs = useMemo(() => {
+      const term = searchTerm.toLowerCase();
+      return jobs.filter(j => 
+          !j.isClosed && 
+          j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' && 
+          !j.isDeleted &&
+          (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term))
+      ).sort((a,b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+  }, [jobs, searchTerm]);
+
   const bookingJobs = useMemo(() => {
       const term = searchTerm.toLowerCase();
       const activeJobs = jobs.filter(j => !j.isClosed && j.woNumber && !j.isDeleted);
@@ -70,7 +112,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   const followUpJobs = useMemo(() => {
       const term = searchTerm.toLowerCase();
       return jobs.filter(j => {
-          const isClosed = j.isClosed || j.statusKendaraan === 'Selesai' || j.statusKendaraan === 'Sudah Diambil Pemilik';
+          const isClosed = j.isClosed || j.statusKendaraan === 'Sudah Diambil Pemilik';
           const isPending = !j.crcFollowUpStatus || j.crcFollowUpStatus === 'Pending';
           return isClosed && isPending && (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term));
       }).sort((a,b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0));
@@ -78,7 +120,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
 
   const historyJobs = useMemo(() => {
       const term = searchTerm.toLowerCase();
-      return jobs.filter(j => j.crcFollowUpStatus && j.crcFollowUpStatus !== 'Pending' && (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term))).sort((a,b) => (b.crcFollowUpDate?.seconds || 0) - (a.crcFollowUpDate?.seconds || 0));
+      return jobs.filter(j => j.crcFollowUpStatus && j.crcFollowUpStatus !== 'Pending' && (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term))).sort((a,b) => (b.crcFollowUpDate?.seconds || 0) - (b.crcFollowUpDate?.seconds || 0));
   }, [jobs, searchTerm]);
 
   const broadcastCandidates = useMemo(() => {
@@ -108,12 +150,13 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
 
   const isApiMode = settings.whatsappConfig?.mode === 'API';
 
-  const generateWaLink = (job: Job, type: 'booking' | 'followup' | 'promo', overrideBookingDate?: string) => {
+  const generateWaLink = (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready', overrideBookingDate?: string) => {
       const phone = formatWaNumber(job.customerPhone);
       if (!phone) return null;
       let template = '';
       if (type === 'booking') template = settings.whatsappTemplates?.bookingReminder || '';
       else if (type === 'followup') template = settings.whatsappTemplates?.afterService || '';
+      else if (type === 'ready') template = settings.whatsappTemplates?.readyForPickup || 'Kabar Gembira! Kendaraan {mobil} ({nopol}) milik Bpk/Ibu {nama} sudah selesai diperbaiki dan siap diambil. Terima kasih.';
       else template = broadcastMessage;
       const displayBookingDate = overrideBookingDate || job.tanggalBooking || '(Belum Ditentukan)';
       const message = template.replace(/{nama}/g, job.customerName).replace(/{mobil}/g, job.carModel).replace(/{nopol}/g, job.policeNumber).replace(/{tgl_booking}/g, displayBookingDate);
@@ -138,9 +181,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       let finalAvgRating = 0;
       
       if (followUpStatus === 'Contacted' && indicatorsCount > 0) {
-          // Fix: Ensure totalStars is treated as a number by providing explicit typing for reduce
           const totalStars = Object.values(csiRatings).reduce((a: number, b: number) => a + b, 0);
-          // Fix Error line 143: Explicitly cast totalStars to number to fix "The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type"
           finalAvgRating = Number(((totalStars as number) / indicatorsCount).toFixed(2));
       }
 
@@ -184,7 +225,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       }
   };
 
-  const handleSingleAction = (job: Job, type: 'booking' | 'followup' | 'promo') => {
+  const handleSingleAction = (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready') => {
       if (type === 'booking') {
           setBookingModal({ isOpen: true, job });
           setBookingDateInput(job.tanggalBooking || '');
@@ -216,21 +257,98 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
             </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Potensi Booking</p><h2 className="text-2xl font-black text-indigo-900">{bookingJobs.length} Unit</h2></div><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Calendar size={24}/></div></div>
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Perlu Follow Up</p><h2 className="text-2xl font-black text-orange-600">{followUpJobs.length} Unit</h2></div><div className="p-3 bg-orange-50 rounded-full text-orange-600"><Phone size={24}/></div></div>
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Avg. Rating (CSI)</p><h2 className="text-2xl font-black text-yellow-500 flex items-center gap-1">{avgRating} <Star fill="currentColor" size={20}/></h2></div><div className="p-3 bg-yellow-50 rounded-full text-yellow-600"><Star size={24}/></div></div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('stats_ready')}</p><h2 className="text-2xl font-black text-emerald-600">{readyPickupJobs.length} Unit</h2></div><div className="p-3 bg-emerald-50 rounded-full text-emerald-600"><CheckCircle size={24}/></div></div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Potensi Booking</p><h2 className="text-2xl font-black text-indigo-900">{bookingJobs.length} Unit</h2></div><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Calendar size={24}/></div></div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Perlu Follow Up</p><h2 className="text-2xl font-black text-orange-600">{followUpJobs.length} Unit</h2></div><div className="p-3 bg-orange-50 rounded-full text-orange-600"><Phone size={24}/></div></div>
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center"><div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Avg. Rating (CSI)</p><h2 className="text-2xl font-black text-yellow-500 flex items-center gap-1">{avgRating} <Star fill="currentColor" size={20}/></h2></div><div className="p-3 bg-yellow-50 rounded-full text-yellow-600"><Star size={24}/></div></div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
-                <button onClick={() => setActiveTab('booking')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'booking' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Calendar size={16}/> Potensi Booking</button>
-                <button onClick={() => setActiveTab('followup')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'followup' ? 'border-orange-600 text-orange-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Phone size={16}/> Follow Up Service</button>
-                <button onClick={() => setActiveTab('broadcast')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'broadcast' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Megaphone size={16}/> Broadcast & Promo</button>
-                <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Star size={16}/> Riwayat Feedback</button>
+                <button onClick={() => setActiveTab('ready')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'ready' ? 'border-emerald-600 text-emerald-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><CheckCircle2 size={16}/> {t('tab_ready')}</button>
+                <button onClick={() => setActiveTab('booking')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'booking' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Calendar size={16}/> {t('tab_booking')}</button>
+                <button onClick={() => setActiveTab('followup')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'followup' ? 'border-orange-600 text-orange-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Phone size={16}/> {t('tab_followup')}</button>
+                <button onClick={() => setActiveTab('broadcast')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'broadcast' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Megaphone size={16}/> {t('tab_broadcast')}</button>
+                <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[150px] py-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Star size={16}/> {t('tab_history')}</button>
             </div>
 
             <div className="min-h-[400px]">
+                {/* READY FOR PICKUP TAB */}
+                {activeTab === 'ready' && (
+                    <div className="animate-fade-in p-0">
+                        <div className="p-6 bg-emerald-50/30 border-b border-emerald-100 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-lg font-bold text-emerald-900">{t('ready_title')}</h3>
+                                <p className="text-xs text-emerald-600 font-medium">{t('ready_subtitle')}</p>
+                            </div>
+                            <div className="relative group">
+                                <Search className="absolute left-3 top-2.5 text-emerald-400" size={18}/>
+                                <input 
+                                    type="text" 
+                                    placeholder="Cari Nopol..." 
+                                    className="pl-10 p-2 border border-emerald-200 rounded-xl text-sm focus:ring-4 focus:ring-emerald-50 outline-none w-64"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-black tracking-widest border-b">
+                                    <tr>
+                                        <th className="px-6 py-4">Unit / Pelanggan</th>
+                                        <th className="px-6 py-4">SA Penanggungjawab</th>
+                                        <th className="px-6 py-4 text-center">Waktu Selesai</th>
+                                        <th className="px-6 py-4 text-center">Aksi CRC</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {readyPickupJobs.map(job => (
+                                        <tr key={job.id} className="hover:bg-emerald-50/10 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><Car size={18}/></div>
+                                                    <div>
+                                                        <div className="font-black text-gray-900 leading-none mb-1">{job.policeNumber}</div>
+                                                        <div className="text-xs text-gray-500 font-bold uppercase">{job.customerName} | {job.carModel}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-[10px]">SA</div>
+                                                    <span className="font-bold text-gray-700">{job.namaSA || '-'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <div className="text-xs font-bold text-gray-500">{formatDateIndo(job.updatedAt)}</div>
+                                                <div className="text-[10px] text-emerald-600 font-black flex items-center justify-center gap-1"><Clock size={10}/> SIAP DIAMBIL</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <button 
+                                                    onClick={() => handleSingleAction(job, 'ready')}
+                                                    className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-black text-[10px] shadow-lg shadow-emerald-100 hover:bg-emerald-700 transform active:scale-95 transition-all"
+                                                >
+                                                    <Send size={14}/> {t('btn_wa_ready')}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {readyPickupJobs.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="py-20 text-center text-gray-400 italic">
+                                                <Ticket size={48} className="mx-auto mb-4 opacity-10"/>
+                                                Belum ada unit yang baru selesai perbaikan.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'booking' && (
                     <div className="animate-fade-in">
                         <div className="p-4 border-b border-gray-100 flex items-center gap-3">

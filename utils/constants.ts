@@ -58,5 +58,6 @@ export const initialSettingsState: Settings = {
         bookingReminder: "Halo Bpk/Ibu {nama}, kami mengonfirmasi jadwal booking perbaikan {mobil} ({nopol}) pada tanggal {tgl_booking}. Mohon kehadirannya tepat waktu di Mazda Ranger. Terima kasih.",
         afterService: "Halo Bpk/Ibu {nama}, terima kasih telah mempercayakan perbaikan {mobil} di Mazda Ranger. Bagaimana hasil perbaikannya? Mohon luangkan waktu untuk memberi penilaian.",
         readyForPickup: "Kabar Gembira! Kendaraan {mobil} ({nopol}) milik Bpk/Ibu {nama} sudah selesai diperbaiki dan siap diambil. Terima kasih."
-    }
+    },
+    language: 'id' // NEW DEFAULT
 };

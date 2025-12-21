@@ -23,7 +23,8 @@ const AIAssistantView: React.FC<AIAssistantProps> = ({ jobs, transactions, setti
       setAnalysisResult(null);
 
       try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+          // Fixed: Initialization must use process.env.API_KEY directly as per guidelines
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           
           // Calculate Realized GP (Invoiced Only) for the current month
           const now = new Date();

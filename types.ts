@@ -41,14 +41,15 @@ export interface Settings {
     promoBroadcast?: string;
   };
   csiIndicators: string[]; 
-  carBrands: string[]; // NEW: Dynamic brands
-  carModels: string[]; // NEW: Dynamic models
-  carColors: string[]; // NEW: Dynamic colors
+  carBrands: string[]; 
+  carModels: string[]; 
+  carColors: string[]; 
   whatsappConfig?: {
     mode: 'API' | 'MANUAL';
   };
   taxProfile?: 'UMKM' | 'UMUM';
   fixedPph25Amount?: number;
+  language: 'id' | 'en'; // NEW: Multi-language support
 }
 
 export interface UserProfile {
@@ -78,7 +79,7 @@ export interface EstimateItem {
   name: string;
   price: number;
   qty?: number;
-  number?: string; // Part number
+  number?: string; 
   inventoryId?: string | null;
   panelCount?: number;
   workType?: string;
@@ -146,7 +147,7 @@ export interface CostData {
 
 export interface Job {
   id: string;
-  unitId?: string; // Links to Vehicle
+  unitId?: string; 
   policeNumber: string;
   customerName: string;
   customerPhone?: string;
@@ -172,14 +173,14 @@ export interface Job {
   posisiKendaraan: string;
   jumlahPanel: number; 
   
-  tanggalMasuk: string; // YYYY-MM-DD
+  tanggalMasuk: string; 
   tanggalEstimasiSelesai?: string;
   tanggalBooking?: string; 
   
   woNumber?: string;
   namaSA?: string;
-  mechanicName?: string; // Deprecated but kept for safety
-  assignedMechanics?: MechanicAssignment[]; // NEW: Multi-PIC tracker
+  mechanicName?: string; 
+  assignedMechanics?: MechanicAssignment[]; 
   
   estimateData?: EstimateData;
   hargaJasa?: number;
@@ -189,25 +190,22 @@ export interface Job {
   usageLog?: UsageLogItem[];
   spklItems?: SpklItem[];
   
-  // Negotiation History
   insuranceNegotiationLog?: InsuranceLog[];
-  
-  // Production Tracking
-  productionLogs?: ProductionLog[]; // NEW: History of progress & re-work
+  productionLogs?: ProductionLog[]; 
   
   isClosed: boolean;
-  closedAt?: any; // Timestamp
+  closedAt?: any; 
   hasInvoice?: boolean;
   
-  createdAt?: any; // Timestamp
-  updatedAt?: any; // Timestamp
+  createdAt?: any; 
+  updatedAt?: any; 
   isDeleted?: boolean;
 
   crcFollowUpStatus?: 'Pending' | 'Contacted' | 'Unreachable';
   crcFollowUpDate?: any;
   customerRating?: number;
   customerFeedback?: string;
-  csiResults?: Record<string, number>; // NEW: Stores detailed rating per indicator
+  csiResults?: Record<string, number>; 
 }
 
 export interface Vehicle {
@@ -240,7 +238,7 @@ export interface InventoryItem {
   buyPrice: number;
   sellPrice: number;
   location?: string;
-  isStockManaged?: boolean; // false for vendor managed
+  isStockManaged?: boolean; 
   createdAt?: any;
   updatedAt?: any;
 }
@@ -283,8 +281,8 @@ export interface PurchaseOrder {
   subtotal: number;
   ppnAmount: number;
   totalAmount: number;
-  paidAmount?: number; // Calculated field
-  remaining?: number; // Calculated field
+  paidAmount?: number; 
+  remaining?: number; 
   
   createdBy: string;
   createdAt: any;
@@ -298,15 +296,15 @@ export interface PurchaseOrder {
 
 export interface CashierTransaction {
   id: string;
-  date: any; // Timestamp
+  date: any; 
   type: 'IN' | 'OUT';
   category: string;
   amount: number;
   paymentMethod: 'Cash' | 'Transfer' | 'EDC' | 'Non-Tunai (Pajak)';
   bankName?: string;
   description?: string;
-  customerName?: string; // Payer or Payee
-  refNumber?: string; // WO or PO number
+  customerName?: string; 
+  refNumber?: string; 
   refJobId?: string;
   refPoId?: string;
   
@@ -321,7 +319,7 @@ export interface Asset {
   name: string;
   category: string;
   purchasePrice: number;
-  purchaseDate: string | Date; // stored as string YYYY-MM-DD or date object
+  purchaseDate: string | Date; 
   usefulLifeYears: number;
   residualValue: number;
   monthlyDepreciation: number;

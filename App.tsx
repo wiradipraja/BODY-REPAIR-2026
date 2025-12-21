@@ -116,7 +116,8 @@ const AppContent: React.FC = () => {
   const [showClosedJobs, setShowClosedJobs] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
-  const [modalState, setModalState] = useState<{
+  // Fix: Removed redundant and broken modalState object that was causing a destructuring error.
+  const [actualModalState, setActualModalState] = useState<{
       isOpen: boolean;
       type: 'add_job' | 'edit_data' | 'edit_job' | 'create_estimation' | null;
       data: any | null;
@@ -127,8 +128,8 @@ const AppContent: React.FC = () => {
       setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  const openModal = (type: any, data: any = null) => setModalState({ isOpen: true, type, data });
-  const closeModal = () => setModalState({ isOpen: false, type: null, data: null });
+  const openModal = (type: any, data: any = null) => setActualModalState({ isOpen: true, type, data });
+  const closeModal = () => setActualModalState({ isOpen: false, type: null, data: null });
 
   const handleSaveVehicle = async (formData: Partial<Vehicle>) => {
       try {
@@ -181,7 +182,7 @@ const AppContent: React.FC = () => {
 
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
-          const currentJob = jobs.find(j => j.id === jobId) || modalState.data;
+          const currentJob = jobs.find(j => j.id === jobId) || actualModalState.data;
           const isNew = jobId.startsWith('TEMP_');
           
           let estimationNumber = estimateData.estimationNumber;
@@ -274,7 +275,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} />
+      <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} settings={appSettings} />
 
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
         {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
@@ -327,9 +328,9 @@ const AppContent: React.FC = () => {
         {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
         {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} vehicles={vehicles} /> )}
 
-        <Modal isOpen={modalState.isOpen} onClose={closeModal} title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
-            {modalState.type === 'create_estimation' && modalState.data && ( <EstimateEditor job={modalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}
-            {modalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={modalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
+        <Modal isOpen={actualModalState.isOpen} onClose={closeModal} title={actualModalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={actualModalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
+            {actualModalState.type === 'create_estimation' && actualModalState.data && ( <EstimateEditor job={actualModalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}
+            {actualModalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={actualModalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>
     </div>
