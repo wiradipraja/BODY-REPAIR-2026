@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -40,8 +40,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   });
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Floating Picker States for WO Search
   const [woSearchTerm, setWoSearchTerm] = useState('');
   const [foundJob, setFoundJob] = useState<Job | null>(null);
+  const [woMatches, setWoMatches] = useState<Job[]>([]);
+  const [isWoPickerOpen, setIsWoPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [selectedPartsFromWo, setSelectedPartsFromWo] = useState<Record<number, { selected: boolean, isIndent: boolean }>>({});
 
   const isManager = useMemo(() => {
@@ -56,6 +60,17 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
         } catch (e) { console.error(e); }
     };
     fetchSettings();
+  }, []);
+
+  // Handle click outside to close picker
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+              setIsWoPickerOpen(false);
+          }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -215,34 +230,46 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   const handleSearchWO = () => {
       if (!woSearchTerm) return;
       const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
+      
+      // Filter ALL matching active (non-closed) jobs
       const matches = jobs.filter(j => 
-          (j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '') === termUpper) || 
-          (j.policeNumber && j.policeNumber.toUpperCase().replace(/\s/g, '') === termUpper)
+          !j.isClosed && !j.isDeleted &&
+          ((j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) || 
+          (j.policeNumber && j.policeNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) ||
+          (j.customerName && j.customerName.toUpperCase().includes(termUpper)))
       );
 
       if (matches.length > 0) {
+          // Sort by newest first
           matches.sort((a, b) => {
               const getTime = (val: any) => val?.seconds || 0;
               return getTime(b.createdAt) - getTime(a.createdAt);
           });
-          const jobWithParts = matches.find(j => j.estimateData?.partItems && j.estimateData.partItems.length > 0);
           
-          if (!jobWithParts) {
-              showNotification(`Unit ditemukan, tapi estimasi part masih kosong.`, "error");
-              return;
-          }
-
-          setFoundJob(jobWithParts);
-          const initialSelection: any = {};
-          jobWithParts.estimateData!.partItems.forEach((p, idx) => {
-              if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
-          });
-          setSelectedPartsFromWo(initialSelection);
-          showNotification("Data WO ditemukan.", "success");
+          setWoMatches(matches);
+          setIsWoPickerOpen(true);
       } else {
-          showNotification("No. WO atau No. Polisi tidak ditemukan di data aktif.", "error");
+          showNotification("No. Polisi atau WO aktif tidak ditemukan.", "error");
+          setWoMatches([]);
+          setIsWoPickerOpen(false);
           setFoundJob(null);
       }
+  };
+
+  const handleSelectJobFromPicker = (job: Job) => {
+      if (!job.estimateData?.partItems || job.estimateData.partItems.length === 0) {
+          showNotification(`Pekerjaan ${job.policeNumber} tidak memiliki estimasi suku cadang.`, "error");
+          return;
+      }
+
+      setFoundJob(job);
+      setIsWoPickerOpen(false);
+      const initialSelection: any = {};
+      job.estimateData.partItems.forEach((p, idx) => {
+          if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
+      });
+      setSelectedPartsFromWo(initialSelection);
+      showNotification(`Work Order ${job.woNumber || job.policeNumber} dipilih.`, "success");
   };
 
   const handleToggleWoPart = (idx: number, field: 'selected' | 'isIndent') => {
@@ -426,7 +453,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
           const batch = writeBatch(db);
 
-          // Track which jobs need part updates to prevent duplicate array writes
           const jobUpdateMap: Record<string, { parts: EstimateItem[], changed: boolean }> = {};
 
           for (const idx of selectedItemsToReceive) {
@@ -471,11 +497,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               updatedItems[idx] = { ...item, qtyReceived: newQtyReceived, inventoryId: targetInventoryId };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
 
-              // INTEGRATE WITH WORK ORDER (ROBUST VERSION)
               if (item.refJobId && item.refPartIndex !== undefined) {
                   const jobId = item.refJobId;
-                  
-                  // Initialize map for this job if not exists
                   if (!jobUpdateMap[jobId]) {
                       const jobRef = doc(db, SERVICE_JOBS_COLLECTION, jobId);
                       const jobSnap = await getDoc(jobRef);
@@ -486,10 +509,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           };
                       }
                   }
-
-                  // Update part flag in memory map
                   if (jobUpdateMap[jobId] && jobUpdateMap[jobId].parts[item.refPartIndex]) {
-                      // Mark as arrived if quantity matches or exceeds
                       if (newQtyReceived >= item.qty) {
                           jobUpdateMap[jobId].parts[item.refPartIndex].hasArrived = true;
                           jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
@@ -499,7 +519,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
           }
 
-          // Apply Job Updates from the map to the batch
           Object.entries(jobUpdateMap).forEach(([jobId, data]) => {
               if (data.changed) {
                   batch.update(doc(db, SERVICE_JOBS_COLLECTION, jobId), {
@@ -569,27 +588,83 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               </div>
 
               {poCreationMode === 'wo' && (
-                  <div className="mb-8 bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                  <div className="mb-8 bg-blue-50 border border-blue-200 p-4 rounded-xl relative">
                       <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2"><Search size={18}/> Cari Kebutuhan Part dari Estimasi SA</h3>
-                      <div className="flex gap-2 mb-4">
-                          <input type="text" placeholder="No. WO atau Nopol..." className="flex-grow p-2 border border-blue-300 rounded uppercase font-mono" value={woSearchTerm} onChange={e => setWoSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearchWO()}/>
-                          <button onClick={handleSearchWO} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Cari Data</button>
+                      <div className="flex gap-2 mb-4 relative">
+                          <div className="relative flex-grow">
+                              <input 
+                                  type="text" 
+                                  placeholder="No. Polisi, WO, atau Nama..." 
+                                  className="w-full p-2 border border-blue-300 rounded uppercase font-mono font-bold" 
+                                  value={woSearchTerm} 
+                                  onChange={e => {
+                                      setWoSearchTerm(e.target.value);
+                                      if (!e.target.value) setIsWoPickerOpen(false);
+                                  }} 
+                                  onKeyDown={e => e.key === 'Enter' && handleSearchWO()}
+                              />
+                              
+                              {/* FLOATING PICKER OVERLAY */}
+                              {isWoPickerOpen && (
+                                  <div ref={pickerRef} className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl shadow-2xl border border-indigo-100 z-[100] max-h-72 overflow-y-auto animate-pop-in backdrop-blur-md bg-white/98">
+                                      <div className="p-2 bg-indigo-50 border-b border-indigo-100 sticky top-0 z-10 flex justify-between items-center">
+                                          <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest px-2">Pilih Work Order Aktif</span>
+                                          <button onClick={() => setIsWoPickerOpen(false)} className="p-1 hover:bg-white rounded-full text-indigo-400"><X size={14}/></button>
+                                      </div>
+                                      {woMatches.map(job => (
+                                          <div 
+                                              key={job.id} 
+                                              onClick={() => handleSelectJobFromPicker(job)}
+                                              className="p-4 hover:bg-indigo-50 cursor-pointer border-b last:border-0 group flex justify-between items-center transition-colors"
+                                          >
+                                              <div>
+                                                  <div className="flex items-center gap-2">
+                                                      <span className="font-black text-indigo-900 text-lg">{job.policeNumber}</span>
+                                                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-black">{job.woNumber || 'ESTIMASI'}</span>
+                                                  </div>
+                                                  <div className="text-xs text-gray-500 font-bold mt-1 uppercase tracking-tight">{job.customerName} | {job.carModel}</div>
+                                              </div>
+                                              <div className="text-right flex flex-col items-end gap-1">
+                                                  <span className="text-[9px] font-bold text-gray-400 uppercase flex items-center gap-1"><Clock size={10}/> {formatDateIndo(job.createdAt)}</span>
+                                                  <ChevronRight size={18} className="text-gray-300 group-hover:text-indigo-600 transition-colors"/>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
+                          <button onClick={handleSearchWO} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 flex items-center gap-2">
+                              {loading ? <Loader2 size={16} className="animate-spin"/> : <Search size={16}/>}
+                              Cari Data
+                          </button>
                       </div>
+
                       {foundJob && (
-                          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm animate-fade-in">
                               <div className="p-3 bg-gray-100 flex justify-between items-center border-b">
-                                  <div className="flex items-center gap-2 font-bold text-gray-800"><span>{foundJob.woNumber || 'ESTIMASI'}</span> | <span>{foundJob.policeNumber}</span></div>
-                                  <button onClick={handleImportPartsToPO} className="bg-green-600 text-white px-4 py-2 rounded text-xs font-bold hover:bg-green-700 flex items-center gap-1"><Plus size={14}/> Tambah ke PO</button>
+                                  <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-2 font-bold text-gray-800">
+                                          <Hash size={16} className="text-indigo-600"/>
+                                          <span>{foundJob.woNumber || 'ESTIMASI'}</span> 
+                                          <span className="text-gray-300 mx-1">|</span>
+                                          <span>{foundJob.policeNumber}</span>
+                                      </div>
+                                      <span className="text-xs font-bold text-gray-500 uppercase tracking-tighter">{foundJob.customerName}</span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                      <button onClick={() => setFoundJob(null)} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded">BATAL</button>
+                                      <button onClick={handleImportPartsToPO} className="bg-green-600 text-white px-4 py-2 rounded text-xs font-bold hover:bg-green-700 flex items-center gap-1 shadow-sm transition-transform active:scale-95"><Plus size={14}/> TAMBAH KE PO</button>
+                                  </div>
                               </div>
                               <table className="w-full text-sm text-left">
                                   <thead className="bg-gray-50"><tr><th className="p-3 w-10 text-center">Pilih</th><th className="p-3">Item Part SA</th><th className="p-3 w-20 text-center">Qty</th><th className="p-3 text-center">Set Indent?</th></tr></thead>
                                   <tbody className="divide-y">
                                       {foundJob.estimateData?.partItems?.map((part, idx) => (
-                                          <tr key={idx} className={part.isOrdered ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50'}>
-                                              <td className="p-3 text-center">{!part.isOrdered && <input type="checkbox" checked={selectedPartsFromWo[idx]?.selected || false} onChange={() => handleToggleWoPart(idx, 'selected')} className="w-4 h-4 cursor-pointer"/>}</td>
-                                              <td className="p-3"><div className="font-bold">{part.name}</div><div className="text-[10px] text-indigo-600 font-mono">{part.number || '-'}</div></td>
-                                              <td className="p-3 text-center font-bold">{part.qty || 1}</td>
-                                              <td className="p-3 text-center">{!part.isOrdered && selectedPartsFromWo[idx]?.selected && <label className="inline-flex items-center gap-1 cursor-pointer text-xs bg-white px-2 py-1 rounded border border-red-200"><input type="checkbox" checked={selectedPartsFromWo[idx]?.isIndent || false} onChange={() => handleToggleWoPart(idx, 'isIndent')} className="text-red-600 rounded"/><span className={selectedPartsFromWo[idx]?.isIndent ? 'text-red-600 font-bold' : 'text-gray-400'}>INDENT</span></label>}</td>
+                                          <tr key={idx} className={part.isOrdered ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50/50'}>
+                                              <td className="p-3 text-center">{!part.isOrdered && <input type="checkbox" checked={selectedPartsFromWo[idx]?.selected || false} onChange={() => handleToggleWoPart(idx, 'selected')} className="w-4 h-4 cursor-pointer text-indigo-600 rounded"/>}</td>
+                                              <td className="p-3"><div className="font-bold text-gray-800">{part.name}</div><div className="text-[10px] text-indigo-600 font-mono font-bold">{part.number || 'TANPA NO PART'}</div></td>
+                                              <td className="p-3 text-center font-bold text-gray-700">{part.qty || 1}</td>
+                                              <td className="p-3 text-center">{!part.isOrdered && selectedPartsFromWo[idx]?.selected && <label className="inline-flex items-center gap-1 cursor-pointer text-[10px] bg-white px-2 py-1 rounded border border-red-200 shadow-sm"><input type="checkbox" checked={selectedPartsFromWo[idx]?.isIndent || false} onChange={() => handleToggleWoPart(idx, 'isIndent')} className="text-red-600 rounded"/><span className={selectedPartsFromWo[idx]?.isIndent ? 'text-red-600 font-black' : 'text-gray-400 font-bold'}>INDENT</span></label>}</td>
                                           </tr>
                                       ))}
                                   </tbody>
@@ -742,7 +817,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               const rem = item.qty - (item.qtyReceived || 0);
                               return (
                                   <tr key={idx} className={rem <= 0 ? 'opacity-50 bg-gray-50' : ''}>
-                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/>}</td>}
+                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/> : null}</td>}
                                       <td className="p-3 border">
                                           <div><strong>{item.name}</strong></div>
                                           <div className="text-[10px] font-mono text-gray-500">
