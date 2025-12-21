@@ -118,6 +118,27 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       );
   };
 
+  const currentItem = findItem(materialSearchTerm);
+  
+  // Update selected unit when current item is detected
+  useEffect(() => {
+    if (currentItem) {
+      setSelectedUnit(currentItem.unit);
+    }
+  }, [currentItem]);
+
+  const unitOptions = useMemo(() => {
+      const base = currentItem?.unit || 'Pcs';
+      // Specific conversions for workshop materials
+      if (base === 'Liter' || base === 'ML') return ['Liter', 'ML', 'Gram'];
+      if (base === 'Kg' || base === 'Gram') return ['Kg', 'Gram', 'ML'];
+      if (base === 'Kaleng') return ['Kaleng', 'Liter', 'ML', 'Gram'];
+      if (base === 'Pcs') return ['Pcs', 'Set', 'Lembar', 'Roll'];
+      
+      const opts = [base];
+      return opts;
+  }, [currentItem]);
+
   const handleMaterialIssuance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedJob) return;
@@ -134,8 +155,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         return;
     }
 
+    // CONVERSION LOGIC: All sub-units (ML, Gram) are assumed 1/1000th of base (Liter, Kg, Kaleng)
     let finalDeductQty = qty;
-    if (selectedUnit === 'ML' || selectedUnit === 'Gram') finalDeductQty = qty / 1000;
+    if ((item.unit === 'Liter' || item.unit === 'Kg' || item.unit === 'Kaleng') && 
+        (selectedUnit === 'ML' || selectedUnit === 'Gram')) {
+        finalDeductQty = qty / 1000;
+    }
 
     setIsSubmitting(true);
     try {
@@ -143,7 +168,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         const currentStock = itemSnap.exists() ? Number(itemSnap.data().stock || 0) : 0;
 
         if (item.isStockManaged !== false && currentStock < finalDeductQty) {
-            throw new Error(`Stok tidak cukup! Tersedia: ${currentStock} ${item.unit}`);
+            throw new Error(`Stok tidak cukup! Tersedia: ${currentStock.toFixed(3)} ${item.unit}`);
         }
 
         const cost = (Number(item.buyPrice) || 0) * finalDeductQty;
@@ -196,7 +221,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             qty: reqQty, costPerUnit: Number(inv.buyPrice) || 0, totalCost: cost,
             category: 'sparepart', notes: 'Sesuai Estimasi WO',
             issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff',
-            refPartIndex: idx // STORES THE EXACT INDEX
+            refPartIndex: idx 
         });
 
         await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), {
@@ -235,15 +260,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     } catch (e: any) { showNotification(e.message, "error"); } 
     finally { setIsSubmitting(false); }
   };
-
-  const currentItem = findItem(materialSearchTerm);
-  const unitOptions = useMemo(() => {
-      const base = currentItem?.unit || 'Pcs';
-      const opts = [base];
-      if (base === 'Liter') opts.push('ML');
-      if (base === 'Kg') opts.push('Gram');
-      return opts;
-  }, [currentItem]);
 
   const themeColor = issuanceType === 'sparepart' ? 'indigo' : 'orange';
   const themeBg = issuanceType === 'sparepart' ? 'bg-indigo-600' : 'bg-orange-600';
@@ -416,7 +432,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                         <td className="px-6 py-4 text-center">
                                             {inv ? (
                                                 <div className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold ${readyStock >= reqQty ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
-                                                    {readyStock} {inv.unit}
+                                                    {readyStock.toFixed(2)} {inv.unit}
                                                 </div>
                                             ) : <span className="text-gray-400 text-xs italic">Link Lost</span>}
                                         </td>
@@ -466,13 +482,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                     className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 font-medium"
                                 />
                                 <datalist id="mat-list">
-                                    {materialInventory.map(m => <option key={m.id} value={m.name}>{m.code} | Stok: {m.stock} {m.unit}</option>)}
+                                    {materialInventory.map(m => <option key={m.id} value={m.name}>{m.code} | Stok: {m.stock.toFixed(2)} {m.unit}</option>)}
                                 </datalist>
                             </div>
                             {currentItem && (
                                 <div className="mt-2 text-xs flex justify-between items-center text-gray-600 bg-gray-50 p-2 rounded border border-gray-200">
                                     <span className="font-bold">{currentItem.name}</span>
-                                    <span>Stok: <strong className={currentItem.stock > 0 ? 'text-green-600' : 'text-red-600'}>{currentItem.stock} {currentItem.unit}</strong></span>
+                                    <span>Stok: <strong className={currentItem.stock > 0 ? 'text-green-600' : 'text-red-600'}>{currentItem.stock.toFixed(3)} {currentItem.unit}</strong></span>
                                 </div>
                             )}
                         </div>
