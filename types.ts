@@ -46,6 +46,8 @@ export interface Settings {
   carColors: string[]; 
   whatsappConfig?: {
     mode: 'API' | 'MANUAL';
+    waApiKey?: string;
+    waProvider?: 'Whacenter' | 'Fonnte' | 'Lainnya';
   };
   taxProfile?: 'UMKM' | 'UMUM';
   fixedPph25Amount?: number;

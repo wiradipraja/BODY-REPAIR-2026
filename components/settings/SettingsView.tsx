@@ -4,7 +4,7 @@ import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy,
 import { sendPasswordResetEmail, updatePassword } from 'firebase/auth';
 import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert } from 'lucide-react';
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
@@ -35,7 +35,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       role: 'Staff'
   });
 
-  // Change Password State
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -372,81 +371,105 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
                   
-                  {/* WHATSAPP MODE CONFIG */}
-                  <section className="bg-green-50/50 p-6 rounded-2xl border border-green-100">
-                      <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center gap-2">
-                        <MessageSquare className="text-green-600" size={20}/> Konfigurasi Pengiriman
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Pilih Mode WhatsApp</label>
-                              <div className="flex gap-4">
-                                  <button 
-                                      onClick={() => handleNestedChange('whatsappConfig', 'mode', 'MANUAL')}
-                                      className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'MANUAL' ? 'bg-white border-green-600 shadow-md ring-4 ring-green-50' : 'bg-gray-50 border-transparent opacity-60'}`}
-                                  >
-                                      <Smartphone className={localSettings.whatsappConfig?.mode === 'MANUAL' ? 'text-green-600' : 'text-gray-400'} size={24}/>
-                                      <div className="text-left"><p className="font-black text-xs uppercase">Manual (Personal)</p><p className="text-[10px] text-gray-500 leading-tight">Membuka Aplikasi WA Desktop/Web</p></div>
-                                  </button>
-                                  <button 
-                                      onClick={() => handleNestedChange('whatsappConfig', 'mode', 'API')}
-                                      className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'API' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent opacity-60'}`}
-                                  >
-                                      <Bot className={localSettings.whatsappConfig?.mode === 'API' ? 'text-indigo-600' : 'text-gray-400'} size={24}/>
-                                      <div className="text-left"><p className="font-black text-xs uppercase">Gateway API (Bot)</p><p className="text-[10px] text-gray-500 leading-tight">Pengiriman otomatis tanpa klik (Cloud)</p></div>
-                                  </button>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* WHATSAPP MODE CONFIG */}
+                      <section className="bg-green-50/50 p-6 rounded-2xl border border-green-100">
+                          <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center gap-2">
+                            <MessageSquare className="text-green-600" size={20}/> Konfigurasi Pengiriman
+                          </h3>
+                          <div className="space-y-6">
+                              <div>
+                                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Pilih Mode WhatsApp</label>
+                                  <div className="flex gap-4">
+                                      <button 
+                                          onClick={() => handleNestedChange('whatsappConfig', 'mode', 'MANUAL')}
+                                          className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'MANUAL' ? 'bg-white border-green-600 shadow-md ring-4 ring-green-50' : 'bg-gray-50 border-transparent opacity-60'}`}
+                                      >
+                                          <Smartphone className={localSettings.whatsappConfig?.mode === 'MANUAL' ? 'text-green-600' : 'text-gray-400'} size={24}/>
+                                          <div className="text-left"><p className="font-black text-xs uppercase">Manual (Personal)</p><p className="text-[10px] text-gray-500 leading-tight">Membuka Aplikasi WA Desktop/Web</p></div>
+                                      </button>
+                                      <button 
+                                          onClick={() => handleNestedChange('whatsappConfig', 'mode', 'API')}
+                                          className={`flex-1 p-4 rounded-xl border-2 flex items-center gap-3 transition-all ${localSettings.whatsappConfig?.mode === 'API' ? 'bg-white border-indigo-600 shadow-md ring-4 ring-indigo-50' : 'bg-gray-50 border-transparent opacity-60'}`}
+                                      >
+                                          <Bot className={localSettings.whatsappConfig?.mode === 'API' ? 'text-indigo-600' : 'text-gray-400'} size={24}/>
+                                          <div className="text-left"><p className="font-black text-xs uppercase">Gateway API (Bot)</p><p className="text-[10px] text-gray-500 leading-tight">Pengiriman otomatis tanpa klik (Cloud)</p></div>
+                                      </button>
+                                  </div>
                               </div>
-                          </div>
-                          <div className="bg-white/60 p-4 rounded-xl border border-green-100 flex items-start gap-3">
-                              <Info size={18} className="text-green-600 shrink-0 mt-0.5"/>
-                              <div className="text-xs text-green-800 leading-relaxed font-medium">
-                                  <strong>Variabel Template:</strong><br/>
-                                  Gunakan placeholder berikut dalam pesan agar terisi otomatis:<br/>
-                                  <code className="bg-green-100 px-1 rounded font-bold">{"{nama}"}</code> : Nama Pelanggan<br/>
-                                  <code className="bg-green-100 px-1 rounded font-bold">{"{mobil}"}</code> : Model Kendaraan<br/>
-                                  <code className="bg-green-100 px-1 rounded font-bold">{"{nopol}"}</code> : No. Polisi<br/>
-                                  <code className="bg-green-100 px-1 rounded font-bold">{"{tgl_booking}"}</code> : Tanggal Janji
-                              </div>
-                          </div>
-                      </div>
-                  </section>
+                              
+                              {localSettings.whatsappConfig?.mode === 'API' && (
+                                  <div className="space-y-4 p-4 bg-white rounded-xl border border-indigo-200 animate-fade-in">
+                                      <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm mb-2">
+                                          <KeyRound size={16}/> API Credentials (Client Owned)
+                                      </div>
+                                      <div>
+                                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pilih Provider Gateway</label>
+                                          <select 
+                                              value={localSettings.whatsappConfig?.waProvider || 'Whacenter'} 
+                                              onChange={e => handleNestedChange('whatsappConfig', 'waProvider', e.target.value)}
+                                              className="w-full p-2 border border-gray-200 rounded-lg text-sm"
+                                          >
+                                              <option value="Whacenter">Whacenter</option>
+                                              <option value="Fonnte">Fonnte</option>
+                                              <option value="Lainnya">Lainnya (Custom)</option>
+                                          </select>
+                                      </div>
+                                      <div>
+                                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">WA API KEY / TOKEN</label>
+                                          <input 
+                                              type="password" 
+                                              value={localSettings.whatsappConfig?.waApiKey || ''}
+                                              onChange={e => handleNestedChange('whatsappConfig', 'waApiKey', e.target.value)}
+                                              placeholder="Masukkan token dari provider..."
+                                              className="w-full p-2.5 border border-indigo-100 rounded-lg text-sm font-mono bg-indigo-50/30 focus:ring-2 focus:ring-indigo-500"
+                                          />
+                                          <p className="text-[9px] text-gray-400 mt-1 italic">* Token ini digunakan untuk pengiriman otomatis. Client disarankan membeli kuota sendiri ke provider.</p>
+                                      </div>
+                                  </div>
+                              )}
 
-                  {/* TEMPLATE EDITORS */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              <div className="bg-white/60 p-4 rounded-xl border border-green-100 flex items-start gap-3">
+                                  <Info size={18} className="text-green-600 shrink-0 mt-0.5"/>
+                                  <div className="text-xs text-green-800 leading-relaxed font-medium">
+                                      <strong>Variabel Template:</strong><br/>
+                                      Gunakan placeholder berikut dalam pesan agar terisi otomatis:<br/>
+                                      <code className="bg-green-100 px-1 rounded font-bold">{"{nama}"}</code> : Nama Pelanggan<br/>
+                                      <code className="bg-green-100 px-1 rounded font-bold">{"{mobil}"}</code> : Model Kendaraan<br/>
+                                      <code className="bg-green-100 px-1 rounded font-bold">{"{nopol}"}</code> : No. Polisi<br/>
+                                      <code className="bg-green-100 px-1 rounded font-bold">{"{tgl_booking}"}</code> : Tanggal Janji
+                                  </div>
+                              </div>
+                          </div>
+                      </section>
+
+                      {/* TEMPLATE EDITORS */}
                       <div className="space-y-6">
-                          <div>
-                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Calendar size={14}/> Template Pengingat Booking</label>
-                              <textarea 
-                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
-                                  value={localSettings.whatsappTemplates.bookingReminder}
-                                  onChange={e => handleNestedChange('whatsappTemplates', 'bookingReminder', e.target.value)}
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Smartphone size={14}/> Template After Service (CSI)</label>
-                              <textarea 
-                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
-                                  value={localSettings.whatsappTemplates.afterService}
-                                  onChange={e => handleNestedChange('whatsappTemplates', 'afterService', e.target.value)}
-                              />
-                          </div>
-                      </div>
-                      <div className="space-y-6">
-                          <div>
-                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><CheckCircle2 size={14}/> Template Unit Siap Ambil</label>
-                              <textarea 
-                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
-                                  value={localSettings.whatsappTemplates.readyForPickup}
-                                  onChange={e => handleNestedChange('whatsappTemplates', 'readyForPickup', e.target.value)}
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Send size={14}/> Template Broadcast Promo</label>
-                              <textarea 
-                                  className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[120px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
-                                  value={localSettings.whatsappTemplates.promoBroadcast}
-                                  onChange={e => handleNestedChange('whatsappTemplates', 'promoBroadcast', e.target.value)}
-                              />
+                          <div className="grid grid-cols-1 gap-6">
+                              <div>
+                                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Calendar size={14}/> Template Pengingat Booking</label>
+                                  <textarea 
+                                      className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[100px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                      value={localSettings.whatsappTemplates.bookingReminder}
+                                      onChange={e => handleNestedChange('whatsappTemplates', 'bookingReminder', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><CheckCircle2 size={14}/> Template Unit Siap Ambil</label>
+                                  <textarea 
+                                      className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[100px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                      value={localSettings.whatsappTemplates.readyForPickup}
+                                      onChange={e => handleNestedChange('whatsappTemplates', 'readyForPickup', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Smartphone size={14}/> Template After Service (CSI)</label>
+                                  <textarea 
+                                      className="w-full p-4 border border-gray-200 rounded-xl text-sm min-h-[100px] focus:ring-4 focus:ring-green-50 transition-all font-medium" 
+                                      value={localSettings.whatsappTemplates.afterService}
+                                      onChange={e => handleNestedChange('whatsappTemplates', 'afterService', e.target.value)}
+                                  />
+                              </div>
                           </div>
                       </div>
                   </div>
@@ -553,7 +576,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         <button disabled={isLoading || !isManager} type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 shadow-lg font-black">{isLoading ? 'Proses...' : 'SIMPAN DATA'}</button>
                       </form>
 
-                      {/* RESTORED: SPECIAL COLOR RATES SECTION */}
                       <div className="mt-8 pt-8 border-t border-gray-100">
                           <div className="flex justify-between items-center mb-4">
                               <h4 className="font-black text-rose-800 flex items-center gap-2 uppercase tracking-widest text-[10px]">
@@ -626,7 +648,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'database' && (
               <div className="space-y-10 animate-fade-in">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      {/* USER MANAGEMENT */}
                       <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 flex flex-col h-fit ${!isManager ? 'opacity-80 pointer-events-none' : ''}`}>
                           <div className="flex justify-between items-center mb-6">
                               <h4 className="font-bold text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs">
@@ -663,7 +684,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           {!isManager && <div className="mt-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg border border-red-100 flex items-center gap-2"><ShieldAlert size={14}/> Hanya Manager yang dapat mendaftarkan/menghapus user.</div>}
                       </div>
 
-                      {/* PERSONAL SECURITY SETTINGS */}
                       <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm h-fit">
                           <h4 className="font-bold text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs mb-6">
                               <Lock size={16} className="text-indigo-600"/> Keamanan Akun Anda
@@ -700,7 +720,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* MECHANICS LIST */}
                     <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
                         <RestrictedOverlay/>
                         <div className="flex justify-between items-center mb-4">
@@ -723,7 +742,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         </div>
                     </div>
 
-                    {/* USER ROLES CRUD */}
                     <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
                         <RestrictedOverlay/>
                         <div className="flex justify-between items-center mb-4">
