@@ -1,9 +1,9 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-// Added Users to the imports from lucide-react to fix the "Cannot find name 'Users'" error.
 import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
@@ -131,9 +131,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       if (!isManager) return;
       setIsLoading(true);
       try {
-          // Note: Since we are using client-side SDK, we can't create Auth accounts without logging out.
-          // This logic creates the Firestore profile. New users must register or admin uses Admin SDK.
-          // For this setup, we define the profile so the user gets permissions upon first login.
           const userRef = doc(collection(db, USERS_COLLECTION));
           await updateDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
               email: userForm.email.toLowerCase(),
@@ -145,7 +142,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           setIsUserModalOpen(false);
           loadUsers();
       } catch (e: any) {
-          // If updateDoc fails because doc doesn't exist, we use setDoc (managed via USERS_COLLECTION ref)
           try {
               const uRef = doc(db, USERS_COLLECTION, userForm.email.toLowerCase());
               await addDoc(collection(db, USERS_COLLECTION), {
@@ -454,8 +450,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay/>
                   
-                  {/* EXISTING: MECHANIC & SA */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* EXISTING: MECHANIC */}
+                  <div className="grid grid-cols-1 gap-8">
                       <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
                           <div className="flex justify-between items-center mb-4">
                               <h4 className="font-bold text-gray-700 flex items-center gap-2"><Wrench size={16}/> Daftar Mekanik</h4>
@@ -466,21 +462,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                   <div key={idx} className="flex gap-2 group animate-fade-in">
                                       <input type="text" className="flex-grow p-2 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
                                       <button onClick={() => removeItem('mechanicNames', idx)} className="text-red-300 hover:text-red-600 transition-opacity opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-
-                      <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
-                          <div className="flex justify-between items-center mb-4">
-                              <h4 className="font-bold text-gray-700 flex items-center gap-2"><User size={16}/> Service Advisor (SA)</h4>
-                              <button onClick={() => addItem('serviceAdvisors', '')} className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-bold hover:bg-indigo-200"><Plus size={14}/> Tambah</button>
-                          </div>
-                          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                              {(localSettings.serviceAdvisors || []).map((sa, idx) => (
-                                  <div key={idx} className="flex gap-2 group animate-fade-in">
-                                      <input type="text" className="flex-grow p-2 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500" value={sa} onChange={e => handleArrayChange('serviceAdvisors', idx, e.target.value)} />
-                                      <button onClick={() => removeItem('serviceAdvisors', idx)} className="text-red-300 hover:text-red-600 transition-opacity opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>
                                   </div>
                               ))}
                           </div>

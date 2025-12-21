@@ -212,7 +212,7 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             <h4 className="text-base font-bold text-gray-800">Administrasi & Penjamin</h4>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Pihak Penjamin (Asuransi)</label>
                 <select 
@@ -223,7 +223,7 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                 </select>
             </div>
 
-            {isInsurance && (
+            {isInsurance ? (
                 <>
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Nomor Polis</label>
@@ -234,15 +234,10 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
                         <input type="date" name="asuransiExpiryDate" value={formData.asuransiExpiryDate || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 font-bold text-gray-700" />
                     </div>
                 </>
+            ) : (
+                /* Empty div to balance grid when not insurance */
+                <div className="hidden md:block"></div>
             )}
-
-            <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Service Advisor (SA)</label>
-                <select name="namaSA" value={formData.namaSA} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 font-bold">
-                    <option value="">-- Pilih SA --</option>
-                    {(settings.serviceAdvisors || []).map(sa => <option key={sa} value={sa}>{sa}</option>)}
-                </select>
-            </div>
         </div>
       </div>
 

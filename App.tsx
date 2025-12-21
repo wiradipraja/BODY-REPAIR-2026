@@ -134,11 +134,14 @@ const AppContent: React.FC = () => {
               await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(formData));
               showNotification("Database Unit diperbarui.", "success");
           } else {
-              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject({
+              // Automatically assign namaSA if not present (only for new units)
+              const payload = {
                   ...formData,
+                  namaSA: (formData as any).namaSA || userData.displayName,
                   createdAt: serverTimestamp(),
                   isDeleted: false
-              }));
+              };
+              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject(payload));
               showNotification("Unit baru berhasil didaftarkan.", "success");
           }
           closeModal();
@@ -168,6 +171,7 @@ const AppContent: React.FC = () => {
           isClosed: false,
           hargaJasa: 0,
           hargaPart: 0,
+          namaSA: vehicle.namaAsuransi === 'Umum / Pribadi' ? userData.displayName || '' : '', // Placeholder
           costData: { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
           estimateData: { grandTotal: 0, jasaItems: [], partItems: [], discountJasa: 0, discountPart: 0, discountJasaAmount: 0, discountPartAmount: 0, ppnAmount: 0, subtotalJasa: 0, subtotalPart: 0 }
       };
@@ -320,7 +324,7 @@ const AppContent: React.FC = () => {
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
-        {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} /> )}
+        {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} vehicles={vehicles} /> )}
 
         <Modal isOpen={modalState.isOpen} onClose={closeModal} title={modalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={modalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
             {modalState.type === 'create_estimation' && modalState.data && ( <EstimateEditor job={modalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}

@@ -19,7 +19,7 @@ export const initialSettingsState: Settings = {
     afterServiceFollowUpDays: 3,
     nationalHolidays: [],
     mechanicNames: ["Mekanik A", "Mekanik B", "Mekanik C", "Mekanik D"].sort(),
-    serviceAdvisors: ["Oscar", "Andika"].sort(),
+    serviceAdvisors: [],
     insuranceOptions: [
         { name: "ABDA / OONA Ins", jasa: 10, part: 5 }, { name: "ACA Insurance", jasa: 10, part: 7.5 },
         { name: "BCA Insurance", jasa: 10, part: 5 }, { name: "Garda Oto Ins", jasa: 10, part: 5 },
