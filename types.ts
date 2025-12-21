@@ -49,7 +49,7 @@ export interface Settings {
   };
   taxProfile?: 'UMKM' | 'UMUM';
   fixedPph25Amount?: number;
-  language: 'id' | 'en'; // NEW: Multi-language support
+  language: 'id' | 'en'; 
 }
 
 export interface UserProfile {
@@ -124,6 +124,7 @@ export interface UsageLogItem {
   notes?: string;
   issuedAt: string;
   issuedBy: string;
+  refPartIndex?: number; // NEW: To precisely identify which part line item to revert
 }
 
 export interface SpklItem {
@@ -292,6 +293,7 @@ export interface PurchaseOrder {
   receivedAt?: any;
   rejectionReason?: string;
   lastModified?: any;
+  date?: any;
 }
 
 export interface CashierTransaction {

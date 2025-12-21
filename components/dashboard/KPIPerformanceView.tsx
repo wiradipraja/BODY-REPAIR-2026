@@ -25,7 +25,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
     // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation
     const invoicedPeriodJobs = jobs.filter(j => {
-        if (j.isDeleted || !j.hasInvoice) return false;
+        if (j.isDeleted || !j.hasInvoice || !j.closedAt) return false;
         const dateObj = j.closedAt?.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
@@ -67,6 +67,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const adjustedWeeklyTarget = remainingMonthlyTarget / remainingWeeks;
 
     const weeklyInvoicedJobs = invoicedPeriodJobs.filter(j => {
+        if (!j.closedAt) return false;
         const d = j.closedAt?.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
         const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
         return isCurrentMonth ? (diffDays <= 7) : false;
@@ -88,7 +89,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         const paid = transactions.filter(t => t.refJobId === job.id && t.type === 'IN').reduce((acc, t) => acc + (t.amount || 0), 0);
         const remaining = totalBill - paid;
         const dateRef = job.closedAt?.toDate ? job.closedAt.toDate() : (job.createdAt?.toDate ? job.createdAt.toDate() : new Date());
-        const ageDays = Math.floor((Date.now() - dateRef.getTime()) / (1000 * 3600 * 24));
+        const ageDays = dateRef ? Math.floor((Date.now() - dateRef.getTime()) / (1000 * 3600 * 24)) : 0;
         return { remaining, ageDays };
     }).filter(i => i.remaining > 1000);
 
@@ -129,7 +130,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         });
     });
 
-    // Count estimation attempts
     jobs.filter(j => {
         if (j.isDeleted) return false;
         const d = j.createdAt?.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
@@ -154,7 +154,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
   return (
     <div className="space-y-8 animate-fade-in pb-12">
-        {/* HEADER & FILTER */}
         <div className="bg-slate-900 p-8 rounded-3xl text-white shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
             <div className="absolute right-0 top-0 p-4 opacity-10 rotate-12 scale-150"><Trophy size={200}/></div>
             <div className="relative z-10 text-center md:text-left">
@@ -177,7 +176,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             </div>
         </div>
 
-        {/* TARGET BOARD */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><Flag size={120}/></div>
@@ -244,7 +242,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            {/* SA PERFORMANCE */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
                     <h3 className="font-black text-indigo-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Users size={18}/> Service Advisor Performance (Realized GP)</h3>
@@ -269,7 +266,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
-            {/* PRODUKSI */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center"><h3 className="font-black text-blue-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Hammer size={18}/> Produksi & Kualitas (Closed WOs)</h3></div>
                 <div className="p-6 overflow-x-auto">
@@ -282,13 +278,11 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
-            {/* CRM */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center"><h3 className="font-black text-emerald-900 flex items-center gap-2 uppercase tracking-widest text-xs"><MessageSquare size={18}/> CRM & Customer Care</h3></div>
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-6"><div><div className="flex justify-between items-end mb-2"><span className="text-xs font-bold text-gray-500 uppercase">Success Ratio Follow-up</span><span className="text-2xl font-black text-emerald-600">{stats.successRatio.toFixed(1)}%</span></div><div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden border border-gray-200"><div className="bg-emerald-500 h-full" style={{ width: `${stats.successRatio}%` }}></div></div><p className="text-[10px] text-gray-400 font-bold mt-2 flex items-center gap-1"><PhoneCall size={10}/> Total {stats.totalFollowUps} contacted</p></div></div><div className="bg-gray-50 rounded-3xl p-6 flex flex-col items-center justify-center text-center"><div className="p-4 bg-white rounded-full shadow-sm mb-4"><Target size={32} className="text-emerald-500"/></div><h4 className="font-black text-gray-800 text-sm">Booking Goal</h4><p className="text-xs text-gray-500 mt-2">Fokus pada konversi panggil menjadi jadwal Booking Fisik.</p></div></div>
             </div>
 
-            {/* FINANCE AR AGING - RESTORED TOTAL AR DISPLAY */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-rose-50 border-b border-rose-100 flex justify-between items-center">
                     <h3 className="font-black text-rose-900 flex items-center gap-2 uppercase tracking-widest text-xs">

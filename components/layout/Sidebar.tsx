@@ -172,7 +172,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <aside className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white shadow-xl flex flex-col z-30 transform transition-transform duration-200 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold text-indigo-700">Mazda Ranger</h2>
+            <h2 className="text-xl font-bold text-indigo-700">ReForma</h2>
             <p className="text-xs text-gray-500">Body & Paint System</p>
           </div>
           <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-500"><Menu size={20} /></button>

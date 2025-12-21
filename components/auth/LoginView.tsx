@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, User, AlertCircle, Loader2 } from 'lucide-react';
+import { LogIn, AlertCircle, Loader2 } from 'lucide-react';
 
 const LoginView: React.FC = () => {
-  const { login, loginAnonymously } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,19 +30,6 @@ const LoginView: React.FC = () => {
     }
   };
 
-  const handleGuestLogin = async () => {
-    setLoading(true);
-    setError('');
-    try {
-        await loginAnonymously();
-    } catch (err: any) {
-        console.error("Guest Login Error:", err);
-        setError('Mode Demo tidak tersedia saat ini.');
-    } finally {
-        setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-blue-100 p-4 font-sans">
       <div className="bg-white p-8 md:p-10 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in border border-white/50 relative overflow-hidden">
@@ -50,7 +37,7 @@ const LoginView: React.FC = () => {
         <div className="absolute -right-12 -top-12 w-32 h-32 bg-indigo-50 rounded-full opacity-50"></div>
         
         <div className="text-center mb-10 relative z-10">
-            <h1 className="text-3xl font-black text-indigo-900 tracking-tighter">MAZDA RANGER</h1>
+            <h1 className="text-3xl font-black text-indigo-900 tracking-tighter">ReForma</h1>
             <p className="text-[10px] font-black text-indigo-400 mt-1 uppercase tracking-[0.2em]">Body & Paint Management System</p>
         </div>
         
@@ -72,7 +59,7 @@ const LoginView: React.FC = () => {
               value={email} 
               onChange={e => setEmail(e.target.value)} 
               className="block w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-gray-700 font-normal" 
-              placeholder="admin@mazdaranger.com" 
+              placeholder="admin@reforma.com" 
               required
             />
           </div>
@@ -97,25 +84,8 @@ const LoginView: React.FC = () => {
           </button>
         </form>
 
-        <div className="relative my-8">
-            <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-100"></div>
-            </div>
-            <div className="relative flex justify-center text-[10px]">
-                <span className="px-4 bg-white text-gray-300 font-bold uppercase tracking-[0.3em]">Secure Access</span>
-            </div>
-        </div>
-
-        <button 
-            onClick={handleGuestLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-white text-indigo-600 border-2 border-indigo-50 py-3 rounded-xl hover:bg-indigo-50 hover:border-indigo-100 transition-all font-black text-xs tracking-wide"
-        >
-            <User size={18} /> GUEST DEMO MODE
-        </button>
-
-        <div className="mt-8 text-center">
-            <p className="text-[9px] text-gray-300 font-bold uppercase tracking-[0.2em]">© 2025 Mazda Ranger Workshop</p>
+        <div className="mt-12 text-center">
+            <p className="text-[9px] text-gray-300 font-bold uppercase tracking-[0.2em]">© 2025 ReForma Workshop • Secure Access Only</p>
         </div>
       </div>
     </div>

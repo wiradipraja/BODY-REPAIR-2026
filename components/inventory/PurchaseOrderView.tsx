@@ -37,11 +37,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       items: [],
       notes: '',
       hasPpn: false,
-      date: new Date().toISOString().split('T')[0] // Default today
+      date: new Date().toISOString().split('T')[0] 
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Floating Picker States for WO Search
   const [woSearchTerm, setWoSearchTerm] = useState('');
   const [foundJob, setFoundJob] = useState<Job | null>(null);
   const [woMatches, setWoMatches] = useState<Job[]>([]);
@@ -383,10 +382,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const supplier = suppliers.find(s => s.id === poForm.supplierId);
       if (!supplier) return;
 
-      const dateObj = new Date();
-      const prefix = `PO-${dateObj.getFullYear().toString().substr(-2)}${(dateObj.getMonth()+1).toString().padStart(2,'0')}`;
-      const random = Math.floor(1000 + Math.random() * 9000);
-      const poNumber = `${prefix}-${random}`;
+      // IMPROVED PO NUMBERING: Timestamp + Random to prevent collisions
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(2, 14);
+      const poNumber = `PO-${timestamp}`;
+
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
       const sanitizedItems = (poForm.items || []).map((item: any) => ({
@@ -401,7 +401,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           items: sanitizedItems,
           notes: poForm.notes || '',
           hasPpn: poForm.hasPpn || false,
-          date: poForm.date, // NEW EXPLICIT DATE
+          date: poForm.date, 
           poNumber,
           supplierName: supplier.name,
           status,

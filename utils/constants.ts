@@ -8,10 +8,10 @@ export const posisiKendaraanOptions = ["Di Pemilik", "Di Bengkel"];
 export const jobdeskOptions = ["Service Advisor", "Admin Bengkel", "CRC", "Foreman", "Manager", "Partman", "Ass. Partman"].sort();
 
 export const initialSettingsState: Settings = {
-    workshopName: "MAZDA RANGER BODY & PAINT",
+    workshopName: "REFORMA BODY & PAINT",
     workshopAddress: "Jl. Pangeran Antasari No. 12, Jakarta Selatan",
     workshopPhone: "(021) 750-9999",
-    workshopEmail: "service@mazdaranger.com",
+    workshopEmail: "service@reforma.com",
     
     ppnPercentage: 11,
     monthlyTarget: 600000000,
@@ -55,9 +55,9 @@ export const initialSettingsState: Settings = {
     roleOptions: ["Manager", "Service Advisor", "Admin Bengkel", "Foreman", "Sparepart", "Staff", "CRC"],
     workshopBankAccounts: [], 
     whatsappTemplates: {
-        bookingReminder: "Halo Bpk/Ibu {nama}, kami mengonfirmasi jadwal booking perbaikan {mobil} ({nopol}) pada tanggal {tgl_booking}. Mohon kehadirannya tepat waktu di Mazda Ranger. Terima kasih.",
-        afterService: "Halo Bpk/Ibu {nama}, terima kasih telah mempercayakan perbaikan {mobil} di Mazda Ranger. Bagaimana hasil perbaikannya? Mohon luangkan waktu untuk memberi penilaian.",
+        bookingReminder: "Halo Bpk/Ibu {nama}, kami mengonfirmasi jadwal booking perbaikan {mobil} ({nopol}) pada tanggal {tgl_booking}. Mohon kehadirannya tepat waktu di ReForma. Terima kasih.",
+        afterService: "Halo Bpk/Ibu {nama}, terima kasih telah mempercayakan perbaikan {mobil} di ReForma. Bagaimana hasil perbaikannya? Mohon luangkan waktu untuk memberi penilaian.",
         readyForPickup: "Kabar Gembira! Kendaraan {mobil} ({nopol}) milik Bpk/Ibu {nama} sudah selesai diperbaiki dan siap diambil. Terima kasih."
     },
-    language: 'id' // NEW DEFAULT
+    language: 'id'
 };

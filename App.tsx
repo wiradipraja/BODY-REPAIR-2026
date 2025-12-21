@@ -12,7 +12,7 @@ import MainDashboard from './components/dashboard/MainDashboard';
 import OverviewDashboard from './components/dashboard/OverviewDashboard';
 import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView'; 
 import KPIPerformanceView from './components/dashboard/KPIPerformanceView';
-import AIAssistantView from './components/dashboard/AIAssistantView'; // NEW
+import AIAssistantView from './components/dashboard/AIAssistantView'; 
 import LoginView from './components/auth/LoginView';
 import Sidebar from './components/layout/Sidebar';
 import Modal from './components/ui/Modal';
@@ -35,7 +35,6 @@ import CrcDashboardView from './components/crc/CrcDashboardView';
 import JobControlView from './components/production/JobControlView';
 import ClaimsControlView from './components/admin/ClaimsControlView'; 
 import ReportCenterView from './components/reports/ReportCenterView';
-import { Menu, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
@@ -44,7 +43,6 @@ const AppContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   
-  // GLOBAL REAL-TIME DATA STATES
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -55,7 +53,6 @@ const AppContent: React.FC = () => {
   
   const [loadingData, setLoadingData] = useState(true);
 
-  // CENTRALIZED REALTIME LISTENERS
   useEffect(() => {
     if (!user) return;
     setLoadingData(true);
@@ -116,7 +113,6 @@ const AppContent: React.FC = () => {
   const [showClosedJobs, setShowClosedJobs] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
-  // Fix: Removed redundant and broken modalState object that was causing a destructuring error.
   const [actualModalState, setActualModalState] = useState<{
       isOpen: boolean;
       type: 'add_job' | 'edit_data' | 'edit_job' | 'create_estimation' | null;
@@ -231,7 +227,9 @@ const AppContent: React.FC = () => {
 
           if (woNumber) { 
               basePayload.woNumber = woNumber; 
-              basePayload.statusKendaraan = 'Work In Progress'; 
+              if (basePayload.statusKendaraan === 'Tunggu Estimasi' || basePayload.statusKendaraan === 'Tunggu SPK Asuransi') {
+                basePayload.statusKendaraan = 'Work In Progress'; 
+              }
           }
 
           if (isNew) {
@@ -251,12 +249,27 @@ const AppContent: React.FC = () => {
       const partItems = job.estimateData?.partItems || [];
       const hasUnissuedParts = partItems.some(p => !p.hasArrived);
       if (hasUnissuedParts) { alert("Gagal Tutup WO: Terdapat item Sparepart yang belum dikeluarkan (Issued) dari Gudang."); return; }
+      
       const hasMaterials = job.usageLog?.some(l => l.category === 'material');
       if (!hasMaterials) { alert("Gagal Tutup WO: Belum ada record pembebanan Bahan Baku (Material). Pastikan Bahan sudah dialokasikan."); return; }
-      if (!window.confirm(`Yakin ingin menutup WO ${job.woNumber}? Data pembebanan sudah divalidasi.`)) return;
+      
+      const hasOpenSpkl = (job.spklItems || []).some(s => s.status === 'Open');
+      if (hasOpenSpkl) { alert("Gagal Tutup WO: Masih ada SPKL (Jasa Luar) yang berstatus OPEN. Selesaikan biaya vendor terlebih dahulu."); return; }
+
+      // BUG FIX: Check for the new final status
+      if (job.statusKendaraan !== 'Selesai (Tunggu Pengambilan)' && job.statusPekerjaan !== 'Selesai') {
+          if (!window.confirm("Unit belum dinyatakan selesai di Papan Kontrol. Yakin ingin menutup WO secara paksa?")) return;
+      } else {
+          if (!window.confirm(`Yakin ingin menutup WO ${job.woNumber}? Data pembebanan sudah divalidasi.`)) return;
+      }
 
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { isClosed: true, closedAt: serverTimestamp(), statusKendaraan: 'Selesai', statusPekerjaan: 'Selesai' }); 
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+              isClosed: true, 
+              closedAt: serverTimestamp(), 
+              statusKendaraan: 'Sudah Diambil Pemilik', 
+              statusPekerjaan: 'Selesai' 
+          }); 
           showNotification("WO Berhasil Ditutup.", "success");
       } catch (e) { showNotification("Gagal menutup WO.", "error"); }
   };
@@ -264,7 +277,7 @@ const AppContent: React.FC = () => {
   const filteredJobs = useMemo(() => {
       let fJobs = jobs;
       if (!showClosedJobs) fJobs = fJobs.filter(j => !j.isClosed);
-      if (searchQuery) fJobs = fJobs.filter(j => j.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()));
+      if (searchQuery) fJobs = fJobs.filter(j => j.policeNumber.toLowerCase().includes(searchQuery.toLowerCase()) || j.customerName.toLowerCase().includes(searchQuery.toLowerCase()));
       if (filterStatus) fJobs = fJobs.filter(j => j.statusKendaraan === filterStatus);
       if (filterWorkStatus) fJobs = fJobs.filter(j => j.statusPekerjaan === filterWorkStatus);
       return fJobs;

@@ -195,7 +195,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             itemId: inv.id, itemName: inv.name, itemCode: inv.code || '-',
             qty: reqQty, costPerUnit: Number(inv.buyPrice) || 0, totalCost: cost,
             category: 'sparepart', notes: 'Sesuai Estimasi WO',
-            issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff'
+            issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff',
+            refPartIndex: idx // STORES THE EXACT INDEX
         });
 
         await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), {
@@ -220,11 +221,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         const newLog = (selectedJob.usageLog || []).filter(l => !(l.itemId === log.itemId && l.issuedAt === log.issuedAt));
         const field = log.category === 'material' ? 'costData.hargaModalBahan' : 'costData.hargaBeliPart';
         const payload: any = { usageLog: newLog, [field]: increment(-log.totalCost) };
-        if (log.category === 'sparepart') {
+        
+        if (log.category === 'sparepart' && log.refPartIndex !== undefined) {
             const parts = [...(selectedJob.estimateData?.partItems || [])];
-            const pIdx = parts.findIndex(p => p.inventoryId === log.itemId && p.hasArrived);
-            if (pIdx >= 0) parts[pIdx].hasArrived = false;
-            payload['estimateData.partItems'] = parts;
+            if (parts[log.refPartIndex]) {
+                parts[log.refPartIndex] = { ...parts[log.refPartIndex], hasArrived: false };
+                payload['estimateData.partItems'] = parts;
+            }
         }
         await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), cleanObject(payload));
         showNotification("Berhasil dibatalkan.", "success");
@@ -249,7 +252,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-        {/* HEADER STANDARD */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
                 <div className={`p-3 rounded-xl shadow-sm text-white ${themeBg}`}>
@@ -270,7 +272,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         </div>
 
-        {/* SEARCH WORK ORDER */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -287,7 +288,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                     className="w-full pl-4 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono font-bold uppercase text-lg"
                 />
                 
-                {/* DROPDOWN RESULTS */}
                 {filterWo && !selectedJobId && (
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-80 overflow-y-auto divide-y divide-gray-100">
                         {filteredJobs.length > 0 ? filteredJobs.map(job => (
@@ -310,7 +310,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 )}
             </div>
 
-            {/* SELECTED CONTEXT */}
             {selectedJob && (
                 <div className={`mt-4 p-4 rounded-lg border flex flex-col md:flex-row justify-between items-center gap-4 ${issuanceType === 'sparepart' ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
                     <div className="flex items-center gap-4">
@@ -334,7 +333,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* RECOMMENDATIONS - READY */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
                     <Zap size={16} className="text-indigo-500"/>
@@ -357,7 +355,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 </div>
             </div>
 
-            {/* RECOMMENDATIONS - NEED INPUT */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
                     <Target size={16} className="text-orange-500"/>
@@ -381,7 +378,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         </div>
 
-        {/* SPAREPART ISSUANCE TABLE */}
         {issuanceType === 'sparepart' && selectedJob && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
                 <div className="p-4 bg-gray-50 border-b flex items-center gap-3">
@@ -448,7 +444,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* MATERIAL ISSUANCE FORM */}
         {issuanceType === 'material' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-fade-in">
                 <div className="flex items-center gap-3 mb-6 pb-4 border-b">
@@ -527,7 +522,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         )}
 
-        {/* HISTORY TABLE */}
         {selectedJob && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
                 <div className="p-4 bg-gray-50 border-b flex justify-between items-center">

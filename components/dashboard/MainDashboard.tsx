@@ -2,7 +2,7 @@
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
-import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw, ShieldAlert, Clock, UserCheck, Stethoscope } from 'lucide-react';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw, ShieldAlert, Clock, UserCheck, Stethoscope, CheckCircle2 } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
@@ -28,14 +28,12 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
   searchQuery, setSearchQuery, filterStatus, setFilterStatus,
   filterWorkStatus, setFilterWorkStatus, showClosedJobs, setShowClosedJobs, settings
 }) => {
+  const lang = settings.language || 'id';
 
   const handleExportGeneralData = () => {
       const dataToExport = allData.map(job => {
            const revenueJasa = job.hargaJasa || 0;
            const revenuePart = job.hargaPart || 0;
-           const simBahan = revenueJasa * 0.15;
-           const simBeliPart = revenuePart * 0.80;
-           const grossProfit = (revenueJasa + revenuePart) - (simBahan + simBeliPart);
            const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
 
           return {
@@ -43,13 +41,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
             'No Polisi': job.policeNumber || '',
             'Nama Pelanggan': job.customerName || '',
             'Nama Asuransi': job.namaAsuransi || '',
-            'No. HP/WA': `="${job.customerPhone || ''}"`,
             'Model Mobil': job.carModel || '',
             'Jumlah Panel': totalPanelValue,
             'Status Kendaraan': job.statusKendaraan || '',
             'Status Pekerjaan': job.statusPekerjaan || '',
-            'Tgl Estimasi Selesai': formatDateIndo(job.tanggalEstimasiSelesai),
-            'Est. Gross Profit': grossProfit
+            'Total Bill': job.estimateData?.grandTotal || 0
           };
       });
       exportToCsv('Laporan_Data_Unit.csv', dataToExport);
@@ -63,7 +59,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
       if (status.includes('Tunggu Part')) return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock, ribbon: 'OUT-GUEST' };
       if (status.includes('Rawat Jalan')) return { color: 'bg-indigo-100 text-indigo-700 border-indigo-200 ring-1 ring-indigo-200', icon: Stethoscope, ribbon: 'ACTIVE-OUT' };
       if (status.includes('Booking')) return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: UserCheck };
-      if (status.includes('Selesai')) return { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle };
+      
+      // BUG FIX: Added style for the new integrated status
+      if (status.includes('Selesai (Tunggu Pengambilan)')) return { color: 'bg-emerald-100 text-emerald-700 border-emerald-300 ring-1 ring-emerald-100', icon: CheckCircle2, ribbon: 'READY-CRC' };
+      
+      if (status.includes('Selesai') || status.includes('Diambil')) return { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle };
       return { color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: RotateCcw };
   };
 
@@ -83,7 +83,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
                         <input 
                             type="text" 
-                            placeholder="Cari No. Polisi, Pelanggan..." 
+                            placeholder={lang === 'id' ? "Cari No. Polisi, Pelanggan..." : "Search Plate, Customer..."}
                             value={searchQuery} 
                             onChange={e => setSearchQuery(e.target.value.toUpperCase())} 
                             className="pl-10 p-2.5 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-indigo-500 transition-all"
@@ -93,11 +93,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                     <div className="flex items-center gap-2">
                         <Filter size={18} className="text-gray-400" />
                         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm">
-                            <option value="">Status Kendaraan</option>
+                            <option value="">{lang === 'id' ? 'Status Kendaraan' : 'Unit Status'}</option>
                             {(settings.statusKendaraanOptions || []).map(opt => <option key={opt}>{opt}</option>)}
                         </select>
                         <select value={filterWorkStatus} onChange={e => setFilterWorkStatus(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm">
-                            <option value="">Status Pekerjaan</option>
+                            <option value="">{lang === 'id' ? 'Status Pekerjaan' : 'Work Progress'}</option>
                             {(settings.statusPekerjaanOptions || []).map(opt => <option key={opt}>{opt}</option>)}
                         </select>
                     </div>
@@ -110,7 +110,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
                             <div className={`block w-10 h-6 rounded-full ${showClosedJobs ? 'bg-indigo-600' : 'bg-gray-300'}`}></div>
                             <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showClosedJobs ? 'transform translate-x-4' : ''}`}></div>
                         </div>
-                        Tampilkan Closed WO
+                        {lang === 'id' ? 'Tampilkan Closed WO' : 'Show Closed WO'}
                     </label>
                 </div>
             </div>
@@ -131,7 +131,6 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
            
            return (
               <div key={job.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all group flex flex-col">
-                  {/* Status Ribbon */}
                   {config.ribbon && (
                       <div className={`text-[9px] font-black tracking-widest text-center py-0.5 ${config.color} border-b`}>
                           {config.ribbon}
@@ -162,8 +161,8 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
 
                       <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                           <div className="flex justify-between items-center mb-1">
-                              <span className="text-[10px] font-bold text-gray-400 uppercase">Status Kontrol</span>
-                              <span className="text-[10px] font-bold text-gray-400 uppercase">Pekerjaan</span>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Status Kontrol' : 'Control Status'}</span>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Pekerjaan' : 'Work Progress'}</span>
                           </div>
                           <div className="flex justify-between items-center">
                               <span className={`text-[11px] font-black ${config.color.split(' ')[1]} uppercase`}>{job.statusKendaraan}</span>
@@ -185,7 +184,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
               </div>
            );
         })}
-        {allData.length === 0 && <div className="col-span-full py-20 text-center text-gray-400 italic">Data tidak ditemukan.</div>}
+        {allData.length === 0 && <div className="col-span-full py-20 text-center text-gray-400 italic">No data found.</div>}
       </div>
     </div>
   );

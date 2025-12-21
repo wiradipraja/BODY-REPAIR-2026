@@ -23,7 +23,6 @@ const AIAssistantView: React.FC<AIAssistantProps> = ({ jobs, transactions, setti
       setAnalysisResult(null);
 
       try {
-          // Fixed: Initialization must use process.env.API_KEY directly as per guidelines
           const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           
           // Calculate Realized GP (Invoiced Only) for the current month
@@ -110,7 +109,7 @@ const AIAssistantView: React.FC<AIAssistantProps> = ({ jobs, transactions, setti
                     AI Business <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">Profit Strategist</span>
                 </h1>
                 <p className="text-indigo-200/70 mt-4 max-w-xl font-medium text-lg">
-                    Asisten cerdas yang menganalisa **Catch-up Target** secara dinamis untuk memastikan kekurangan profit di pekan lalu terbayar di pekan ini.
+                    Asisten cerdas ReForma yang menganalisa **Catch-up Target** secara dinamis untuk memastikan kekurangan profit di pekan lalu terbayar di pekan ini.
                 </p>
             </div>
         </div>

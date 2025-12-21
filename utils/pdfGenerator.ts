@@ -7,10 +7,10 @@ import { formatCurrency, formatDateIndo } from './helpers';
 // Helper for standard B&W Header
 const addHeader = (doc: any, settings: Settings) => {
   const pageWidth = doc.internal.pageSize.width;
-  const wsName = settings.workshopName || "MAZDA RANGER BODY & PAINT";
+  const wsName = settings.workshopName || "REFORMA BODY & PAINT";
   const wsAddress = settings.workshopAddress || "Jl. Pangeran Antasari No. 12, Jakarta Selatan";
   const wsPhone = settings.workshopPhone || "(021) 750-9999";
-  const wsEmail = settings.workshopEmail || "service@mazdaranger.com";
+  const wsEmail = settings.workshopEmail || "service@reforma.com";
 
   // Left Side: Company Info
   doc.setFontSize(14);
@@ -543,7 +543,7 @@ export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: s
     
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text(`Kendaraan : ${job.carBrand || 'Mazda'} ${job.carModel}`, col1X, currentY + rowHeight);
+    doc.text(`Kendaraan : ${job.carBrand || 'Unit'} ${job.carModel}`, col1X, currentY + rowHeight);
     doc.text(`Warna : ${job.warnaMobil}`, col1X, currentY + (rowHeight * 2));
 
     // Col 2
@@ -581,7 +581,7 @@ export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) 
     // Header Custom for Receipt
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text(settings.workshopName || "MAZDA RANGER", 10, 15);
+    doc.text(settings.workshopName || "REFORMA", 10, 15);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.text(settings.workshopAddress || "", 10, 20);

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
@@ -54,7 +55,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       } catch (e) { console.error(e); }
   };
 
-  // Filter Jobs for Search
+  // BUG FIX: Increased slice limit to 15 for better search visibility
   const activeJobs = useMemo(() => {
       if (!woSearch) return [];
       const term = woSearch.toUpperCase();
@@ -62,7 +63,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           (j.woNumber && j.woNumber.includes(term)) || 
           j.policeNumber.includes(term) ||
           j.customerName.toUpperCase().includes(term)
-      ).slice(0, 5); 
+      ).slice(0, 15); 
   }, [jobs, woSearch]);
 
   const handleSelectJob = (job: Job) => {
@@ -72,7 +73,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
       
       const totalPaid = transactions
-          .filter(t => t.refJobId === job.id && t.type === 'IN')
+          .filter(t => t.refJobId === job.id && t.type === 'IN') // Only counting IN (Payments received)
           .reduce((acc, t) => acc + (t.amount || 0), 0);
 
       const remaining = totalBill - totalPaid;
