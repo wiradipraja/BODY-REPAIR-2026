@@ -130,7 +130,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
   };
 
-  // --- RESTORED USER REGISTRATION LOGIC ---
   const handleCreateUser = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!isManager) return;
@@ -160,7 +159,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       } catch (e) { showNotification("Gagal menghapus.", "error"); }
   };
 
-  // --- RESTORED RESET PASSWORD LOGIC ---
   const handleResetPassword = async (email: string) => {
       if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return;
       try {
@@ -171,7 +169,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       }
   };
 
-  // --- RESTORED CHANGE PASSWORD LOGIC ---
   const handleChangePassword = async (e: React.FormEvent) => {
       e.preventDefault();
       if (newPassword !== confirmPassword) {
@@ -459,7 +456,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'unit_catalog' && (
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
-                  {/* FIXED DUPLICATE BY ONLY RENDERING EACH SECTION ONCE */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Car size={16} className="text-indigo-500"/> Master Merk Kendaraan</h4>
@@ -501,7 +497,129 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
           {activeTab === 'services' && (
               <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
-                  <RestrictedOverlay /><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col"><div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6"><h3 className="text-lg font-bold text-gray-800">Daftar Master Jasa (Standar Panel)</h3><div className="flex flex-wrap gap-2"><button onClick={handleCleanupDuplicates} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 text-xs font-bold"><ShieldCheck size={14}/> Cleanup</button><button onClick={handleDownloadServiceTemplate} className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-200 text-xs font-bold"><Download size={14}/> Template/Export</button><label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-xs font-bold"><Upload size={14}/> Import & Update<input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportServices} /></label></div></div><div className="mb-4 relative group"><Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18}/><input type="text" placeholder="Cari..." value={serviceSearchQuery} onChange={e => setServiceSearchQuery(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all"/></div><div className="overflow-x-auto max-h-[500px] overflow-y-auto scrollbar-thin"><table className="w-full text-sm text-left"><thead className="bg-gray-50 text-gray-600 uppercase sticky top-0 z-20"><tr><th className="px-4 py-3">Kode</th><th className="px-4 py-3">Nama Pekerjaan</th><th className="px-4 py-3">Jenis</th><th className="px-4 py-3 text-center">Panel</th><th className="px-4 py-3 text-right">Harga</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead><tbody className="divide-y divide-gray-100">{filteredServices.map(s => (<tr key={s.id} className="hover:bg-gray-50 group"><td className="px-4 py-2 font-mono text-xs font-bold text-gray-400">{s.serviceCode || '-'}</td><td className="px-4 py-2 font-bold text-gray-700 uppercase">{s.serviceName}</td><td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-blue-50 text-blue-700'}`}>{s.workType}</span></td><td className="px-4 py-2 text-center font-black">{s.panelValue}</td><td className="px-4 py-2 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(s.basePrice)}</td><td className="px-4 py-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100"><button onClick={() => { setServiceForm(s); setIsEditingService(true); }} className="text-indigo-500 p-1"><Edit2 size={14}/></button><button onClick={() => handleDeleteService(s.id)} className="text-red-500 p-1"><Trash2 size={14}/></button></td></tr>))}</tbody></table></div></div><div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col sticky top-4"><h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Layers className="text-indigo-600" size={20}/> {isEditingService ? 'Edit Jasa' : 'Input Jasa Baru'}</h3><form onSubmit={handleSaveService} className="space-y-4"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nama Pekerjaan *</label><input disabled={!isManager} required type="text" value={serviceForm.serviceName || ''} onChange={e => setServiceForm({...serviceForm, serviceName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" /></div><div className="grid grid-cols-2 gap-3"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nilai Panel</label><input disabled={!isManager} type="number" step="0.1" value={serviceForm.panelValue || 0} onChange={e => setServiceForm({...serviceForm, panelValue: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Harga Dasar</label><input disabled={!isManager} type="number" value={serviceForm.basePrice || 0} onChange={e => setServiceForm({...serviceForm, basePrice: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black text-emerald-600"/></div></div><button disabled={isLoading || !isManager} type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 shadow-lg font-black">{isLoading ? 'Proses...' : 'SIMPAN DATA'}</button></form></div></div>
+                  <RestrictedOverlay />
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <h3 className="text-lg font-bold text-gray-800">Daftar Master Jasa (Standar Panel)</h3>
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={handleCleanupDuplicates} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 text-xs font-bold"><ShieldCheck size={14}/> Cleanup</button>
+                          <button onClick={handleDownloadServiceTemplate} className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-200 text-xs font-bold"><Download size={14}/> Template/Export</button>
+                          <label className="flex items-center gap-2 cursor-pointer bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 text-xs font-bold"><Upload size={14}/> Import & Update<input disabled={!isManager} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportServices} /></label>
+                        </div>
+                      </div>
+                      <div className="mb-4 relative group">
+                        <Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
+                        <input type="text" placeholder="Cari..." value={serviceSearchQuery} onChange={e => setServiceSearchQuery(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-200 rounded-xl text-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all"/>
+                      </div>
+                      <div className="overflow-x-auto max-h-[500px] overflow-y-auto scrollbar-thin">
+                        <table className="w-full text-sm text-left">
+                          <thead className="bg-gray-50 text-gray-600 uppercase sticky top-0 z-20">
+                            <tr>
+                              <th className="px-4 py-3">Kode</th>
+                              <th className="px-4 py-3">Nama Pekerjaan</th>
+                              <th className="px-4 py-3">Jenis</th>
+                              <th className="px-4 py-3 text-center">Panel</th>
+                              <th className="px-4 py-3 text-right">Harga</th>
+                              <th className="px-4 py-3 text-right">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {filteredServices.map(s => (
+                              <tr key={s.id} className="hover:bg-gray-50 group">
+                                <td className="px-4 py-2 font-mono text-xs font-bold text-gray-400">{s.serviceCode || '-'}</td>
+                                <td className="px-4 py-2 font-bold text-gray-700 uppercase">{s.serviceName}</td>
+                                <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-[10px] font-black border ${s.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-blue-50 text-blue-700'}`}>{s.workType}</span></td>
+                                <td className="px-4 py-2 text-center font-black">{s.panelValue}</td>
+                                <td className="px-4 py-2 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(s.basePrice)}</td>
+                                <td className="px-4 py-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100">
+                                  <button onClick={() => { setServiceForm(s); setIsEditingService(true); }} className="text-indigo-500 p-1"><Edit2 size={14}/></button>
+                                  <button onClick={() => handleDeleteService(s.id)} className="text-red-500 p-1"><Trash2 size={14}/></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col sticky top-4">
+                      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Layers className="text-indigo-600" size={20}/> {isEditingService ? 'Edit Jasa' : 'Input Jasa Baru'}</h3>
+                      <form onSubmit={handleSaveService} className="space-y-4">
+                        <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nama Pekerjaan *</label><input disabled={!isManager} required type="text" value={serviceForm.serviceName || ''} onChange={e => setServiceForm({...serviceForm, serviceName: e.target.value})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" /></div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nilai Panel</label><input disabled={!isManager} type="number" step="0.1" value={serviceForm.panelValue || 0} onChange={e => setServiceForm({...serviceForm, panelValue: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black"/></div>
+                          <div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Harga Dasar</label><input disabled={!isManager} type="number" value={serviceForm.basePrice || 0} onChange={e => setServiceForm({...serviceForm, basePrice: Number(e.target.value)})} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-50 font-black text-emerald-600"/></div>
+                        </div>
+                        <button disabled={isLoading || !isManager} type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl hover:bg-indigo-700 shadow-lg font-black">{isLoading ? 'Proses...' : 'SIMPAN DATA'}</button>
+                      </form>
+
+                      {/* RESTORED: SPECIAL COLOR RATES SECTION */}
+                      <div className="mt-8 pt-8 border-t border-gray-100">
+                          <div className="flex justify-between items-center mb-4">
+                              <h4 className="font-black text-rose-800 flex items-center gap-2 uppercase tracking-widest text-[10px]">
+                                  <Palette size={14} className="text-rose-500"/> Harga Warna Spesial
+                              </h4>
+                              <button 
+                                  onClick={() => {
+                                      const current = localSettings.specialColorRates || [];
+                                      handleChange('specialColorRates', [...current, { colorName: '', surchargePerPanel: 0 }]);
+                                  }}
+                                  className="text-[9px] bg-rose-500 text-white px-2 py-1 rounded font-bold hover:bg-rose-600 transition-colors"
+                              >
+                                  + TAMBAH
+                              </button>
+                          </div>
+                          <div className="space-y-3">
+                              {(localSettings.specialColorRates || []).map((rate, idx) => (
+                                  <div key={idx} className="bg-rose-50/50 p-3 rounded-xl border border-rose-100 flex items-center gap-2 group animate-fade-in">
+                                      <div className="flex-grow space-y-1">
+                                          <input 
+                                              type="text" 
+                                              placeholder="Nama Warna..." 
+                                              className="w-full bg-transparent border-none p-0 text-[10px] font-black text-rose-900 uppercase focus:ring-0"
+                                              value={rate.colorName}
+                                              onChange={e => {
+                                                  const newRates = [...localSettings.specialColorRates];
+                                                  newRates[idx].colorName = e.target.value.toUpperCase();
+                                                  handleChange('specialColorRates', newRates);
+                                              }}
+                                          />
+                                          <div className="flex items-center gap-1">
+                                              <span className="text-[9px] font-bold text-rose-400">Rp</span>
+                                              <input 
+                                                  type="number" 
+                                                  className="w-full bg-transparent border-none p-0 text-xs font-black text-emerald-600 focus:ring-0"
+                                                  value={rate.surchargePerPanel}
+                                                  onChange={e => {
+                                                      const newRates = [...localSettings.specialColorRates];
+                                                      newRates[idx].surchargePerPanel = Number(e.target.value);
+                                                      handleChange('specialColorRates', newRates);
+                                                  }}
+                                              />
+                                          </div>
+                                      </div>
+                                      <button 
+                                          onClick={() => {
+                                              const newRates = localSettings.specialColorRates.filter((_, i) => i !== idx);
+                                              handleChange('specialColorRates', newRates);
+                                          }}
+                                          className="text-rose-300 hover:text-rose-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >
+                                          <Trash2 size={14}/>
+                                      </button>
+                                  </div>
+                              ))}
+                              {(!localSettings.specialColorRates || localSettings.specialColorRates.length === 0) && (
+                                  <div className="text-center py-4 text-[10px] text-gray-400 italic font-medium">Belum ada warna spesial.</div>
+                              )}
+                          </div>
+                          <div className="mt-3 p-2 bg-amber-50 rounded border border-amber-100 flex items-start gap-1.5">
+                              <Info size={12} className="text-amber-600 shrink-0 mt-0.5"/>
+                              <p className="text-[9px] text-amber-800 leading-tight">Biaya warna spesial dihitung per panel dikali nilai surcharge di atas.</p>
+                          </div>
+                      </div>
+                    </div>
+                  </div>
               </div>
           )}
 
@@ -581,7 +699,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       </div>
                   </div>
 
-                  {/* BOTTOM SECTIONS: MECHANICS & USER ROLES (NEW) */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* MECHANICS LIST */}
                     <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
@@ -606,7 +723,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         </div>
                     </div>
 
-                    {/* USER ROLES CRUD (NEW) */}
+                    {/* USER ROLES CRUD */}
                     <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 ${restrictedClass}`}>
                         <RestrictedOverlay/>
                         <div className="flex justify-between items-center mb-4">
@@ -636,7 +753,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           )}
       </div>
 
-      {/* USER REGISTRATION MODAL */}
       <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title="Daftarkan User Baru">
           <form onSubmit={handleCreateUser} className="space-y-5">
               <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 flex items-start gap-3 mb-4">
