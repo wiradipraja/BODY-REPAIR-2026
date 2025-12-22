@@ -5,7 +5,7 @@ import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers
 import { 
     Save, Plus, Trash2, Calculator, Printer, Lock, X, MessageSquare, 
     Activity, Palette, Search, Package, Box, Tag, AlertCircle, 
-    CheckCircle2, ChevronRight, Hash, Layers, MapPin, UserCheck, RefreshCw, AlertTriangle
+    CheckCircle2, ChevronRight, Hash, Layers, MapPin, UserCheck, RefreshCw, AlertTriangle, FileText
 } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
 import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
@@ -305,23 +305,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   </div>
               </div>
               <div className="h-10 w-px bg-gray-100 hidden md:block"></div>
-              <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+              
+              <div className="flex-grow w-full">
                   <div className="space-y-1.5">
                       <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><MapPin size={10}/> {lang === 'id' ? 'Posisi Fisik Unit' : 'Vehicle Physical Position'}</label>
                       <div className="flex bg-gray-100 p-1 rounded-xl">
                           <button type="button" onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Bengkel')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'INAP' : 'IN-SHOP'}</button>
                           <button type="button" onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Pemilik')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'BAWA PULANG' : 'WITH OWNER'}</button>
                       </div>
-                  </div>
-                  <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><Activity size={10}/> {lang === 'id' ? 'Status Administrasi (Admin Control)' : 'Admin Status'}</label>
-                      <select 
-                        value={currentStatus} 
-                        onChange={e => handleUpdateCheckIn('statusKendaraan', e.target.value)} 
-                        className="w-full p-2 bg-indigo-50 border-none rounded-xl text-xs font-black text-indigo-700 focus:ring-2 ring-indigo-200"
-                      >
-                          {settings.statusKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
                   </div>
               </div>
           </div>
@@ -385,42 +376,33 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                           <div ref={searchRef} className={`absolute left-0 ${i > jasaItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-indigo-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
                                               <div className="p-3 bg-indigo-50/50 border-b border-indigo-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
                                                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{lang === 'id' ? 'Pilih Item Jasa' : 'Select Service Item'}</span>
-                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full text-indigo-400"><X size={14}/></button>
+                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full"><X size={14} className="text-indigo-400"/></button>
                                               </div>
                                               {filteredServices.map(s => (
-                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
+                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-gray-50 flex justify-between items-center group">
                                                       <div>
-                                                          <div className="flex items-center gap-2 mb-1">
-                                                              {/* Work Type Badge with Dynamic Color */}
-                                                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
-                                                                  s.workType === 'KC' ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                                                                  s.workType === 'GTC' ? 'bg-blue-100 text-blue-700 border-blue-200' :
-                                                                  s.workType === 'BP' ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                                                                  'bg-gray-100 text-gray-600 border-gray-200'
-                                                              }`}>
-                                                                  {s.workType}
-                                                              </span>
-                                                              {/* Service Code */}
-                                                              <span className="font-mono text-[10px] font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">
-                                                                  {s.serviceCode || 'NO-CODE'}
-                                                              </span>
-                                                          </div>
-                                                          <p className="text-sm font-bold text-gray-800 uppercase leading-tight">{s.serviceName}</p>
+                                                          <div className="font-bold text-sm text-gray-800 group-hover:text-indigo-700 transition-colors">{s.serviceName}</div>
+                                                          <div className="text-[10px] font-mono text-gray-400">{s.serviceCode} | {s.workType}</div>
                                                       </div>
-                                                      <div className="text-right shrink-0 ml-4">
-                                                          <p className="text-[10px] font-black text-gray-400 uppercase">{s.panelValue} PANEL</p>
-                                                          <p className="text-sm font-black text-emerald-600">{formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}</p>
+                                                      <div className="text-right">
+                                                          <div className="font-black text-emerald-600 text-sm">{formatCurrency(s.basePrice)}</div>
+                                                          <div className="text-[9px] text-gray-400 font-bold">{s.panelValue} Panel</div>
                                                       </div>
                                                   </div>
                                               ))}
-                                              {filteredServices.length === 0 && <div className="p-10 text-center text-gray-400 text-sm italic">Master data not found.</div>}
                                           </div>
                                       )}
                                   </div>
                               </td>
-                              <td className="px-4 py-3 text-center border-y border-gray-100"><div className="bg-white border-2 border-gray-100 rounded-lg py-1 px-3 font-black text-gray-900 text-xs inline-block">{item.panelCount || 0}</div></td>
-                              <td className="px-4 py-3 text-right border-y border-gray-100"><input type="number" value={item.price} onChange={e => updateItemRaw('jasa', i, 'price', Number(e.target.value))} className={`w-full p-2 bg-gray-50 border-none rounded-lg text-right font-black text-indigo-900 focus:ring-2 ring-indigo-500`} disabled={job.isClosed} /></td>
-                              <td className="px-4 py-3 text-center bg-gray-50/50 border-y border-l border-gray-100 rounded-r-xl"><button onClick={() => removeItem('jasa', i)} disabled={job.isClosed} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16}/></button></td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-center">
+                                  <input type="number" step="0.1" value={item.panelCount || 0} onChange={e => updateItemRaw('jasa', i, 'panelCount', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs" disabled={job.isClosed} />
+                              </td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-right">
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('jasa', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800" disabled={job.isClosed} />
+                              </td>
+                              <td className="px-4 py-3 border-y border-r border-gray-100 bg-gray-50/50 rounded-r-xl text-center">
+                                  <button onClick={() => removeItem('jasa', i)} className="text-red-300 hover:text-red-500 transition-colors" disabled={job.isClosed}><Trash2 size={16}/></button>
+                              </td>
                           </tr>
                       ))}
                   </tbody>
@@ -428,132 +410,130 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           </div>
       </div>
 
-      {/* PARTS SECTION */}
+      {/* PART SECTION */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
               <h4 className="font-black text-gray-800 tracking-tight">{t('sec_part')}</h4>
               <button onClick={() => addItem('part')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-4 py-1.5 rounded-xl font-black hover:bg-orange-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> {t('btn_add_part')}</button>
           </div>
           <div className="relative">
-              <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[800px]">
+              <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[700px]">
                   <thead>
                       <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                           <th className="px-4 py-2 w-10 text-center">No</th>
-                          <th className="px-4 py-2 w-56">{t('col_part_no')}</th>
+                          <th className="px-4 py-2 w-40">{t('col_part_no')}</th>
                           <th className="px-4 py-2">{t('col_part_name')}</th>
                           <th className="px-4 py-2 w-20 text-center">{t('col_qty')}</th>
-                          <th className="px-4 py-2 w-48 text-right">{t('col_price')}</th>
+                          <th className="px-4 py-2 w-40 text-right">{t('col_price')}</th>
                           <th className="px-4 py-2 w-40 text-right">{t('col_total')}</th>
                           <th className="px-4 py-2 w-10"></th>
                       </tr>
                   </thead>
                   <tbody>
-                      {partItems.map((item, i) => {
-                          const masterItem = inventoryItems.find(inv => inv.id === item.inventoryId);
-                          const isMismatch = masterItem && masterItem.sellPrice !== item.price;
-                          
-                          return (
+                      {partItems.map((item, i) => (
                           <tr key={i} className="group hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
                               <td className="px-4 py-3 border-y border-gray-100">
-                                  <input type="text" value={item.number} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
+                                  <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
                                       <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" placeholder="SEARCH..." disabled={job.isClosed} />
                                       {activeSearch?.type === 'part' && activeSearch.index === i && (
-                                          <div ref={searchRef} className={`absolute left-0 ${i > partItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[550px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-orange-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
+                                          <div ref={searchRef} className={`absolute left-0 ${i > partItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-orange-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
                                               <div className="p-3 bg-orange-50/50 border-b border-orange-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
-                                                  <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{lang === 'id' ? 'Katalog Sparepart' : 'Parts Catalog'}</span>
-                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full text-orange-400"><X size={14}/></button>
+                                                  <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{lang === 'id' ? 'Pilih Sparepart' : 'Select Sparepart'}</span>
+                                                  <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full"><X size={14} className="text-orange-400"/></button>
                                               </div>
                                               {filteredParts.map(p => (
-                                                  <div key={p.id} onClick={() => selectPart(i, p)} className="p-4 hover:bg-orange-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
-                                                      <div className="flex-1">
-                                                          <span className="font-black text-[10px] text-orange-600 font-mono bg-orange-50 px-2 py-0.5 rounded border border-orange-100">{p.code}</span>
-                                                          <p className="text-sm font-bold text-gray-800 uppercase mt-1">{p.name}</p>
+                                                  <div key={p.id} onClick={() => selectPart(i, p)} className="p-3 hover:bg-orange-50 cursor-pointer border-b border-gray-50 flex justify-between items-center group">
+                                                      <div>
+                                                          <div className="font-bold text-sm text-gray-800 group-hover:text-orange-700 transition-colors">{p.name}</div>
+                                                          <div className="text-[10px] font-mono text-gray-400">{p.code} | Stok: {p.stock} {p.unit}</div>
                                                       </div>
                                                       <div className="text-right">
-                                                          <p className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${p.stock > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{p.stock} {p.unit}</p>
-                                                          <p className="text-sm font-black text-indigo-900 mt-1">{formatCurrency(p.sellPrice)}</p>
+                                                          <div className="font-black text-emerald-600 text-sm">{formatCurrency(p.sellPrice)}</div>
                                                       </div>
                                                   </div>
                                               ))}
-                                              {filteredParts.length === 0 && <div className="p-10 text-center text-gray-400 text-sm italic">Sparepart not found.</div>}
                                           </div>
                                       )}
                                   </div>
                               </td>
-                              <td className="px-4 py-3 text-center border-y border-gray-100"><input type="number" value={item.qty} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-full p-2 bg-gray-50 border-none rounded-lg text-center font-black text-gray-700" disabled={job.isClosed} /></td>
-                              <td className="px-4 py-3 text-right border-y border-gray-100 relative group/cell">
-                                  <div className="flex items-center justify-end gap-2">
-                                      {isMismatch && !job.isClosed && (
-                                          <div className="flex items-center gap-1 animate-pulse">
-                                              <button 
-                                                onClick={() => syncPartPrice(i)}
-                                                className="p-1 bg-amber-50 text-amber-600 rounded hover:bg-amber-100 border border-amber-200 transition-all"
-                                                title={`Master Price Changed: ${formatCurrency(masterItem.sellPrice)}. Click to Sync.`}
-                                              >
-                                                  <RefreshCw size={14} />
-                                              </button>
-                                              <AlertTriangle size={14} className="text-amber-500" />
-                                          </div>
-                                      )}
-                                      <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className={`w-32 p-2 bg-gray-50 border-none rounded-lg text-right font-black ${isMismatch ? 'text-amber-600' : 'text-gray-800'} focus:ring-2 ring-orange-500`} disabled={job.isClosed} />
-                                  </div>
+                              <td className="px-4 py-3 border-y border-gray-100 text-center">
+                                  <input type="number" value={item.qty || 1} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs" disabled={job.isClosed} />
                               </td>
-                              <td className="px-4 py-3 text-right font-black text-emerald-600 border-y border-gray-100">{formatCurrency((item.price || 0) * (item.qty || 1))}</td>
-                              <td className="px-4 py-3 text-center bg-gray-50/50 border-y border-l border-gray-100 rounded-r-xl"><button onClick={() => removeItem('part', i)} disabled={job.isClosed} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16}/></button></td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-right relative group-input">
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800" disabled={job.isClosed} />
+                                  {item.inventoryId && (
+                                      <button onClick={() => syncPartPrice(i)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-input-hover:opacity-100 p-1 bg-white shadow rounded-full text-indigo-600 hover:scale-110 transition-all" title="Reset ke Harga Master"><RefreshCw size={12}/></button>
+                                  )}
+                              </td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-right font-black text-gray-900">
+                                  {formatCurrency((item.price || 0) * (item.qty || 1))}
+                              </td>
+                              <td className="px-4 py-3 border-y border-r border-gray-100 bg-gray-50/50 rounded-r-xl text-center">
+                                  <button onClick={() => removeItem('part', i)} className="text-red-300 hover:text-red-500 transition-colors" disabled={job.isClosed}><Trash2 size={16}/></button>
+                              </td>
                           </tr>
-                      )})}
+                      ))}
                   </tbody>
               </table>
           </div>
       </div>
 
       {/* SUMMARY */}
-      <div className="bg-slate-900 text-white p-8 rounded-3xl flex flex-col md:flex-row justify-between items-center shadow-2xl relative overflow-hidden ring-4 ring-indigo-50/50">
-          <div className="absolute right-0 top-0 p-4 opacity-5 rotate-12 scale-150"><Calculator size={150}/></div>
+      <div className="bg-slate-900 p-6 rounded-3xl text-white shadow-2xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/10">
+                      <span className="text-xs font-bold text-indigo-200 uppercase">Total Jasa</span>
+                      <span className="font-black text-lg">{formatCurrency(totals.subtotalJasa)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-400 w-24">Diskon Jasa %</span>
+                      <input type="number" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-indigo-500" disabled={job.isClosed} />
+                      <span className="text-xs font-mono text-red-400">- {formatCurrency(totals.discountJasaAmount)}</span>
+                  </div>
+                  
+                  <div className="h-px bg-white/10 w-full my-2"></div>
+
+                  <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/10">
+                      <span className="text-xs font-bold text-orange-200 uppercase">Total Part</span>
+                      <span className="font-black text-lg">{formatCurrency(totals.subtotalPart)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-400 w-24">Diskon Part %</span>
+                      <input type="number" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-orange-500" disabled={job.isClosed} />
+                      <span className="text-xs font-mono text-red-400">- {formatCurrency(totals.discountPartAmount)}</span>
+                  </div>
+              </div>
+
+              <div className="flex flex-col justify-between">
+                  <div className="space-y-2 text-right">
+                      <p className="text-xs font-bold text-gray-400 uppercase">PPN ({ppnPercentage}%)</p>
+                      <p className="text-xl font-bold text-white">{formatCurrency(totals.ppnAmount)}</p>
+                  </div>
+                  <div className="mt-6 pt-6 border-t border-white/20 text-right">
+                      <p className="text-sm font-black text-indigo-400 uppercase tracking-[0.2em] mb-1">Grand Total Estimasi</p>
+                      <p className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-indigo-200">{formatCurrency(totals.grandTotal)}</p>
+                  </div>
+              </div>
+          </div>
           
-          {/* Action Buttons for Printing - ALWAYS VISIBLE TO PRINT */}
-          <div className="flex gap-3 relative z-10">
-              <button 
-                onClick={() => handlePrint('estimate')} 
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-2xl font-black transition-all shadow-lg text-xs"
-              >
-                  <Printer size={16}/> {t('btn_print_est')}
+          <div className="mt-8 flex flex-wrap gap-3 justify-end border-t border-white/10 pt-6">
+              <button onClick={onCancel} className="px-6 py-3 rounded-xl font-bold text-gray-400 hover:text-white hover:bg-white/10 transition-colors">Batal</button>
+              <div className="flex gap-2 bg-white/10 p-1 rounded-xl">
+                  <button onClick={() => handlePrint('estimate')} disabled={isSubmitting} className="px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 bg-white/5 hover:bg-white/20 transition-all text-indigo-200"><Printer size={16}/> {t('btn_print_est')}</button>
+                  <button onClick={() => handlePrint('wo')} disabled={isSubmitting} className="px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 bg-white/5 hover:bg-white/20 transition-all text-emerald-200"><Printer size={16}/> {t('btn_print_wo')}</button>
+              </div>
+              <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting || job.isClosed} className="px-6 py-3 bg-white text-indigo-900 rounded-xl font-black shadow-lg hover:bg-indigo-50 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50">
+                  {isSubmitting ? 'Menyimpan...' : <><Save size={18}/> {t('btn_save_est')}</>}
               </button>
-              
-              {job.woNumber && (
-                  <button 
-                    onClick={() => handlePrint('wo')} 
-                    className="flex items-center gap-2 bg-indigo-800 hover:bg-indigo-700 px-6 py-3 rounded-2xl font-black transition-all shadow-lg text-xs border border-indigo-500"
-                  >
-                      <Printer size={16}/> {t('btn_print_wo')}
-                  </button>
-              )}
+              <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting || job.isClosed} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-xl hover:bg-indigo-500 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50 border border-indigo-400">
+                  {isSubmitting ? 'Memproses...' : <><FileText size={18}/> {job.woNumber ? t('btn_update_wo') : t('btn_save_wo')}</>}
+              </button>
           </div>
-
-          <div className="flex items-center gap-8 mt-6 md:mt-0 relative z-10">
-              <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PPN ({ppnPercentage}%)</p><p className="font-bold text-slate-200">{formatCurrency(totals.ppnAmount)}</p></div>
-              <div className="h-12 w-px bg-slate-700"></div>
-              <div className="text-right"><p className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-1">GRAND TOTAL</p><p className="text-4xl font-black text-white tracking-tighter">{formatCurrency(totals.grandTotal)}</p></div>
-          </div>
-      </div>
-
-      {/* SAVE / PUBLISH ACTION BUTTONS */}
-      <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
-          <button onClick={onCancel} className="px-8 py-3 bg-gray-100 text-gray-500 rounded-2xl hover:bg-gray-200 font-black transition-all">{lang === 'id' ? 'BATAL / TUTUP' : 'CANCEL / CLOSE'}</button>
-          {!job.isClosed && (
-              <>
-                  <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting} className="px-8 py-3 border-2 border-indigo-600 text-indigo-700 rounded-2xl hover:bg-indigo-50 font-black transition-all text-xs">
-                      {t('btn_save_est')}
-                  </button>
-                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-12 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 font-black shadow-xl transition-all transform active:scale-95 text-xs">
-                      <Save size={20}/> {job.woNumber ? t('btn_update_wo') : t('btn_save_wo')}
-                  </button>
-              </>
-          )}
       </div>
     </div>
   );
