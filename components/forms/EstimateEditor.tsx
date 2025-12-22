@@ -352,12 +352,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                                   <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full text-indigo-400"><X size={14}/></button>
                                               </div>
                                               {filteredServices.map(s => (
-                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-4 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
+                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-gray-100 flex items-center justify-between group/item transition-colors">
                                                       <div>
-                                                          <span className="font-black text-[10px] text-indigo-600 font-mono bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{s.serviceCode}</span>
-                                                          <p className="text-sm font-bold text-gray-800 uppercase mt-1">{s.serviceName}</p>
+                                                          <div className="flex items-center gap-2 mb-1">
+                                                              {/* Work Type Badge with Dynamic Color */}
+                                                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                                                  s.workType === 'KC' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                                                  s.workType === 'GTC' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                                                  s.workType === 'BP' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                                  'bg-gray-100 text-gray-600 border-gray-200'
+                                                              }`}>
+                                                                  {s.workType}
+                                                              </span>
+                                                              {/* Service Code */}
+                                                              <span className="font-mono text-[10px] font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">
+                                                                  {s.serviceCode || 'NO-CODE'}
+                                                              </span>
+                                                          </div>
+                                                          <p className="text-sm font-bold text-gray-800 uppercase leading-tight">{s.serviceName}</p>
                                                       </div>
-                                                      <div className="text-right">
+                                                      <div className="text-right shrink-0 ml-4">
                                                           <p className="text-[10px] font-black text-gray-400 uppercase">{s.panelValue} PANEL</p>
                                                           <p className="text-sm font-black text-emerald-600">{formatCurrency(calculateFinalServicePrice(s.basePrice, s.panelValue))}</p>
                                                       </div>
