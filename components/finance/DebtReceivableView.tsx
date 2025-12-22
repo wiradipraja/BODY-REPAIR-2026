@@ -149,9 +149,8 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
       try {
           const transactionNumber = generateTransactionNumber(paymentTarget.type);
 
-          const payload: any = {
-              date: serverTimestamp(),
-              createdAt: serverTimestamp(),
+          // 1. Prepare Base Payload (Cleaned first)
+          const baseData: any = {
               createdBy: userPermissions.role,
               type: paymentTarget.type,
               category: paymentTarget.category as any,
@@ -161,17 +160,25 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
               refNumber: paymentTarget.refNumber,
               customerName: paymentTarget.name,
               description: paymentForm.notes || (paymentTarget.type === 'IN' ? `Pelunasan WO ${paymentTarget.refNumber}` : `Pembayaran PO ${paymentTarget.refNumber}`),
-              transactionNumber: transactionNumber, // NEW: Audit ID
-              // CRITICAL LINKS
+              transactionNumber: transactionNumber, 
               refJobId: paymentTarget.type === 'IN' ? paymentTarget.refId : undefined,
               refPoId: paymentTarget.type === 'OUT' ? paymentTarget.refId : undefined
           };
 
-          await addDoc(collection(db, CASHIER_COLLECTION), cleanObject(payload));
+          const cleanedPayload = cleanObject(baseData);
+
+          // 2. Add Timestamp (Server side)
+          const finalPayload = {
+              ...cleanedPayload,
+              date: serverTimestamp(),
+              createdAt: serverTimestamp(),
+          };
+
+          await addDoc(collection(db, CASHIER_COLLECTION), finalPayload);
           
-          // Auto Print Proof
+          // Auto Print Proof (Using safe Date object for immediate print)
           if (settings) {
-              generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
+              generateReceiptPDF({...finalPayload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
           }
 
           showNotification("Pembayaran berhasil dicatat & Bukti diunduh.", "success");

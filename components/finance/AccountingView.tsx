@@ -22,12 +22,23 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
+  // --- HELPER: SAFE DATE PARSING ---
+  // Memastikan format timestamp dari Firestore, String, atau Date object terbaca seragam
+  const parseDate = (dateInput: any): Date => {
+      if (!dateInput) return new Date(); // Fallback ke hari ini jika null (pending write)
+      if (dateInput instanceof Date) return dateInput;
+      if (typeof dateInput.toDate === 'function') return dateInput.toDate(); // Firestore Timestamp
+      if (dateInput.seconds) return new Date(dateInput.seconds * 1000); // Raw Firestore Object
+      const parsed = new Date(dateInput);
+      return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   // --- CORE FINANCIAL CALCULATIONS ---
   const financialData = useMemo(() => {
     // 1. REVENUE
     const closedJobs = jobs.filter(j => {
         if (!j.isClosed || !j.closedAt) return false;
-        const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+        const d = parseDate(j.closedAt);
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
 
@@ -51,7 +62,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
             if (t.type !== 'OUT') return false;
             // Exclude Asset Purchase (Capex) - Tax is handled separately below
             const isExpenseCategory = ['Operasional', 'Lainnya', 'Gaji'].includes(t.category);
-            const d = t.date?.toDate ? t.date.toDate() : new Date(t.date);
+            const d = parseDate(t.date);
             return isExpenseCategory && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
         })
         .reduce((acc, t) => acc + t.amount, 0);
@@ -62,14 +73,14 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
             if (t.type !== 'OUT') return false;
             // Filter kategori Pajak (PPh, PPN Setor, dll)
             const isTaxCategory = ['Pajak', 'PPh 21', 'PPh 23', 'PPh 25'].includes(t.category) || t.description?.toLowerCase().includes('pajak');
-            const d = t.date?.toDate ? t.date.toDate() : new Date(t.date);
+            const d = parseDate(t.date);
             return isTaxCategory && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
         })
         .reduce((acc, t) => acc + t.amount, 0);
 
     // 6. DEPRECIATION EXPENSE
     const depreciationExpense = assets.reduce((acc, asset) => {
-        const pDate = new Date(asset.purchaseDate);
+        const pDate = parseDate(asset.purchaseDate);
         const reportDate = new Date(selectedYear, selectedMonth + 1, 0);
         if (pDate <= reportDate && asset.status === 'Active') {
             return acc + asset.monthlyDepreciation;
@@ -82,7 +93,10 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
 
     // 8. CASH FLOW (Just for dashboard stats)
     const cashIn = transactions
-        .filter(t => t.type === 'IN' && new Date(t.date?.seconds*1000).getMonth() === selectedMonth && new Date(t.date?.seconds*1000).getFullYear() === selectedYear)
+        .filter(t => {
+            const d = parseDate(t.date);
+            return t.type === 'IN' && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+        })
         .reduce((acc, t) => acc + t.amount, 0);
         
     return {
@@ -115,7 +129,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
           const mRev = jobs
             .filter(j => j.isClosed && j.closedAt)
             .filter(j => {
-                const jd = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+                const jd = parseDate(j.closedAt);
                 return jd.getMonth() === m && jd.getFullYear() === y;
             })
             .reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
@@ -123,7 +137,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
           const mCashOut = transactions
             .filter(t => t.type === 'OUT')
             .filter(t => {
-                 const td = t.date?.toDate ? t.date.toDate() : new Date(t.date);
+                 const td = parseDate(t.date);
                  return td.getMonth() === m && td.getFullYear() === y;
             })
             .reduce((acc, t) => acc + t.amount, 0);
@@ -158,20 +172,23 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
       };
   }, [jobs, transactions, selectedMonth, selectedYear, financialData]);
 
-  // --- LEDGER DATA ---
+  // --- LEDGER DATA (BUKU BESAR) ---
   const ledgerData = useMemo(() => {
       const txs: any[] = [];
-      // Real transactions from Cashier
+      // Real transactions from Cashier including Debt/Receivable Payments
       transactions.forEach(t => {
-          const d = t.date?.toDate ? t.date.toDate() : new Date(t.date);
+          const d = parseDate(t.date);
+          // Filter match month & year
           if (d.getMonth() === selectedMonth && d.getFullYear() === selectedYear) {
               txs.push({
+                  id: t.id,
                   date: d,
                   ref: t.refNumber || 'TRX',
                   desc: t.description,
                   category: t.category,
                   amount: t.amount,
-                  type: t.type
+                  type: t.type,
+                  transactionNumber: t.transactionNumber
               });
           }
       });
@@ -392,6 +409,7 @@ const AccountingView: React.FC<AccountingViewProps> = ({ jobs, purchaseOrders, t
                                 <tr key={idx} className="hover:bg-gray-50">
                                     <td className="px-6 py-4 whitespace-nowrap text-gray-600">
                                         {formatDateIndo(tx.date)}
+                                        <div className="text-[10px] opacity-60">{tx.transactionNumber}</div>
                                     </td>
                                     <td className="px-6 py-4 font-mono text-xs font-bold text-indigo-600">
                                         {tx.ref}
