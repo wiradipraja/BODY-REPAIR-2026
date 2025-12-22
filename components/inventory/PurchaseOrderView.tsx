@@ -72,16 +72,21 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Update selectedPO data when realTimePOs change, BUT ONLY if we are looking at the same ID.
   useEffect(() => {
       if (selectedPO) {
           const updated = realTimePOs.find(p => p.id === selectedPO.id);
           if (updated) setSelectedPO(updated);
       }
-  }, [realTimePOs, selectedPO]);
+  }, [realTimePOs]); // Removed selectedPO to avoid loop, we check inside
 
+  // Initialize Receiving Map only when switching to a different PO or viewing detail for first time
   useEffect(() => {
       if (selectedPO && (selectedPO.status === 'Ordered' || selectedPO.status === 'Partial')) {
+          // Reset selections
           setSelectedItemsToReceive([]);
+          
+          // Pre-fill quantities with remaining amount
           const initialQtyMap: Record<number, number> = {};
           selectedPO.items.forEach((item, idx) => {
               const remaining = item.qty - (item.qtyReceived || 0);
@@ -89,7 +94,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           });
           setReceiveQtyMap(initialQtyMap);
       }
-  }, [selectedPO]);
+  }, [selectedPO?.id, viewMode]); // Only trigger on ID change or view mode change to prevent input reset while typing
 
   const toggleItemSelection = (idx: number) => {
     setSelectedItemsToReceive(prev => 
@@ -478,7 +483,11 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               // 1. Resolve Inventory ID (Find or Create)
               let targetInventoryId = item.inventoryId;
               
-              if (!targetInventoryId) {
+              // Check if inventory ID is valid (exists in current inventoryItems)
+              // If not linked or not found, try to find by CODE or create NEW
+              const isLinkedToExisting = targetInventoryId && inventoryItems.some(i => i.id === targetInventoryId);
+
+              if (!isLinkedToExisting) {
                   // Try finding by code in existing list
                   const existingItem = inventoryItems.find(i => i.code === itemCodeUpper);
                   if (existingItem) {
@@ -503,15 +512,15 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           updatedAt: serverTimestamp()
                       });
                   }
-              } 
-              
-              // If item existed (or we found it), just update stock and price
-              if (targetInventoryId && inventoryItems.some(i => i.id === targetInventoryId)) {
-                   batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
-                      stock: increment(qtyNow), 
-                      buyPrice: item.price, // Update to latest purchase price
-                      updatedAt: serverTimestamp() 
-                  });
+              } else {
+                  // If item existed (linked), update stock and price
+                  if (targetInventoryId) {
+                       batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
+                          stock: increment(qtyNow), 
+                          buyPrice: item.price, // Update to latest purchase price
+                          updatedAt: serverTimestamp() 
+                      });
+                  }
               }
 
               // 2. Update PO Item in memory
@@ -545,8 +554,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
                       jobUpdateMap[jobId].changed = true;
 
-                      // Mark as Arrived ONLY if fully received (or meets specific logic)
-                      // Logic: If Cumulative Received >= Ordered Qty
+                      // Mark as Arrived ONLY if Cumulative Received >= Ordered Qty
                       if (newQtyReceived >= item.qty) {
                           jobUpdateMap[jobId].parts[item.refPartIndex].hasArrived = true;
                       }
@@ -863,7 +871,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               const rem = item.qty - (item.qtyReceived || 0);
                               return (
                                   <tr key={idx} className={rem <= 0 ? 'opacity-50 bg-gray-50' : ''}>
-                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/> : null}</td>}
+                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/>}</td>}
                                       <td className="p-3 border">
                                           <div><strong>{item.name}</strong></div>
                                           <div className="text-[10px] font-mono text-gray-500">
@@ -873,7 +881,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                       </td>
                                       <td className="p-3 border text-center">{item.qty} {item.unit}</td>
                                       <td className="p-3 border text-center bg-green-50 font-bold">{item.qtyReceived || 0}</td>
-                                      {isReceivable && <td className="p-3 border text-center bg-blue-50">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="number" max={rem} className="w-full p-1 border rounded text-center font-bold" value={receiveQtyMap[idx]} onChange={e => setReceiveQtyMap({...receiveQtyMap, [idx]: Number(e.target.value)})}/> : '-'}</td>}
+                                      {isReceivable && <td className="p-3 border text-center bg-blue-50">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="number" max={rem} className="w-full p-1 border rounded text-center font-bold" value={receiveQtyMap[idx] || ''} onChange={e => setReceiveQtyMap({...receiveQtyMap, [idx]: Number(e.target.value)})}/> : '-'}</td>}
                                       <td className="p-3 border text-right font-mono">{formatCurrency(item.price)}</td>
                                       <td className="p-3 border text-right font-bold">{formatCurrency(item.total)}</td>
                                   </tr>
