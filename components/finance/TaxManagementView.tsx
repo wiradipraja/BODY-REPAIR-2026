@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
-import { formatCurrency, formatDateIndo, generateTransactionId, generateRandomId } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId, generateRandomId, cleanObject } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
@@ -218,23 +219,31 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               category: 'Pajak',
               amount: Number(taxForm.amount),
               paymentMethod: taxForm.paymentMethod,
-              bankName: taxForm.paymentMethod !== 'Cash' ? taxForm.bankName : undefined,
+              bankName: taxForm.paymentMethod !== 'Cash' ? taxForm.bankName : null,
               customerName: 'Kantor Pelayanan Pajak (KPP)',
               description: `Bayar ${taxForm.type} - Masa ${taxForm.periodMonth + 1}/${taxForm.periodYear}. ${taxForm.notes}`,
-              refNumber: taxForm.refNumber || undefined,
-              transactionNumber: transactionNumber // Override with TAX- format
+              refNumber: taxForm.refNumber || null,
+              refJobId: taxForm.refId || null,
+              transactionNumber: transactionNumber 
           };
 
-          await addDoc(collection(db, CASHIER_COLLECTION), payload);
+          // Gunakan cleanObject untuk menghapus key yang bernilai undefined
+          await addDoc(collection(db, CASHIER_COLLECTION), cleanObject(payload));
           
           if (settings) {
-              generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
+              const pdfData: any = {
+                  ...payload,
+                  date: new Date(),
+                  id: 'TEMP'
+              };
+              generateReceiptPDF(pdfData as CashierTransaction, settings);
           }
 
           showNotification(`Berhasil mencatat pembebanan ${taxForm.type} (${transactionNumber})`, "success");
           setTaxForm(prev => ({ ...prev, amount: 0, notes: '', refNumber: '', refId: '' }));
           setActiveTab('history');
       } catch (e: any) {
+          console.error("Tax Payment Error:", e);
           showNotification("Gagal mencatat: " + e.message, "error");
       } finally {
           setIsProcessing(false);
