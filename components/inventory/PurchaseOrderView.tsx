@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -820,7 +819,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               const rem = item.qty - (item.qtyReceived || 0);
                               return (
                                   <tr key={idx} className={rem <= 0 ? 'opacity-50 bg-gray-50' : ''}>
-                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/> : null}</td>}
+                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4 cursor-pointer"/> : <span className="text-gray-300">-</span>}</td>}
                                       <td className="p-3 border">
                                           <div><strong>{item.name}</strong></div>
                                           <div className="text-[10px] font-mono text-gray-500">
