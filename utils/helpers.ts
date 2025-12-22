@@ -53,6 +53,7 @@ export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string>
         if (!snapshot.empty) {
             const lastId = snapshot.docs[0].data().transactionNumber as string;
             // Format eksisting: CODE-YYMM-XXXXX
+            // Split by '-' and take the last part
             const parts = lastId.split('-');
             if (parts.length === 3) {
                 const lastSeqNum = parseInt(parts[2]);
