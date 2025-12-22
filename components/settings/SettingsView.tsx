@@ -732,9 +732,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto scrollbar-thin pr-2">
                             {(localSettings.mechanicNames || []).map((mech, idx) => (
-                                <div key={idx} className="flex gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
-                                    <input type="text" className="flex-grow p-2 bg-transparent outline-none text-sm font-black text-gray-800 uppercase" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
-                                    <button onClick={() => removeItem('mechanicNames', idx)} className="text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div key={idx} className="flex items-center gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
+                                    <input type="text" className="flex-1 w-full min-w-0 p-2 bg-transparent outline-none text-sm font-black text-gray-800 uppercase" value={mech} onChange={e => handleArrayChange('mechanicNames', idx, e.target.value)} />
+                                    <button onClick={() => removeItem('mechanicNames', idx)} className="shrink-0 text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 rounded-lg">
                                         <Trash2 size={16}/>
                                     </button>
                                 </div>
@@ -754,9 +754,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto scrollbar-thin pr-2">
                             {(localSettings.roleOptions || []).map((role, idx) => (
-                                <div key={idx} className="flex gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
-                                    <input type="text" className="flex-grow p-2 bg-transparent outline-none text-sm font-black text-indigo-700 uppercase" value={role} onChange={e => handleArrayChange('roleOptions', idx, e.target.value)} />
-                                    <button onClick={() => removeItem('roleOptions', idx)} className="text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div key={idx} className="flex items-center gap-2 group animate-fade-in bg-white p-1 rounded-xl border border-gray-100 shadow-sm focus-within:border-indigo-300 transition-all">
+                                    <input type="text" className="flex-1 w-full min-w-0 p-2 bg-transparent outline-none text-sm font-black text-indigo-700 uppercase" value={role} onChange={e => handleArrayChange('roleOptions', idx, e.target.value)} />
+                                    <button onClick={() => removeItem('roleOptions', idx)} className="shrink-0 text-red-300 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 rounded-lg">
                                         <Trash2 size={16}/>
                                     </button>
                                 </div>
