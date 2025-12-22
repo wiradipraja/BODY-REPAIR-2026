@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -436,19 +437,37 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
+  // --- REVISED HANDLE PROCESS RECEIVING ---
   const handleProcessReceiving = async () => {
       if (!selectedPO) return;
-      if (selectedItemsToReceive.length === 0) { showNotification("Pilih item yang datang!", "error"); return; }
+      if (selectedItemsToReceive.length === 0) { 
+          showNotification("Pilih setidaknya satu item yang akan diterima.", "error"); 
+          return; 
+      }
       
-      const invalidQty = selectedItemsToReceive.some(idx => (receiveQtyMap[idx] || 0) <= 0);
-      if (invalidQty) { showNotification("Qty datang harus lebih dari 0.", "error"); return; }
+      // Validation Check
+      for (const idx of selectedItemsToReceive) {
+          const item = selectedPO.items[idx];
+          const remaining = item.qty - (item.qtyReceived || 0);
+          const inputQty = receiveQtyMap[idx] || 0;
+          
+          if (inputQty <= 0) {
+              showNotification(`Qty untuk ${item.name} harus lebih dari 0.`, "error");
+              return;
+          }
+          if (inputQty > remaining) {
+              showNotification(`Qty untuk ${item.name} melebihi sisa pesanan (${remaining}).`, "error");
+              return;
+          }
+      }
 
       setIsProcessing(true);
       try {
+          const batch = writeBatch(db);
           const updatedItems = [...selectedPO.items];
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
-          const batch = writeBatch(db);
-
+          
+          // Cache for Job Updates to avoid duplicate reads/writes
           const jobUpdateMap: Record<string, { parts: EstimateItem[], changed: boolean }> = {};
 
           for (const idx of selectedItemsToReceive) {
@@ -456,45 +475,59 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               const qtyNow = receiveQtyMap[idx] || 0;
               const itemCodeUpper = item.code.toUpperCase().trim();
               
+              // 1. Resolve Inventory ID (Find or Create)
               let targetInventoryId = item.inventoryId;
+              
               if (!targetInventoryId) {
-                  const q = query(collection(db, SPAREPART_COLLECTION), where('code', '==', itemCodeUpper));
-                  const snap = await getDocs(q);
-                  if (!snap.empty) targetInventoryId = snap.docs[0].id;
-              }
-
-              if (targetInventoryId) {
-                  batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
+                  // Try finding by code in existing list
+                  const existingItem = inventoryItems.find(i => i.code === itemCodeUpper);
+                  if (existingItem) {
+                      targetInventoryId = existingItem.id;
+                  } else {
+                      // Create New Inventory Item
+                      const newInvRef = doc(collection(db, SPAREPART_COLLECTION));
+                      targetInventoryId = newInvRef.id;
+                      
+                      batch.set(newInvRef, {
+                          code: itemCodeUpper, 
+                          name: item.name, 
+                          category: item.category || 'sparepart', 
+                          brand: item.brand || 'No Brand', 
+                          stock: qtyNow, // Initial stock
+                          unit: item.unit, 
+                          minStock: 2, 
+                          buyPrice: item.price, // Set initial buy price from PO
+                          sellPrice: Math.round(item.price * 1.3), // Default margin 30%
+                          isStockManaged: item.isStockManaged ?? true,
+                          createdAt: serverTimestamp(), 
+                          updatedAt: serverTimestamp()
+                      });
+                  }
+              } 
+              
+              // If item existed (or we found it), just update stock and price
+              if (targetInventoryId && inventoryItems.some(i => i.id === targetInventoryId)) {
+                   batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
                       stock: increment(qtyNow), 
-                      buyPrice: item.price, 
-                      brand: item.brand || 'No Brand', 
+                      buyPrice: item.price, // Update to latest purchase price
                       updatedAt: serverTimestamp() 
                   });
-              } else {
-                  const newInvRef = doc(collection(db, SPAREPART_COLLECTION));
-                  batch.set(newInvRef, {
-                      code: itemCodeUpper, 
-                      name: item.name, 
-                      category: item.category || 'sparepart', 
-                      brand: item.brand || 'No Brand', 
-                      stock: qtyNow, 
-                      unit: item.unit, 
-                      minStock: 2, 
-                      buyPrice: item.price, 
-                      sellPrice: Math.round(item.price * 1.3), 
-                      isStockManaged: item.isStockManaged ?? true,
-                      createdAt: serverTimestamp(), 
-                      updatedAt: serverTimestamp()
-                  });
-                  targetInventoryId = newInvRef.id;
               }
 
+              // 2. Update PO Item in memory
               const newQtyReceived = (item.qtyReceived || 0) + qtyNow;
-              updatedItems[idx] = { ...item, qtyReceived: newQtyReceived, inventoryId: targetInventoryId };
+              updatedItems[idx] = { 
+                  ...item, 
+                  qtyReceived: newQtyReceived, 
+                  inventoryId: targetInventoryId // Ensure PO item remembers the linked Inventory ID
+              };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
 
+              // 3. Prepare WO (Job) Update
               if (item.refJobId && item.refPartIndex !== undefined) {
                   const jobId = item.refJobId;
+                  
+                  // Fetch job data if not already in cache
                   if (!jobUpdateMap[jobId]) {
                       const jobRef = doc(db, SERVICE_JOBS_COLLECTION, jobId);
                       const jobSnap = await getDoc(jobRef);
@@ -505,16 +538,23 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           };
                       }
                   }
+
+                  // Update the specific part in the job
                   if (jobUpdateMap[jobId] && jobUpdateMap[jobId].parts[item.refPartIndex]) {
+                      // Update Inventory Link in WO
+                      jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
+                      jobUpdateMap[jobId].changed = true;
+
+                      // Mark as Arrived ONLY if fully received (or meets specific logic)
+                      // Logic: If Cumulative Received >= Ordered Qty
                       if (newQtyReceived >= item.qty) {
                           jobUpdateMap[jobId].parts[item.refPartIndex].hasArrived = true;
-                          jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
-                          jobUpdateMap[jobId].changed = true;
                       }
                   }
               }
           }
 
+          // 4. Commit Job Updates
           Object.entries(jobUpdateMap).forEach(([jobId, data]) => {
               if (data.changed) {
                   batch.update(doc(db, SERVICE_JOBS_COLLECTION, jobId), {
@@ -524,6 +564,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
           });
 
+          // 5. Update PO Status
           const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
           batch.update(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
               items: updatedItems, 
@@ -534,11 +575,14 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           await batch.commit();
 
+          // 6. Generate Report & Finish
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
-          showNotification("Barang diterima, WO & Stok terupdate.", "success");
+          showNotification(`Penerimaan berhasil. Status PO: ${isFull ? 'Received' : 'Partial'}`, "success");
           setViewMode('list');
           setSelectedPO(null);
+
       } catch (e: any) {
+          console.error("Receiving Error:", e);
           showNotification("Error saat penerimaan: " + e.message, "error");
       } finally {
           setIsProcessing(false);
@@ -819,7 +863,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                               const rem = item.qty - (item.qtyReceived || 0);
                               return (
                                   <tr key={idx} className={rem <= 0 ? 'opacity-50 bg-gray-50' : ''}>
-                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4 cursor-pointer"/> : <span className="text-gray-300">-</span>}</td>}
+                                      {isReceivable && <td className="p-3 border text-center">{rem > 0 && selectedItemsToReceive.includes(idx) ? <input type="checkbox" checked={selectedItemsToReceive.includes(idx)} onChange={() => toggleItemSelection(idx)} className="w-4 h-4"/> : null}</td>}
                                       <td className="p-3 border">
                                           <div><strong>{item.name}</strong></div>
                                           <div className="text-[10px] font-mono text-gray-500">
