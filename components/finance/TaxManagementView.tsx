@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
-import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
@@ -218,7 +218,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
       setIsProcessing(true);
       try {
-          const transactionNumber = generateTransactionNumber('OUT');
+          const transactionNumber = await generateTransactionId('OUT');
           const payload = {
               date: serverTimestamp(),
               createdAt: serverTimestamp(),
@@ -231,7 +231,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               customerName: 'Kantor Pelayanan Pajak (KPP)',
               description: `Bayar ${taxForm.type} - Masa ${taxForm.periodMonth + 1}/${taxForm.periodYear}. ${taxForm.notes}`,
               refNumber: taxForm.refNumber || undefined,
-              transactionNumber: transactionNumber // Audit ID
+              transactionNumber: transactionNumber // Audit ID (BKK-YYMM-XXXXX)
           };
 
           await addDoc(collection(db, CASHIER_COLLECTION), payload);
@@ -241,7 +241,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
           }
 
-          showNotification(`Berhasil mencatat pembebanan ${taxForm.type}`, "success");
+          showNotification(`Berhasil mencatat pembebanan ${taxForm.type} (${transactionNumber})`, "success");
           setTaxForm(prev => ({ ...prev, amount: 0, notes: '', refNumber: '', refId: '' }));
           setActiveTab('history');
       } catch (e: any) {

@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Asset, UserPermissions } from '../../types';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db, ASSETS_COLLECTION, CASHIER_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { Briefcase, Plus, Save, Trash2, TrendingDown, DollarSign, ShoppingBag, ShoppingCart, AlertCircle, Building, Laptop, Wrench, Megaphone } from 'lucide-react';
 
@@ -68,7 +68,7 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
           // 2. Create Cashier Transaction (Capital Expenditure)
           if (assetForm.createCashierTrx) {
-              const transactionNumber = generateTransactionNumber('OUT');
+              const transactionNumber = await generateTransactionId('OUT');
               const payload = {
                   date: serverTimestamp(),
                   type: 'OUT',
@@ -111,7 +111,7 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
       setIsProcessing(true);
       try {
-          const transactionNumber = generateTransactionNumber('OUT');
+          const transactionNumber = await generateTransactionId('OUT');
           const payload = {
               date: serverTimestamp(),
               type: 'OUT',
@@ -131,7 +131,7 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
           // Note: Ideally fetch settings from context or props if needed for header, passing partial for now
           generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as any, { workshopName: "REFORMA", workshopAddress: "" } as any);
 
-          showNotification("Pengeluaran operasional dicatat & Bukti diunduh.", "success");
+          showNotification(`Pengeluaran operasional dicatat (${transactionNumber}) & Bukti diunduh.`, "success");
           setExpenseForm({ category: 'Operasional', desc: '', amount: 0, notes: '' });
       } catch (e: any) {
           showNotification("Gagal: " + e.message, "error");

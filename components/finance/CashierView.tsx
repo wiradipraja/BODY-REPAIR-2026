@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
 import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent, Info } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -130,7 +130,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       setLoading(true);
       try {
-          const transactionNumber = generateTransactionNumber(trxType);
+          // Use ASYNC ID generation for strict sequence
+          const transactionNumber = await generateTransactionId(trxType);
 
           // 1. Create the Main Payment Transaction
           const newTrx: any = {
@@ -167,7 +168,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
           // 2. Create the Withholding Tax Transaction if enabled
           if (trxType === 'IN' && hasWithholding && withholdingAmount && Number(withholdingAmount) > 0) {
-              const taxTrxId = generateTransactionNumber('IN'); // Distinct ID for Tax Record
+              const taxTrxId = await generateTransactionId('IN'); // Generate distinct ID for Tax Record
               const taxTrx: any = {
                   date: serverTimestamp(),
                   type: 'IN',
@@ -189,7 +190,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
               generateReceiptPDF({...taxTrx, date: new Date()}, settings);
           }
           
-          showNotification("Transaksi berhasil disimpan & Bukti PDF diunduh.", "success");
+          showNotification(`Transaksi ${transactionNumber} berhasil disimpan & Bukti PDF diunduh.`, "success");
           
           setAmount('');
           setWithholdingAmount('');
@@ -228,9 +229,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
 
       // 2. TRIGGER JOB CONTROL & CRC UPDATE
-      // Logic: Unit sudah GatePass = Unit Keluar Bengkel
-      // - Remove from Active Job Control (Change statusKendaraan & posisiKendaraan)
-      // - Add to CRC Queue (Set crcFollowUpStatus: 'Pending')
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           await updateDoc(jobRef, {

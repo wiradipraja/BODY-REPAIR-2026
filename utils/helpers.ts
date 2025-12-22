@@ -1,5 +1,6 @@
 
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { db, CASHIER_COLLECTION } from "../services/firebase";
 
 export const formatCurrency = (number: number | undefined) => 
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
@@ -9,7 +10,7 @@ export const formatPoliceNumber = (value: string) => {
     return value.replace(/\s/g, '').toUpperCase();
 };
 
-// NEW: Standardize WA Number to 628xxx format
+// Standardize WA Number to 628xxx format
 export const formatWaNumber = (phone: string | undefined): string => {
     if (!phone) return '';
     
@@ -28,20 +29,59 @@ export const formatWaNumber = (phone: string | undefined): string => {
     return cleanNumber;
 };
 
-// NEW: Generate Audit Transaction Number (BKM/BKK/TRX)
-export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
+// NEW: Generate Audit Transaction Number (BKM-YYMM-XXXXX) - ASYNC
+export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
+    const prefix = type === 'IN' ? 'BKM' : 'BKK';
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2);
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const day = now.getDate().toString().padStart(2, '0');
-    const hour = now.getHours().toString().padStart(2, '0');
-    const minute = now.getMinutes().toString().padStart(2, '0');
-    const second = now.getSeconds().toString().padStart(2, '0');
-    
-    // Format: TYPE-YYMMDD-HHMMSS (Unique by second)
-    // Example: BKM-240101-143005
-    const prefix = type === 'IN' ? 'BKM' : 'BKK'; 
-    return `${prefix}-${year}${month}${day}-${hour}${minute}${second}`;
+    const periodCode = `${prefix}-${year}${month}`; // Contoh: BKM-2405
+
+    try {
+        // Query transaksi terakhir pada periode bulan ini dengan kode yang sama
+        const q = query(
+            collection(db, CASHIER_COLLECTION),
+            where('transactionNumber', '>=', periodCode),
+            where('transactionNumber', '<=', periodCode + '\uf8ff'),
+            orderBy('transactionNumber', 'desc'),
+            limit(1)
+        );
+
+        const snapshot = await getDocs(q);
+        let nextSequence = 1;
+
+        if (!snapshot.empty) {
+            const lastId = snapshot.docs[0].data().transactionNumber as string;
+            // Format eksisting: CODE-YYMM-XXXXX
+            const parts = lastId.split('-');
+            if (parts.length === 3) {
+                const lastSeqNum = parseInt(parts[2]);
+                if (!isNaN(lastSeqNum)) {
+                    nextSequence = lastSeqNum + 1;
+                }
+            }
+        }
+
+        // Return format: BKM-2405-00001
+        return `${periodCode}-${nextSequence.toString().padStart(5, '0')}`;
+        
+    } catch (error) {
+        console.error("Gagal generate sequence ID:", error);
+        // Fallback jika offline/error: Gunakan timestamp agar tetap unik
+        const fallbackSeq = Math.floor(Math.random() * 10000).toString().padStart(5, '0');
+        return `${periodCode}-ERR${fallbackSeq}`;
+    }
+};
+
+// Backward compatibility wrapper (jika ada komponen lain yg butuh sync, tapi disarankan pakai yg async di atas)
+export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
+    console.warn("Deprecation Warning: Gunakan generateTransactionId (async) untuk nomor urut yang akurat.");
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const prefix = type === 'IN' ? 'BKM' : 'BKK';
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefix}-${year}${month}-TEMP${random}`; 
 };
 
 // Recursive function to remove undefined values for Firestore
