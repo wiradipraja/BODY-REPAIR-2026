@@ -220,7 +220,7 @@ const AppContent: React.FC = () => {
       return `${codePrefix}${nextSeq.toString().padStart(4, '0')}`;
   };
 
-  const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
+  const handleSaveEstimate = async (jobId: string, estimateData: any, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
           // Get Current Job Data (Merge with new estimate data)
           const currentJob = jobs.find(j => j.id === jobId) || actualModalState.data;
@@ -228,6 +228,9 @@ const AppContent: React.FC = () => {
           
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
+          
+          // EXTRACT SELECTED PHYSICAL POSITION FROM EDITOR (Augmented Data)
+          const selectedPosisi = estimateData.posisiKendaraan || currentJob?.posisiKendaraan || 'Di Bengkel';
           
           // --- LOGIKA ESTIMASI ---
           if (saveType === 'estimate') {
@@ -254,11 +257,14 @@ const AppContent: React.FC = () => {
               }
           }
 
+          // Remove extra field before saving to DB struct
+          const { posisiKendaraan, ...cleanEstimateData } = estimateData;
+
           // Construct Payload
-          const basePayload = {
+          const basePayload: any = {
               ...currentJob,
               estimateData: { 
-                  ...estimateData, 
+                  ...cleanEstimateData, 
                   estimationNumber // Ensure BE number is saved
               },
               hargaJasa: estimateData.subtotalJasa,
@@ -277,14 +283,24 @@ const AppContent: React.FC = () => {
                   } else {
                       basePayload.statusKendaraan = 'Tunggu Estimasi';
                   }
-                  // Posisi Kendaraan: Jangan ubah otomatis, ikuti inputan atau existing
+                  // Keep position as selected
+                  basePayload.posisiKendaraan = selectedPosisi;
               }
           } else if (saveType === 'wo') {
-              // TERBITKAN WO: Kunci Status ke Produksi
+              // TERBITKAN WO: Kunci Status ke Produksi sesuai Posisi Fisik
               basePayload.woNumber = woNumber;
-              basePayload.statusKendaraan = 'Work In Progress'; // Trigger masuk Job Control
-              basePayload.statusPekerjaan = 'Belum Mulai Perbaikan'; // Reset produksi step
-              basePayload.posisiKendaraan = 'Di Bengkel'; // WO aktif artinya unit harus di bengkel
+              basePayload.posisiKendaraan = selectedPosisi;
+
+              // LOGIC: KANBAN INTEGRATION
+              if (selectedPosisi === 'Di Bengkel') {
+                  // Unit Inap -> Masuk Stall Bongkar
+                  basePayload.statusKendaraan = 'Work In Progress'; 
+                  basePayload.statusPekerjaan = 'Bongkar';
+              } else {
+                  // Unit Bawa Pulang -> Masuk Persiapan (Tunggu Part)
+                  basePayload.statusKendaraan = 'Unit di Pemilik (Tunggu Part)';
+                  basePayload.statusPekerjaan = 'Tunggu Part';
+              }
           }
 
           // DATABASE OPERATION
@@ -294,7 +310,7 @@ const AppContent: React.FC = () => {
               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
           }
           
-          showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi ${estimationNumber} Tersimpan`, "success");
+          showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit! Masuk antrian ${basePayload.statusPekerjaan}` : `Estimasi ${estimationNumber} Tersimpan`, "success");
           
           // Close modal automatically for both Estimate and WO actions
           closeModal();
@@ -391,7 +407,7 @@ const AppContent: React.FC = () => {
         )}
 
         {currentView === 'production_spkl' && ( <SpklManagementView jobs={jobs} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} /> )}
-        {currentView === 'job_control' && ( <JobControlView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
+        {currentView === 'job_control' && ( <JobControlView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
         {currentView === 'general_affairs' && ( <AssetManagementView assets={assets} userPermissions={userPermissions} showNotification={showNotification} /> )}
         {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} /> )}
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} />}

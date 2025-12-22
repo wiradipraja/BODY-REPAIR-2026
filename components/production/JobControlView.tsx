@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Job, Settings, UserPermissions, ProductionLog, MechanicAssignment } from '../../types';
+import { Job, Settings, UserPermissions, ProductionLog, MechanicAssignment, InventoryItem } from '../../types';
 import { doc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
@@ -15,6 +15,7 @@ interface JobControlViewProps {
   settings: Settings;
   showNotification: (msg: string, type: string) => void;
   userPermissions: UserPermissions;
+  inventoryItems: InventoryItem[];
 }
 
 const STAGES = [
@@ -87,7 +88,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
     }
 };
 
-const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNotification, userPermissions }) => {
+const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNotification, userPermissions, inventoryItems }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
   const [showProductivityReport, setShowProductivityReport] = useState(false);
@@ -110,9 +111,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       return jobs.filter(j => 
           !j.isClosed && j.woNumber && !j.isDeleted && 
           // LOGIC INTEGRATION: 
-          // 1. Must be physically in workshop (except for booking queue sometimes, but strictly 'Di Bengkel' for production)
-          // 2. Status must be either 'Work In Progress' OR one of the Admin Hurdles (Tunggu SPK, etc)
-          j.posisiKendaraan === 'Di Bengkel' && 
+          // 1. Must be physically in workshop (Inap)
+          // 2. OR Status is an Admin Hurdle (allowing "Unit di Pemilik" to show in Prep)
+          (j.posisiKendaraan === 'Di Bengkel' || (j.posisiKendaraan === 'Di Pemilik' && ADMIN_HURDLE_STATUSES.includes(j.statusKendaraan))) &&
           (
             j.statusKendaraan === 'Work In Progress' || 
             j.statusKendaraan === 'Unit Rawat Jalan' || 
@@ -122,6 +123,47 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           (j.policeNumber.includes(term) || j.carModel.toUpperCase().includes(term) || j.customerName.toUpperCase().includes(term))
       );
   }, [jobs, searchTerm]);
+
+  // Virtual Stock Map for Part Status Calculation
+  const stockMap = useMemo(() => {
+      const map: Record<string, number> = {};
+      inventoryItems.forEach(i => map[i.id] = i.stock);
+      return map;
+  }, [inventoryItems]);
+
+  const getPartStatus = (job: Job) => {
+      const parts = job.estimateData?.partItems || [];
+      if (parts.length === 0) return null; // No parts needed
+
+      let readyCount = 0;
+      let onOrderCount = 0;
+      let indentCount = 0;
+
+      // Create a temporary stock copy to simulate FIFO allocation within this job check
+      // Note: A true FIFO across all jobs is complex, this is a per-job approximation for visual badge
+      const tempStock = { ...stockMap };
+
+      parts.forEach(p => {
+          if (p.hasArrived) {
+              readyCount++;
+          } else if (p.inventoryId && tempStock[p.inventoryId] >= (p.qty || 1)) {
+              readyCount++;
+              tempStock[p.inventoryId] -= (p.qty || 1); // Deduct virtually
+          } else if (p.isOrdered) {
+              onOrderCount++;
+              if (p.isIndent) indentCount++;
+          } else {
+              // Not arrived, not in stock, not ordered
+          }
+      });
+
+      if (readyCount === parts.length) return { label: 'PART READY', color: 'bg-emerald-100 text-emerald-700' };
+      if (readyCount > 0) return { label: 'PARTIAL READY', color: 'bg-blue-100 text-blue-700' };
+      if (indentCount > 0) return { label: 'PART INDENT', color: 'bg-red-100 text-red-700' };
+      if (onOrderCount > 0) return { label: 'ON ORDER', color: 'bg-orange-100 text-orange-700' };
+      
+      return { label: 'NEED ORDER', color: 'bg-gray-100 text-gray-600' };
+  };
 
   const boardData = useMemo(() => {
       const columns: Record<string, Job[]> = {};
@@ -234,7 +276,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                   updatePayload.statusKendaraan = 'Selesai (Tunggu Pengambilan)';
               } else {
                   // FORCE WIP STATUS if it was previously an Admin Status (e.g. Tunggu SPK)
+                  // Also mark as physically in workshop
                   updatePayload.statusKendaraan = 'Work In Progress';
+                  updatePayload.posisiKendaraan = 'Di Bengkel'; 
               }
           }
 
@@ -379,6 +423,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                     const currentPIC = job.assignedMechanics?.find(a => a.stage === (isAdminPending ? 'Persiapan Kendaraan' : job.statusPekerjaan || 'Bongkar'))?.name;
                                     const { daysRunning, daysRemaining } = getJobProgress(job);
                                     const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
+                                    const partStatus = getPartStatus(job);
                                     
                                     return (
                                         <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md relative ${job.isVVIP ? 'border-l-yellow-400 ring-2 ring-yellow-200' : isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
@@ -413,7 +458,17 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 </div>
                                             )}
 
-                                            {isAdminPending && <div className="mb-2 px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[9px] font-black text-amber-700 uppercase">{t('hurdle_label')}: {job.statusKendaraan}</div>}
+                                            {isAdminPending && (
+                                                <div className="space-y-2 mb-2">
+                                                    <div className="px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[9px] font-black text-amber-700 uppercase">{t('hurdle_label')}: {job.statusKendaraan}</div>
+                                                    {/* PART STATUS BADGE FOR PENDING JOBS */}
+                                                    {partStatus && (
+                                                        <div className={`px-2 py-1 rounded border text-[9px] font-black flex items-center gap-1 ${partStatus.color}`}>
+                                                            <PackageSearch size={10}/> {partStatus.label}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                             
                                             <div className="mb-3">
                                                 <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{t('pic_label')}:</label>

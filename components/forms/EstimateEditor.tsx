@@ -138,6 +138,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           if (field === 'statusKendaraan') setCurrentStatus(value);
           if (field === 'posisiKendaraan') setCurrentPosisi(value);
 
+          // Update real-time hanya untuk visual di form, final update saat Save WO
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
               [field]: value, 
               updatedAt: serverTimestamp() 
@@ -233,7 +234,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       ).slice(0, 15);
   }, [inventoryItems, searchQuery]);
 
-  const prepareEstimateData = (estimationNumber?: string): EstimateData => {
+  const prepareEstimateData = (estimationNumber?: string): any => {
       const subtotalJasa = jasaItems.reduce((acc, i) => acc + (Number(i.price) || 0), 0);
       const subtotalPart = partItems.reduce((acc, i) => acc + ((Number(i.price) || 0) * (Number(i.qty) || 1)), 0);
       const discountJasaAmount = Math.round((subtotalJasa * discountJasa) / 100);
@@ -247,7 +248,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           estimationNumber: estimationNumber || localEstNumber || job.estimateData?.estimationNumber,
           grandTotal, jasaItems, partItems,
           discountJasa, discountPart, discountJasaAmount, discountPartAmount,
-          ppnAmount, subtotalJasa, subtotalPart, estimatorName: creatorName
+          ppnAmount, subtotalJasa, subtotalPart, estimatorName: creatorName,
+          // Inject current Position to ensure App.tsx logic captures it correctly
+          posisiKendaraan: currentPosisi 
       };
   };
 
