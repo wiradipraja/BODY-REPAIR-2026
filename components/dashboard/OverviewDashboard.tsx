@@ -9,7 +9,7 @@ import {
 import { 
     Car, Wrench, CheckCircle, TrendingUp, Calendar, 
     FileCheck, Layers, Landmark, ArrowUpRight, 
-    Briefcase, Users, ChevronRight, PieChart, Activity
+    Briefcase, Users, ChevronRight, PieChart, Activity, Sparkles, Database
 } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, ArcElement);
@@ -21,7 +21,7 @@ interface OverviewProps {
   onNavigate: (view: string) => void;
 }
 
-const StatCard = ({ title, value, icon: Icon, color, subValue, trend }: any) => (
+const StatCard = ({ title, value, icon: Icon, color, subValue, trend, info }: any) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all group overflow-hidden relative">
     <div className={`absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform`}>
         <Icon size={120}/>
@@ -36,6 +36,7 @@ const StatCard = ({ title, value, icon: Icon, color, subValue, trend }: any) => 
                 <p className="text-[10px] font-bold text-gray-500">{subValue}</p>
             </div>
         )}
+        {info && <p className="text-[9px] text-gray-400 mt-1 italic">{info}</p>}
       </div>
       <div className={`p-3 rounded-xl shadow-lg shadow-indigo-100 ${color} text-white`}>
         <Icon size={24} />
@@ -55,34 +56,38 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
           id: {
               title: "Overview Dashboard",
               subtitle: "Pantau performa operasional & finansial bengkel anda.",
-              card1: "Master Database Unit",
-              card1_sub: "Total unit terdaftar",
+              card_db: "Total Database",
               card2: "Work In Progress (WIP)",
-              card2_sub: "Pekerjaan sedang berjalan",
+              card2_sub: "Unit sedang dikerjakan",
               card3: "Unit Siap Ambil",
               card3_sub: "Menunggu penyerahan",
               card4: "Revenue (Terfaktur)",
               card4_sub: "Total bill periode ini",
+              card_forecast: "Forecast Gross Profit",
+              card_forecast_sub: "Potensi Laba (WIP)",
+              card_forecast_info: "Asumsi: Bahan 15%, Part 80%",
               row1: "Unit Terfaktur",
               row2: "Total Produksi Panel",
-              row3: "Gross Profit",
+              row3: "Gross Profit (Real)",
               chart1: "Distribusi Produksi Aktif",
               chart2: "Rasio Faktur"
           },
           en: {
               title: "Overview Dashboard",
               subtitle: "Monitor your workshop's operational & financial performance.",
-              card1: "Vehicle Database",
-              card1_sub: "Total units registered",
+              card_db: "Total Database",
               card2: "Work In Progress (WIP)",
               card2_sub: "Active jobs on floor",
               card3: "Ready for Delivery",
               card3_sub: "Waiting for handover",
               card4: "Revenue (Invoiced)",
               card4_sub: "Total bill this period",
+              card_forecast: "Forecast Gross Profit",
+              card_forecast_sub: "Potential Profit (WIP)",
+              card_forecast_info: "Assumed: Mat 15%, Part 80%",
               row1: "Invoiced Units",
               row2: "Production Panels",
-              row3: "Gross Profit",
+              row3: "Gross Profit (Realized)",
               chart1: "Active Production Stages",
               chart2: "Invoice Ratio"
           }
@@ -92,10 +97,31 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
 
   const stats = useMemo(() => {
     // 1. WIP Stats
-    const activeJobs = allJobs.filter(j => j.woNumber && !j.isClosed && !j.isDeleted).length;
+    const activeJobsList = allJobs.filter(j => j.woNumber && !j.isClosed && !j.isDeleted);
+    const activeJobsCount = activeJobsList.length;
     const completedWaiting = allJobs.filter(j => j.statusPekerjaan === 'Selesai' && !j.isClosed && !j.isDeleted).length;
 
-    // 2. Filtered Stats
+    // --- FORECAST LOGIC ---
+    // Hitung potensi revenue dari unit WIP (belum closed)
+    let potentialRevJasa = 0;
+    let potentialRevPart = 0;
+
+    activeJobsList.forEach(j => {
+        const est = j.estimateData;
+        if (est) {
+            potentialRevJasa += (est.subtotalJasa || 0);
+            potentialRevPart += (est.subtotalPart || 0);
+        }
+    });
+
+    // Hitung asumsi biaya
+    const assumedMatCost = potentialRevJasa * 0.15; // 15% dari Jasa untuk Bahan
+    const assumedPartCost = potentialRevPart * 0.80; // 80% dari Part (margin 20%) untuk HPP Part
+    
+    // Forecast GP = (Rev Jasa + Rev Part) - (Biaya Bahan + Biaya Part)
+    const forecastGP = (potentialRevJasa + potentialRevPart) - (assumedMatCost + assumedPartCost);
+
+    // 2. Filtered Stats (Realized)
     const periodJobs = allJobs.filter(j => {
         if (j.isDeleted) return false;
         const dateObj = j.closedAt?.toDate ? j.closedAt.toDate() : (j.createdAt?.toDate ? j.createdAt.toDate() : new Date());
@@ -121,7 +147,16 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
       statusCounts[j.statusPekerjaan] = (statusCounts[j.statusPekerjaan] || 0) + 1;
     });
 
-    return { activeJobs, completedWaiting, revenue, statusCounts, totalInvoicedUnits, totalPanels, grossProfit };
+    return { 
+        activeJobsCount, 
+        completedWaiting, 
+        revenue, 
+        statusCounts, 
+        totalInvoicedUnits, 
+        totalPanels, 
+        grossProfit,
+        forecastGP // New Stat
+    };
   }, [allJobs, selectedMonth, selectedYear]);
 
   const barChartData = {
@@ -138,7 +173,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
   const doughnutData = {
       labels: ['Invoiced', 'Active'],
       datasets: [{
-          data: [stats.totalInvoicedUnits, stats.activeJobs],
+          data: [stats.totalInvoicedUnits, stats.activeJobsCount],
           backgroundColor: ['#10B981', '#6366F1'],
           borderWidth: 0,
           cutout: '70%'
@@ -150,9 +185,18 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 bg-slate-900 p-8 rounded-3xl text-white shadow-2xl relative overflow-hidden">
           <div className="absolute right-0 top-0 p-4 opacity-10 rotate-12 scale-150"><Activity size={200}/></div>
-          <div className="relative z-10">
+          
+          <div className="relative z-10 flex-grow">
             <h1 className="text-4xl font-black tracking-tighter">{t('title')}</h1>
             <p className="text-indigo-300 font-medium mt-1">{t('subtitle')}</p>
+          </div>
+
+          {/* Database Unit Info (Text Only) */}
+          <div className="relative z-10 flex flex-col items-end mr-6 border-r border-white/20 pr-6">
+              <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest flex items-center gap-1">
+                  <Database size={12}/> {t('card_db')}
+              </p>
+              <p className="text-3xl font-black text-white">{totalUnits}</p>
           </div>
 
           <div className="flex items-center gap-3 bg-white/10 p-2 rounded-2xl backdrop-blur-md border border-white/10 relative z-10">
@@ -169,8 +213,16 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title={t('card1')} value={totalUnits} icon={Users} color="bg-slate-700" subValue={t('card1_sub')} />
-        <StatCard title={t('card2')} value={stats.activeJobs} icon={Wrench} color="bg-indigo-600" subValue={t('card2_sub')} />
+        {/* Forecast GP Card (Replaces the old DB card) */}
+        <StatCard 
+            title={t('card_forecast')} 
+            value={formatCurrency(stats.forecastGP)} 
+            icon={Sparkles} 
+            color="bg-purple-600" 
+            subValue={t('card_forecast_sub')} 
+            info={t('card_forecast_info')}
+        />
+        <StatCard title={t('card2')} value={stats.activeJobsCount} icon={Wrench} color="bg-indigo-600" subValue={t('card2_sub')} />
         <StatCard title={t('card3')} value={stats.completedWaiting} icon={Car} color="bg-blue-500" subValue={t('card3_sub')} />
         <StatCard title={t('card4')} value={formatCurrency(stats.revenue)} icon={Landmark} color="bg-emerald-600" subValue={t('card4_sub')} trend="up" />
       </div>
