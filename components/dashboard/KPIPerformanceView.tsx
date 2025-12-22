@@ -4,9 +4,9 @@ import { Job, CashierTransaction, Settings } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { 
     Trophy, Users, User, Calendar, Target, 
-    ArrowUpRight, MessageSquare, PhoneCall, 
-    Wallet, Clock, Hammer, Layers, AlertCircle, TrendingUp,
-    Zap, Activity, BarChart3, Flag, CheckCircle2, Info, ArrowRight
+    PhoneCall, 
+    Wallet, Hammer, MessageSquare, AlertCircle, TrendingUp,
+    Zap, Flag, CheckCircle2, Info
 } from 'lucide-react';
 
 interface KPIProps {
@@ -19,21 +19,36 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
+  // Helper untuk parsing tanggal (Timestamp Firebase atau Date Object)
+  const parseDate = (dateInput: any): Date => {
+      if (!dateInput) return new Date();
+      if (dateInput instanceof Date) return dateInput;
+      if (typeof dateInput.toDate === 'function') return dateInput.toDate();
+      if (dateInput.seconds) return new Date(dateInput.seconds * 1000);
+      const parsed = new Date(dateInput);
+      return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   const stats = useMemo(() => {
     const now = new Date();
     const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
 
-    // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation
+    // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation (Realized Profit)
     const invoicedPeriodJobs = jobs.filter(j => {
         if (j.isDeleted || !j.hasInvoice || !j.closedAt) return false;
-        const dateObj = j.closedAt?.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+        const dateObj = parseDate(j.closedAt);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
 
-    // 2. Gross Profit Calculation Logic
+    // 2. Gross Profit Calculation Logic (Revenue - HPP Real)
     const calculateGP = (job: Job) => {
         const revenue = (job.hargaJasa || 0) + (job.hargaPart || 0);
-        const costs = (job.costData?.hargaModalBahan || 0) + (job.costData?.hargaBeliPart || 0) + (job.costData?.jasaExternal || 0);
+        // Cost Data integrity check from Production/Inventory modules
+        const materialCost = job.costData?.hargaModalBahan || 0;
+        const partCost = job.costData?.hargaBeliPart || 0;
+        const subletCost = job.costData?.jasaExternal || 0;
+        
+        const costs = materialCost + partCost + subletCost;
         return revenue - costs;
     };
 
@@ -68,61 +83,66 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
     const weeklyInvoicedJobs = invoicedPeriodJobs.filter(j => {
         if (!j.closedAt) return false;
-        const d = j.closedAt?.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+        const d = parseDate(j.closedAt);
         const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
-        return isCurrentMonth ? (diffDays <= 7) : false;
+        // Jika bulan aktif, hitung 7 hari terakhir. Jika bulan lalu, hitung rata-rata.
+        return isCurrentMonth ? (diffDays <= 7) : true; 
     });
-    const currentAchievedWeeklyGP = weeklyInvoicedJobs.reduce((acc, j) => acc + calculateGP(j), 0);
+    
+    // Jika bulan lalu, current achieved weekly hanyalah rata-rata untuk display
+    const currentAchievedWeeklyGP = isCurrentMonth 
+        ? weeklyInvoicedJobs.reduce((acc, j) => acc + calculateGP(j), 0)
+        : totalGPRealizedMonth / 4; 
 
     // 5. KPI ADMIN & CRC (BOOKING, PICKUP, FOLLOW-UP CONVERSION)
-    // Modified to aggregate all CRC touchpoints within the period
     
-    // A. Booking Stage (Leads created in period)
+    // A. Booking Stage (Created Date)
     const bookingJobs = jobs.filter(j => {
         if (j.isDeleted) return false;
-        const d = j.createdAt?.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+        const d = parseDate(j.createdAt);
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const bookingCont = bookingJobs.filter(j => j.isBookingContacted).length;
     const bookingSucc = bookingJobs.filter(j => j.bookingSuccess).length;
 
-    // B. Service Follow-up Stage (Units closed in period)
+    // B. Service Follow-up Stage (Closed Date)
     const closedInPeriod = jobs.filter(j => {
         if (!j.isClosed || !j.closedAt || j.isDeleted) return false;
-        const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+        const d = parseDate(j.closedAt);
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const serviceCont = closedInPeriod.filter(j => j.isServiceContacted).length;
     const serviceSucc = closedInPeriod.filter(j => j.crcFollowUpStatus === 'Contacted').length;
 
-    // C. Pickup Stage (Units ready or picked up in period)
+    // C. Pickup Stage (Ready or Closed)
     const pickupCandidates = jobs.filter(j => {
          const isReady = j.statusKendaraan === 'Selesai (Tunggu Pengambilan)';
-         const isClosedThisMonth = j.isClosed && j.closedAt && new Date(j.closedAt.toDate ? j.closedAt.toDate() : j.closedAt).getMonth() === selectedMonth;
-         // Approximate: jobs that are ready now or closed this month are pickup candidates for this month's report
+         const isClosedThisMonth = j.isClosed && j.closedAt && parseDate(j.closedAt).getMonth() === selectedMonth;
          return isReady || isClosedThisMonth;
     });
     const pickupCont = pickupCandidates.filter(j => j.isPickupContacted).length;
-    const pickupSucc = pickupCandidates.filter(j => j.pickupSuccess).length; // Check for explicit flag from Cashier check
+    const pickupSucc = pickupCandidates.filter(j => j.pickupSuccess).length; 
 
     // Aggregate Totals
     const totalContacted = bookingCont + serviceCont + pickupCont;
     const totalSuccess = bookingSucc + serviceSucc + pickupSucc;
     const successRatio = totalContacted > 0 ? (totalSuccess / totalContacted) * 100 : 0;
     
-    // Legacy metrics
-    const bookingPotential = jobs.filter(j => !j.isClosed && j.posisiKendaraan === 'Di Pemilik').length;
-    const confirmedBookings = jobs.filter(j => j.statusKendaraan === 'Booking Masuk').length;
-
-    // 6. KPI FINANCE (AR AGING)
-    const arItems = jobs.filter(j => j.woNumber && !j.isDeleted).map(job => {
+    // 6. KPI FINANCE (AR AGING - Piutang)
+    const arItems = jobs.filter(j => j.woNumber && !j.isDeleted && !j.isClosed).map(job => {
         const totalBill = job.estimateData?.grandTotal || 0;
-        const paid = transactions.filter(t => t.refJobId === job.id && t.type === 'IN').reduce((acc, t) => acc + (t.amount || 0), 0);
+        const paid = transactions
+            .filter(t => t.refJobId === job.id && t.type === 'IN')
+            .reduce((acc, t) => acc + (t.amount || 0), 0);
+        
         const remaining = totalBill - paid;
-        const dateRef = job.closedAt?.toDate ? job.closedAt.toDate() : (job.createdAt?.toDate ? job.createdAt.toDate() : new Date());
-        const ageDays = dateRef ? Math.floor((Date.now() - dateRef.getTime()) / (1000 * 3600 * 24)) : 0;
+        
+        // Use CreatedAt for Active Jobs to determine Aging
+        const dateRef = parseDate(job.createdAt);
+        const ageDays = Math.floor((Date.now() - dateRef.getTime()) / (1000 * 3600 * 24));
+        
         return { remaining, ageDays };
-    }).filter(i => i.remaining > 1000);
+    }).filter(i => i.remaining > 1000); // Filter lunas
 
     const agingProfile = {
         current: arItems.filter(i => i.ageDays <= 7).reduce((acc, i) => acc + i.remaining, 0),
@@ -132,21 +152,25 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     
     const totalAR = agingProfile.current + agingProfile.warning + agingProfile.critical;
 
-    // 7. KPI PRODUKSI
+    // 7. KPI PRODUKSI (MEKANIK)
     const mechMap: Record<string, any> = {};
     (settings.mechanicNames || []).forEach(name => {
         mechMap[name] = { panels: 0, reworks: 0, units: 0 };
     });
 
+    // Hitung produktivitas berdasarkan Unit Closed di periode ini
     closedInPeriod.forEach(j => {
         const panels = j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
         const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
+        
         involvedMechs.forEach((m: any) => {
             if (mechMap[m]) {
                 mechMap[m].panels += panels;
                 mechMap[m].units += 1;
             }
         });
+
+        // Hitung Rework berdasarkan Production Logs
         j.productionLogs?.forEach(log => {
             if (log.type === 'rework') {
                 const picAtStage = j.assignedMechanics?.find(a => a.stage === log.stage)?.name;
@@ -155,9 +179,10 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         });
     });
 
+    // Hitung Estimasi yang dibuat SA (Ratio Closing)
     jobs.filter(j => {
         if (j.isDeleted) return false;
-        const d = j.createdAt?.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+        const d = parseDate(j.createdAt);
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     }).forEach(j => {
         const saName = j.namaSA || 'Admin/User';
@@ -166,8 +191,8 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     });
 
     return { 
-        saMap, successRatio, totalContacted, bookingPotential, 
-        confirmedBookings, agingProfile, mechMap, 
+        saMap, successRatio, totalContacted,
+        agingProfile, mechMap, 
         totalGPRealizedMonth, currentAchievedWeeklyGP, 
         adjustedWeeklyTarget, remainingWeeks, currentWeekNum, totalAR
     };
