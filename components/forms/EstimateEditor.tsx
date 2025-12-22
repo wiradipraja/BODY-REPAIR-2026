@@ -133,7 +133,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               [field]: value, 
               updatedAt: serverTimestamp() 
           });
-          showNotification(`Update Berhasil`, "success");
+          showNotification(`Update Berhasil. ${field === 'statusKendaraan' ? 'Posisi di Papan Kontrol berubah.' : ''}`, "success");
       } catch (e) {
           showNotification("Gagal update status", "error");
       }
@@ -282,8 +282,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                       </div>
                   </div>
                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><Activity size={10}/> {lang === 'id' ? 'Status Administrasi' : 'Admin Status'}</label>
-                      <select value={currentStatus} onChange={e => handleUpdateCheckIn('statusKendaraan', e.target.value)} className="w-full p-2 bg-indigo-50 border-none rounded-xl text-xs font-black text-indigo-700 focus:ring-2 ring-indigo-200">
+                      <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><Activity size={10}/> {lang === 'id' ? 'Status Administrasi (Admin Control)' : 'Admin Status'}</label>
+                      <select 
+                        value={currentStatus} 
+                        onChange={e => handleUpdateCheckIn('statusKendaraan', e.target.value)} 
+                        className="w-full p-2 bg-indigo-50 border-none rounded-xl text-xs font-black text-indigo-700 focus:ring-2 ring-indigo-200"
+                      >
                           {settings.statusKendaraanOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
                   </div>

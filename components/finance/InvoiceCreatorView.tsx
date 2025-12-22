@@ -26,37 +26,65 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
   const isManager = userPermissions.role === 'Manager';
 
   // Helper to check if a job is fully ready for invoice
+  // UPDATED: Logic dilonggarkan agar unit yang secara teknis sudah di tahap akhir (QC/Finishing/Selesai) bisa difaktur
+  // Validasi parts/bahan dipindah ke UI Warning, bukan filter search.
   const isJobReadyForInvoice = (job: Job) => {
       if (!job.woNumber || job.isDeleted) return false;
       
-      const allPartsIssued = (job.estimateData?.partItems || []).every(p => p.hasArrived);
-      const materialsIssued = job.usageLog?.some(l => l.category === 'material');
-      const allSpklClosed = (job.spklItems || []).every(s => s.status === 'Closed');
-      const isClosed = job.isClosed;
-
-      return isClosed && allPartsIssued && materialsIssued && allSpklClosed;
+      const validStatuses = ['Quality Control', 'Finishing', 'Selesai', 'Selesai (Tunggu Pengambilan)'];
+      const isStatusReady = validStatuses.includes(job.statusPekerjaan) || validStatuses.includes(job.statusKendaraan);
+      
+      return isStatusReady || job.isClosed || job.hasInvoice;
   };
 
-  // Filter ONLY ready WOs for the search dropdown results
+  // Filter ready WOs for the search dropdown results
+  // UPDATED: Normalisasi format Nopol (hapus spasi) untuk pencarian yang lebih baik
   const eligibleWOs = useMemo(() => {
-      const term = searchTerm.toUpperCase().trim();
-      return jobs.filter(j => 
-          isJobReadyForInvoice(j) &&
-          (term === '' || 
-           j.woNumber?.includes(term) || 
-           j.policeNumber.includes(term) ||
-           j.customerName.toUpperCase().includes(term))
-      );
+      const rawTerm = searchTerm.toUpperCase();
+      const cleanTerm = rawTerm.replace(/\s/g, ''); // Hapus spasi dari keyword pencarian
+
+      return jobs.filter(j => {
+          // Filter 1: Status Eligibility
+          if (!isJobReadyForInvoice(j)) return false;
+
+          // Filter 2: Search Matching
+          if (searchTerm === '') return true;
+
+          const nopol = (j.policeNumber || '').toUpperCase().replace(/\s/g, ''); // Hapus spasi dari data nopol
+          const wo = (j.woNumber || '').toUpperCase().replace(/\s/g, '');
+          const cust = (j.customerName || '').toUpperCase(); // Nama tetap pakai spasi (rawTerm)
+
+          return nopol.includes(cleanTerm) || wo.includes(cleanTerm) || cust.includes(rawTerm);
+      });
   }, [jobs, searchTerm]);
 
-  // Check if search has results but they are locked by WIP status
+  // Validation Warnings for Selected Job
+  const validationWarnings = useMemo(() => {
+      if (!selectedJob) return [];
+      const warnings = [];
+      
+      const allPartsIssued = (selectedJob.estimateData?.partItems || []).every(p => p.hasArrived);
+      const materialsIssued = selectedJob.usageLog?.some(l => l.category === 'material');
+      const allSpklClosed = (selectedJob.spklItems || []).every(s => s.status === 'Closed');
+
+      if (!allPartsIssued) warnings.push("Terdapat Sparepart yang belum Issued/Datang.");
+      if (!materialsIssued) warnings.push("Belum ada record pemakaian Bahan (Material).");
+      if (!allSpklClosed) warnings.push("Ada SPKL (Jasa Luar) yang belum Closed.");
+      
+      return warnings;
+  }, [selectedJob]);
+
+  // Check if search has results but they are locked by WIP status (not ready yet)
   const searchMatchesWIP = useMemo(() => {
       if (!searchTerm || eligibleWOs.length > 0) return false;
-      const term = searchTerm.toUpperCase().trim();
-      return jobs.some(j => 
-          !j.isDeleted && j.woNumber && !isJobReadyForInvoice(j) &&
-          (j.woNumber.includes(term) || j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term))
-      );
+      const rawTerm = searchTerm.toUpperCase();
+      const cleanTerm = rawTerm.replace(/\s/g, '');
+      
+      return jobs.some(j => {
+          const nopol = (j.policeNumber || '').toUpperCase().replace(/\s/g, '');
+          const wo = (j.woNumber || '').toUpperCase().replace(/\s/g, '');
+          return !j.isDeleted && j.woNumber && !isJobReadyForInvoice(j) && (nopol.includes(cleanTerm) || wo.includes(cleanTerm));
+      });
   }, [jobs, searchTerm, eligibleWOs]);
 
   // List of Invoices History
@@ -114,15 +142,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       const month = (now.getMonth() + 1).toString().padStart(2, '0');
       const prefix = `INV-${year}${month}-`;
 
-      // Cari invoice terakhir di bulan ini
-      // Note: Client-side filtering because Firestore "startswith" queries are limited without specific index fields
-      // Optimization: Fetch only jobs with invoiceNumber, sort client side. Or use a simpler logic for now.
-      
-      // Let's query recent jobs to find max.
-      // This is a "best effort" client side generation. In high concurrency, use Cloud Functions or Transaction.
-      // For this app scope, querying existing jobs in memory (props) is acceptable if list is full, 
-      // but to be safe we use firestore query.
-      
       const q = query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('invoiceNumber', 'desc'), limit(50));
       const snapshot = await getDocs(q);
       
@@ -143,6 +162,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
   const handleFinalizeAndPrint = async () => {
       if (!selectedJob || !calculations) return;
       
+      if (validationWarnings.length > 0) {
+          if (!window.confirm(`PERINGATAN:\n${validationWarnings.join('\n')}\n\nApakah Anda yakin ingin tetap menerbitkan faktur?`)) return;
+      }
+
       const isAlreadyInvoiced = selectedJob.hasInvoice;
       const confirmMsg = isAlreadyInvoiced 
         ? `Cetak ulang Salinan Faktur untuk ${selectedJob.policeNumber}?`
@@ -266,7 +289,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                     placeholder="Cari Nopol, WO, atau Nama Customer..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium"
+                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium uppercase"
                 />
             </div>
             
@@ -295,8 +318,11 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                         <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-3">
                             <AlertTriangle className="text-orange-600 mt-1 shrink-0" size={20}/>
                             <div>
-                                <p className="font-bold text-orange-800 text-sm">Unit Tidak Siap Faktur</p>
-                                <p className="text-xs text-orange-700 mt-1">Pastikan anda sudah melakukan: <br/> 1. Close WO (Selesai Produksi) <br/> 2. Pembebanan Part & Bahan <br/> 3. <strong>Menyelesaikan (Close) SPKL Jasa Luar</strong>.</p>
+                                <p className="font-bold text-orange-800 text-sm">Unit Belum Siap Faktur (Tahap Awal)</p>
+                                <p className="text-xs text-orange-700 mt-1">
+                                    Unit masih dalam proses awal pengerjaan (Bongkar/Las/Dempul/Cat).<br/>
+                                    Faktur hanya dapat dibuat jika status minimal <strong>Finishing, QC, atau Selesai</strong>.
+                                </p>
                             </div>
                         </div>
                     )}
@@ -335,7 +361,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                     const materialsIssued = j.usageLog?.some(l => l.category === 'material');
                                     const spklCount = (j.spklItems || []).length;
                                     const spklClosed = (j.spklItems || []).every(s => s.status === 'Closed');
-                                    const isReady = allPartsIssued && materialsIssued && spklClosed;
+                                    const isReady = isJobReadyForInvoice(j);
 
                                     return (
                                         <tr key={j.id} className="hover:bg-gray-50">
@@ -451,6 +477,19 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <p className="mt-2 text-gray-500 font-mono text-xs">VIN: {selectedJob.nomorRangka || '-'}</p>
                             </div>
                         </div>
+
+                        {/* WARNINGS BLOCK */}
+                        {validationWarnings.length > 0 && !selectedJob.hasInvoice && (
+                            <div className="mx-6 mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20}/>
+                                <div>
+                                    <p className="font-bold text-amber-800 text-sm">Validasi Pra-Faktur (Perhatian)</p>
+                                    <ul className="list-disc list-inside text-xs text-amber-700 mt-1 space-y-0.5">
+                                        {validationWarnings.map((w, idx) => <li key={idx}>{w}</li>)}
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
 
                         {/* SPKL ITEMS PREVIEW */}
                         {(selectedJob.spklItems || []).length > 0 && (

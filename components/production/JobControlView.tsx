@@ -30,11 +30,14 @@ const STAGES = [
     "Selesai (Tunggu Pengambilan)" 
 ];
 
+// Status yang berasal dari Admin Kontrol Klaim / Logistik yang muncul di "Persiapan Kendaraan"
 const ADMIN_HURDLE_STATUSES = [
     "Banding Harga SPK",
     "Tunggu Part",
+    "Unit di Pemilik (Tunggu Part)",
     "Tunggu SPK Asuransi",
-    "Tunggu Estimasi"
+    "Tunggu Estimasi",
+    "Booking Masuk"
 ];
 
 const DICTIONARY: Record<string, Record<string, string>> = {
@@ -47,9 +50,9 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         pic_label: "PIC",
         btn_assign: "Tunjuk Mekanik",
         btn_request: "Request Tambah Jasa/Part",
-        hurdle_label: "KENDALA",
+        hurdle_label: "ADMIN / PART PENDING",
         history_title: "Log Produksi & PIC",
-        "Persiapan Kendaraan": "Persiapan Kendaraan",
+        "Persiapan Kendaraan": "Persiapan / Antrian",
         "Bongkar": "Bongkar",
         "Las Ketok": "Las Ketok",
         "Dempul": "Dempul",
@@ -69,9 +72,9 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         pic_label: "PIC",
         btn_assign: "Assign Mechanic",
         btn_request: "Request Additional Job/Part",
-        hurdle_label: "HURDLE",
+        hurdle_label: "ADMIN / PART PENDING",
         history_title: "Production Log & PIC",
-        "Persiapan Kendaraan": "Staging Area",
+        "Persiapan Kendaraan": "Staging / Queue",
         "Bongkar": "Disassembly",
         "Las Ketok": "Panel Beating",
         "Dempul": "Body Filler",
@@ -105,11 +108,14 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   const activeProductionJobs = useMemo(() => {
       const term = searchTerm.toUpperCase();
       return jobs.filter(j => 
-          !j.isClosed && j.woNumber && !j.isDeleted && j.posisiKendaraan === 'Di Bengkel' && 
+          !j.isClosed && j.woNumber && !j.isDeleted && 
+          // LOGIC INTEGRATION: 
+          // 1. Must be physically in workshop (except for booking queue sometimes, but strictly 'Di Bengkel' for production)
+          // 2. Status must be either 'Work In Progress' OR one of the Admin Hurdles (Tunggu SPK, etc)
+          j.posisiKendaraan === 'Di Bengkel' && 
           (
             j.statusKendaraan === 'Work In Progress' || 
             j.statusKendaraan === 'Unit Rawat Jalan' || 
-            j.statusKendaraan === 'Booking Masuk' || 
             j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' || 
             ADMIN_HURDLE_STATUSES.includes(j.statusKendaraan)
           ) && 
@@ -121,7 +127,11 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       const columns: Record<string, Job[]> = {};
       STAGES.forEach(s => columns[s] = []);
       activeProductionJobs.forEach(job => {
+          // LOGIC MAPPING:
+          // If status is an Admin Hurdle -> Map to "Persiapan Kendaraan"
+          // Else -> Map to actual statusPekerjaan (e.g., Bongkar, Dempul)
           let status = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) ? "Persiapan Kendaraan" : (STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar');
+          
           if (job.statusKendaraan === 'Selesai (Tunggu Pengambilan)') status = "Selesai (Tunggu Pengambilan)";
           if (columns[status]) columns[status].push(job);
       });
@@ -138,7 +148,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       return workload;
   }, [activeProductionJobs, settings]);
 
-  // --- FIX NaN HARI LOGIC ---
   const getJobProgress = (job: Job) => {
       let start: Date;
       try {
@@ -184,7 +193,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       showNotification(newStatus ? "Unit diset VVIP (Prioritas)" : "Status VVIP dihapus", "success");
   };
 
-  // --- NEW: OPEN MODAL HANDLER ---
   const openScheduleModal = (job: Job, targetStage?: string) => {
       const today = new Date().toISOString().split('T')[0];
       const currentStart = job.actualStartDate ? new Date(job.actualStartDate).toISOString().split('T')[0] : today;
@@ -199,7 +207,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       });
   };
 
-  // --- NEW: SAVE FROM MODAL ---
   const handleSaveSchedule = async () => {
       if (!scheduleModal.job || !scheduleModal.startDate || !scheduleModal.endDate) {
           showNotification("Tanggal Mulai dan Estimasi Selesai wajib diisi.", "error");
@@ -213,7 +220,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
               updatedAt: serverTimestamp()
           };
 
-          // If this was triggered by a stage move (e.g. to Bongkar)
+          // LOGIC INTEGRATION: Update Status Kendaraan to WIP when moving to production
           if (scheduleModal.targetStage) {
               updatePayload.statusPekerjaan = scheduleModal.targetStage;
               updatePayload.productionLogs = arrayUnion({ 
@@ -226,7 +233,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
               if (scheduleModal.targetStage === 'Selesai (Tunggu Pengambilan)') {
                   updatePayload.statusKendaraan = 'Selesai (Tunggu Pengambilan)';
               } else {
-                  // Ensure it's WIP if moving to active stages
+                  // FORCE WIP STATUS if it was previously an Admin Status (e.g. Tunggu SPK)
                   updatePayload.statusKendaraan = 'Work In Progress';
               }
           }
@@ -242,15 +249,17 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   };
 
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
+      // 1. HANDLING ADMIN STATUSES (PERSIAPAN)
       if (ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) && direction === 'next') {
-          if (!window.confirm(`Unit berstatus '${job.statusKendaraan}'. Lanjut ke produksi?`)) return;
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: 'Work In Progress', statusPekerjaan: 'Bongkar', updatedAt: serverTimestamp() });
-          showNotification("Unit aktif ke produksi.", "success");
+          // If moving from "Persiapan" (Admin Status) -> Trigger Schedule Modal to start WIP
+          if (!window.confirm(`Unit berstatus '${job.statusKendaraan}'. Mulai pengerjaan dan ubah ke Work In Progress?`)) return;
+          openScheduleModal(job, 'Bongkar');
           return;
       }
 
       let currentIndex = STAGES.indexOf(job.statusPekerjaan);
-      if (currentIndex === -1) currentIndex = 1;
+      // Fallback if status doesn't match standard stages (e.g. just moved from admin status manually)
+      if (currentIndex === -1) currentIndex = 1; // Default to Bongkar area if not found
       
       let newIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
       
@@ -263,12 +272,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           const newStage = STAGES[newIndex];
           const isFinalStage = newStage === "Selesai (Tunggu Pengambilan)";
 
-          // --- TRIGGER MODAL IF MOVING TO BONGKAR (START PRODUCTION) ---
-          if (newStage === 'Bongkar' && !job.actualStartDate) {
-              openScheduleModal(job, newStage);
-              return; // Stop here, wait for modal save
-          }
-
           const confirmMsg = isFinalStage 
             ? "Tandai perbaikan SELESAI? Unit akan diteruskan ke Tim CRC untuk memanggil pemilik." 
             : `Pindahkan unit ke stall ${newStage}?`;
@@ -277,7 +280,8 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
           const updatePayload: any = { 
               statusPekerjaan: newStage, 
-              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
+              // Important: Keep status 'Work In Progress' unless finished
+              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : 'Work In Progress',
               productionLogs: arrayUnion({ stage: newStage, timestamp: new Date().toISOString(), user: userPermissions.role, type: 'progress' }), 
               updatedAt: serverTimestamp() 
           };
@@ -289,7 +293,9 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           const reason = window.prompt(`Alasan re-work ke ${STAGES[newIndex]}:`);
           if (!reason) return;
           const newStage = STAGES[newIndex];
-          const isFromFinal = job.statusPekerjaan === "Selesai (Tunggu Pengambilan)";
+          
+          // Logic: If moving back from Final, revert status to WIP
+          const isFromFinal = job.statusKendaraan === "Selesai (Tunggu Pengambilan)";
           
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
               statusPekerjaan: newStage, 
@@ -302,10 +308,15 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   };
 
   const handleRequestAddition = async (job: Job) => {
-      const detail = window.prompt("Detail Tambahan:");
+      const detail = window.prompt("Detail Tambahan Estimasi:");
       if (!detail) return;
-      await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: 'Banding Harga SPK', productionLogs: arrayUnion({ stage: job.statusPekerjaan || 'Bongkar', timestamp: new Date().toISOString(), user: userPermissions.role, note: `REQUEST TAMBAHAN: ${detail}`, type: 'rework' }), updatedAt: serverTimestamp() });
-      showNotification("Request terkirim.", "success");
+      // Change status to Banding Harga SPK (Admin Hurdle) so it appears in Persiapan
+      await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+          statusKendaraan: 'Banding Harga SPK', 
+          productionLogs: arrayUnion({ stage: job.statusPekerjaan || 'Bongkar', timestamp: new Date().toISOString(), user: userPermissions.role, note: `REQUEST TAMBAHAN: ${detail}`, type: 'rework' }), 
+          updatedAt: serverTimestamp() 
+      });
+      showNotification("Request terkirim ke Admin. Unit dipindah ke Persiapan.", "success");
   };
 
   const handleAssignMechanic = async (job: Job, mechanicName: string) => {
@@ -322,6 +333,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
   return (
     <div className="space-y-6 animate-fade-in pb-4 h-[calc(100vh-100px)] flex flex-col">
+        {/* HEADER & FILTER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
             <div className="flex items-center gap-4">
                 <div className="p-3 bg-blue-600 rounded-xl shadow-sm text-white"><Hammer size={24}/></div>
@@ -333,6 +345,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             </div>
         </div>
 
+        {/* MECHANIC LOAD BAR */}
         <div className="flex gap-4 overflow-x-auto pb-2 shrink-0 scrollbar-thin">
             {(settings.mechanicNames || []).map(mech => (
                 <div key={mech} className="bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3 min-w-[150px]">
@@ -343,6 +356,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             ))}
         </div>
 
+        {/* KANBAN BOARD */}
         <div className="flex-grow overflow-x-auto pb-4">
             <div className="flex gap-4 h-full min-w-max px-2">
                 {STAGES.map((stage) => {
@@ -418,7 +432,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                             </div>
                                             <div className="flex justify-between items-center pt-2 border-t border-gray-100 mt-2">
                                                 <button onClick={() => handleMoveStage(job, 'prev')} disabled={isPersiapan} className={`p-1.5 rounded-lg border transition-all ${isPersiapan ? 'opacity-0' : 'bg-orange-50 text-orange-600 border-orange-200'}`}><ChevronRight size={18} className="rotate-180"/></button>
-                                                <button onClick={() => handleRequestAddition(job)} className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600" title={t('btn_request')}><AlertCircle size={18}/></button>
+                                                {!isAdminPending && <button onClick={() => handleRequestAddition(job)} className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600" title={t('btn_request')}><AlertCircle size={18}/></button>}
                                                 <button onClick={() => handleMoveStage(job, 'next')} disabled={isFinal} className={`rounded-lg p-1.5 shadow-md transform active:scale-95 transition-all ${isFinal ? 'bg-gray-300 text-white opacity-20' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}><ChevronRight size={18}/></button>
                                             </div>
                                         </div>
