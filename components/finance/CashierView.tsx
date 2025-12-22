@@ -5,7 +5,7 @@ import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
-import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent } from 'lucide-react';
+import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent, Info } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface CashierViewProps {
@@ -76,15 +76,17 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           .filter(t => t.refJobId === job.id && t.type === 'IN') // Only counting IN (Payments received)
           .reduce((acc, t) => acc + (t.amount || 0), 0);
 
-      const remaining = totalBill - totalPaid;
+      const remaining = Math.max(0, totalBill - totalPaid);
 
       setPaymentSummary({ totalBill, totalPaid, remaining });
+      
+      // Auto-fill amount with remaining balance if any
       setAmount(remaining > 0 ? remaining : ''); 
       setWithholdingAmount('');
       setHasWithholding(false);
 
       if (totalPaid > 0) {
-          setNotes(`Pelunasan Sisa Tagihan (Total: ${formatCurrency(totalBill)}, Sudah Bayar: ${formatCurrency(totalPaid)})`);
+          setNotes(remaining > 0 ? `Pelunasan Kekurangan (Revisi Tagihan). Total: ${formatCurrency(totalBill)}` : `Lunas. Total Bill: ${formatCurrency(totalBill)}`);
       } else {
           setNotes(`Pembayaran Full Invoice ${job.woNumber}`);
       }
@@ -118,6 +120,12 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       if ((category === 'Pelunasan' || category === 'Uang Muka') && !selectedJob) {
           showNotification("Mohon pilih Referensi WO untuk kategori pembayaran ini.", "error");
           return;
+      }
+
+      if (trxType === 'IN' && selectedJob && Number(amount) > paymentSummary.remaining + 5000) { // Tolerance 5000
+          if (!window.confirm(`Peringatan: Nominal Rp ${formatCurrency(Number(amount))} melebihi sisa tagihan Rp ${formatCurrency(paymentSummary.remaining)}. Lanjutkan?`)) {
+              return;
+          }
       }
 
       setLoading(true);
@@ -336,18 +344,18 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                         <span className="font-bold text-gray-900 truncate max-w-[150px]">{selectedJob.customerName}</span>
                                     </div>
                                     <div className="flex justify-between border-t border-indigo-100 pt-2">
-                                        <span className="text-gray-600">Total Tagihan:</span>
+                                        <span className="text-gray-600">Total Tagihan (Revisi):</span>
                                         <span className="font-bold text-gray-800">{formatCurrency(paymentSummary.totalBill)}</span>
                                     </div>
                                     {paymentSummary.totalPaid > 0 && (
-                                        <div className="flex justify-between">
-                                            <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={10}/> Sudah Dibayar:</span>
+                                        <div className="flex justify-between bg-white/50 p-1.5 rounded border border-indigo-100">
+                                            <span className="text-emerald-600 flex items-center gap-1 font-bold text-xs"><CheckCircle size={10}/> SUDAH DIBAYAR (HISTORI):</span>
                                             <span className="font-bold text-emerald-600">-{formatCurrency(paymentSummary.totalPaid)}</span>
                                         </div>
                                     )}
-                                    <div className="flex justify-between border-t border-indigo-200 pt-2 mt-1">
-                                        <span className="text-indigo-900 font-bold">SISA TAGIHAN:</span>
-                                        <span className="font-bold text-indigo-700 text-base">{formatCurrency(paymentSummary.remaining)}</span>
+                                    <div className="flex justify-between border-t-2 border-indigo-300 pt-2 mt-1">
+                                        <span className="text-indigo-900 font-bold">SISA KEKURANGAN:</span>
+                                        <span className="font-bold text-indigo-700 text-lg">{formatCurrency(paymentSummary.remaining)}</span>
                                     </div>
                                     <div className="pt-2 border-t border-indigo-200 flex gap-2">
                                         <button 
@@ -372,7 +380,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    {selectedJob ? 'Nominal Dibayar (Uang Masuk Kas)' : 'Nominal (Rp)'}
+                                    {selectedJob ? 'Nominal Dibayar (Sisa Kekurangan)' : 'Nominal (Rp)'}
                                 </label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-3 text-gray-500 font-bold">Rp</span>
@@ -385,6 +393,9 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                         placeholder="0"
                                     />
                                 </div>
+                                {selectedJob && paymentSummary.remaining === 0 && (
+                                    <p className="text-xs text-green-600 font-bold mt-1 flex items-center gap-1"><CheckCircle size={12}/> Tagihan sudah lunas.</p>
+                                )}
                             </div>
 
                             {/* WITHHOLDING TAX SECTION (PPh Diterima dari Pelanggan) */}

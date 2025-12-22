@@ -213,24 +213,27 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
           return;
       }
       
-      const reason = prompt("Masukkan alasan pembatalan faktur:");
+      const reason = prompt("Masukkan alasan pembatalan faktur / revisi tagihan:");
       if (!reason) return;
 
-      if (!window.confirm("Yakin ingin membatalkan Faktur? Akses edit WO akan dibuka kembali oleh sistem.")) return;
+      if (!window.confirm("PERINGATAN: Membatalkan faktur akan MEMBUKA KEMBALI status WO menjadi OPEN agar bisa diedit oleh SA.\n\nRiwayat pembayaran yang sudah ada TIDAK akan dihapus. Kasir hanya perlu menagihkan selisihnya nanti.\n\nLanjutkan pembatalan?")) return;
 
       setIsProcessing(true);
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
+          // Update Status:
+          // 1. hasInvoice: false (Hilangkan status Invoiced)
+          // 2. isClosed: false (Buka WO agar SA bisa edit estimasi)
+          // 3. statusKendaraan: Kembalikan ke 'Work In Progress' atau 'Tunggu Estimasi' agar muncul di dashboard SA
           await updateDoc(jobRef, {
               hasInvoice: false,
-              invoiceNumber: null, // Reset invoice number? Or keep it for audit? Usually cancel keeps it but invalidates.
-              // Let's keep it null for simplicity in this system so it disappears from reports, 
-              // but ideally status should be 'Cancelled'.
-              // For now, resetting hasInvoice hides it.
+              isClosed: false,
+              statusKendaraan: 'Work In Progress', // Re-activate for SA
+              statusPekerjaan: 'Finishing', // Set to a working state
               'estimateData.invoiceCancelReason': reason
           });
           
-          showNotification("Faktur dibatalkan. WO dibuka kembali.", "success");
+          showNotification("Faktur dibatalkan & WO dibuka kembali. Silakan info SA untuk revisi.", "success");
           setSelectedJob(null);
       } catch (e: any) {
           showNotification("Gagal membatalkan: " + e.message, "error");
@@ -562,7 +565,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                     className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg font-bold transition-all border ${isManager ? 'bg-red-100 text-red-600 border-red-200 hover:bg-red-200' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'}`}
                                     title={!isManager ? "Hanya Manager yang dapat membatalkan faktur" : ""}
                                 >
-                                    <XCircle size={18}/> Batalkan Faktur (Approval Manager)
+                                    <XCircle size={18}/> Batalkan Faktur & Buka WO
                                 </button>
                             )}
                             
