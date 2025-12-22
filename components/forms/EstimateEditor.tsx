@@ -80,6 +80,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   const [discountJasa, setDiscountJasa] = useState(job.estimateData?.discountJasa || 0);
   const [discountPart, setDiscountPart] = useState(job.estimateData?.discountPart || 0);
   
+  // Local state to hold the ID immediately after saving to avoid prop delay
+  const [localEstNumber, setLocalEstNumber] = useState(job.estimateData?.estimationNumber || '');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serviceMasterList, setServiceMasterList] = useState<ServiceMasterItem[]>([]);
 
@@ -236,7 +239,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       const grandTotal = dpp + ppnAmount;
 
       return {
-          estimationNumber: estimationNumber || job.estimateData?.estimationNumber,
+          // Priority: 1. Param arg, 2. Local State (After Save), 3. Prop from DB
+          estimationNumber: estimationNumber || localEstNumber || job.estimateData?.estimationNumber,
           grandTotal, jasaItems, partItems,
           discountJasa, discountPart, discountJasaAmount, discountPartAmount,
           ppnAmount, subtotalJasa, subtotalPart, estimatorName: creatorName
@@ -249,7 +253,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
-          await onSave(job.id, data, saveType);
+          const savedId = await onSave(job.id, data, saveType);
+          
+          // Update local state immediately so if they click Print next, it has the ID
+          if (saveType === 'estimate') {
+              setLocalEstNumber(savedId);
+          }
       } catch (e) { 
           console.error(e); 
           showNotification("Gagal menyimpan data", "error");
@@ -261,6 +270,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   const handlePrint = (type: 'estimate' | 'wo') => {
       // Use current live data from form to generate PDF, ensuring WYSIWYG
       const currentData = prepareEstimateData();
+      
+      // If we don't have a number yet (e.g. didn't click save), warn user or allow draft
+      if (type === 'estimate' && !currentData.estimationNumber) {
+          if (!window.confirm("Nomor Estimasi belum dibuat (Anda belum Simpan). Cetak sebagai DRAFT?")) {
+              return;
+          }
+      }
+
       // If printing WO, ensure we display WO Number if exists
       const docTypeData = {
           ...currentData,

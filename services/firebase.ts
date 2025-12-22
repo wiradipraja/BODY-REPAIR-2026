@@ -1,8 +1,8 @@
 
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, increment as firestoreIncrement } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
+import 'firebase/compat/storage';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyA4z2XCxu3tNAL5IiNXfY7suu6tYszPAYQ",
@@ -13,11 +13,13 @@ export const firebaseConfig = {
   appId: "1:672061097149:web:2998766b147a4c20a6a3d4"
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const increment = firestoreIncrement;
+// Initialize Firebase (Compat)
+const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
+
+export const auth = app.auth();
+export const db = app.firestore();
+export const storage = app.storage();
+export const increment = firebase.firestore.FieldValue.increment;
 
 export const ADMIN_UID = "1O2CzQEvsVOnBuDWqfbtQWHJ4RP2";
 // NEW COLLECTIONS
