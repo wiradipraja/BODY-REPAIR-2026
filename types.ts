@@ -178,6 +178,8 @@ export interface Job {
   
   tanggalMasuk: string; 
   tanggalEstimasiSelesai?: string;
+  actualStartDate?: string; // NEW: Triggered when repair starts
+  isVVIP?: boolean; // NEW: Flag for Directors/Special Units
   tanggalBooking?: string; 
   
   woNumber?: string;

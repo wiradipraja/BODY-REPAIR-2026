@@ -6,7 +6,7 @@ import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2, Crown, Timer, CalendarClock
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -103,7 +103,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             j.statusKendaraan === 'Work In Progress' || 
             j.statusKendaraan === 'Unit Rawat Jalan' || 
             j.statusKendaraan === 'Booking Masuk' || 
-            j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' || // Added to filter
+            j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' || 
             ADMIN_HURDLE_STATUSES.includes(j.statusKendaraan)
           ) && 
           (j.policeNumber.includes(term) || j.carModel.toUpperCase().includes(term) || j.customerName.toUpperCase().includes(term))
@@ -116,7 +116,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       activeProductionJobs.forEach(job => {
           let status = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) ? "Persiapan Kendaraan" : (STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar');
           
-          // Logic: If Kendrick status is specifically set to finished wait pickup, it overrides
           if (job.statusKendaraan === 'Selesai (Tunggu Pengambilan)') status = "Selesai (Tunggu Pengambilan)";
           
           if (columns[status]) columns[status].push(job);
@@ -133,6 +132,32 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       });
       return workload;
   }, [activeProductionJobs, settings]);
+
+  const getJobProgress = (job: Job) => {
+      const start = job.actualStartDate ? new Date(job.actualStartDate) : new Date(job.createdAt.seconds * 1000);
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - start.getTime());
+      const daysRunning = Math.floor(diffTime / (1000 * 60 * 60 * 24)); 
+
+      let daysRemaining = null;
+      if (job.tanggalEstimasiSelesai) {
+          const est = new Date(job.tanggalEstimasiSelesai);
+          const remTime = est.getTime() - now.getTime();
+          daysRemaining = Math.ceil(remTime / (1000 * 60 * 60 * 24));
+      }
+
+      return { daysRunning, daysRemaining };
+  };
+
+  const toggleVVIP = async (job: Job) => {
+      if (!userPermissions.role.includes('Manager')) {
+          showNotification("Hanya Manager bisa set status VVIP", "error");
+          return;
+      }
+      const newStatus = !job.isVVIP;
+      await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { isVVIP: newStatus });
+      showNotification(newStatus ? "Unit diset VVIP (Prioritas)" : "Status VVIP dihapus", "success");
+  };
 
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
       if (ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) && direction === 'next') {
@@ -156,25 +181,40 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           const newStage = STAGES[newIndex];
           const isFinalStage = newStage === "Selesai (Tunggu Pengambilan)";
 
+          // --- TRIGGER LOGIC START ---
+          // Jika pindah ke BONGKAR (Awal Produksi) dan belum ada Start Date
+          const updatePayload: any = { 
+              statusPekerjaan: newStage, 
+              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
+              productionLogs: arrayUnion({ stage: newStage, timestamp: new Date().toISOString(), user: userPermissions.role, type: 'progress' }), 
+              updatedAt: serverTimestamp() 
+          };
+
+          if (newStage === 'Bongkar' && !job.actualStartDate) {
+              const estDate = window.prompt("Unit masuk Produksi (Bongkar). Masukkan Tanggal Estimasi Selesai (YYYY-MM-DD):", new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0]);
+              if (estDate) {
+                  updatePayload.actualStartDate = new Date().toISOString();
+                  updatePayload.tanggalEstimasiSelesai = estDate;
+                  showNotification("Timer Produksi Dimulai!", "success");
+              } else {
+                  if(!window.confirm("Tanpa estimasi selesai? Klik OK untuk lanjut tanpa tanggal.")) return;
+              }
+          }
+          // --- TRIGGER LOGIC END ---
+
           const confirmMsg = isFinalStage 
             ? "Tandai perbaikan SELESAI? Unit akan diteruskan ke Tim CRC untuk memanggil pemilik." 
             : `Pindahkan unit ke stall ${newStage}?`;
 
           if(!window.confirm(confirmMsg)) return;
 
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
-              statusPekerjaan: newStage, 
-              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
-              productionLogs: arrayUnion({ stage: newStage, timestamp: new Date().toISOString(), user: userPermissions.role, type: 'progress' }), 
-              updatedAt: serverTimestamp() 
-          });
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), updatePayload);
           showNotification(isFinalStage ? "Unit Selesai & CRC Notified." : `Update: ${newStage}`, "success");
+
       } else if (direction === 'prev' && newIndex >= 0) {
           const reason = window.prompt(`Alasan re-work ke ${STAGES[newIndex]}:`);
           if (!reason) return;
           const newStage = STAGES[newIndex];
-          
-          // Revert statusKendaraan if moving back from final stage
           const isFromFinal = job.statusPekerjaan === "Selesai (Tunggu Pengambilan)";
           
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
@@ -249,11 +289,37 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                 {jobsInStage.map(job => {
                                     const isAdminPending = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan);
                                     const currentPIC = job.assignedMechanics?.find(a => a.stage === (isAdminPending ? 'Persiapan Kendaraan' : job.statusPekerjaan || 'Bongkar'))?.name;
+                                    const { daysRunning, daysRemaining } = getJobProgress(job);
+                                    
                                     return (
-                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md ${isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
-                                            <div className="flex justify-between items-start mb-2"><span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span><button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors"><History size={14} className="text-gray-400"/></button></div>
+                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md relative ${job.isVVIP ? 'border-l-yellow-400 ring-2 ring-yellow-200' : isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
+                                            {job.isVVIP && <div className="absolute -top-2 -right-2 bg-yellow-400 text-white p-1 rounded-full shadow-sm z-10"><Crown size={14} fill="currentColor"/></div>}
+                                            
+                                            <div className="flex justify-between items-start mb-2">
+                                                <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => toggleVVIP(job)} className={`p-1 rounded transition-colors ${job.isVVIP ? 'text-yellow-500 bg-yellow-50' : 'text-gray-300 hover:text-yellow-500'}`} title="Set VVIP"><Crown size={14}/></button>
+                                                    <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors"><History size={14} className="text-gray-400"/></button>
+                                                </div>
+                                            </div>
                                             <p className="text-[11px] font-bold text-gray-500 mb-1 truncate uppercase">{job.carModel} | {job.customerName}</p>
+                                            
+                                            {/* Progress Indicators */}
+                                            {!isAdminPending && !isFinal && (
+                                                <div className="flex gap-2 my-2">
+                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black border ${daysRunning > 14 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                                                        <Timer size={10}/> {daysRunning} Hari Jalan
+                                                    </div>
+                                                    {daysRemaining !== null && (
+                                                        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black border ${daysRemaining < 0 ? 'bg-red-50 text-red-600 border-red-100' : daysRemaining < 3 ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                                            <CalendarClock size={10}/> {daysRemaining < 0 ? `Telat ${Math.abs(daysRemaining)} Hr` : `Sisa ${daysRemaining} Hr`}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             {isAdminPending && <div className="mb-2 px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[9px] font-black text-amber-700 uppercase">{t('hurdle_label')}: {job.statusKendaraan}</div>}
+                                            
                                             <div className="mb-3">
                                                 <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{t('pic_label')}:</label>
                                                 {currentPIC ? (
