@@ -24,7 +24,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         tab_history: "Riwayat Feedback",
         ready_title: "Daftar Unit Selesai Perbaikan",
         ready_subtitle: "Hubungi pelanggan untuk mengonfirmasi pengambilan unit.",
-        btn_wa_ready: "Kirim Pesan Siap Ambil",
+        btn_wa_ready: "Konfirmasi Janji Ambil",
         stats_ready: "Unit Selesai"
     },
     en: {
@@ -35,7 +35,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         tab_history: "Feedback History",
         ready_title: "Completed Vehicle List",
         ready_subtitle: "Contact customers to confirm vehicle collection.",
-        btn_wa_ready: "Send Pickup Message",
+        btn_wa_ready: "Confirm Pickup Date",
         stats_ready: "Finished Units"
     }
 };
@@ -56,6 +56,11 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
   // Booking Execution Modal
   const [bookingModal, setBookingModal] = useState<{ isOpen: boolean, job: Job | null }>({ isOpen: false, job: null });
   const [bookingDateInput, setBookingDateInput] = useState('');
+  
+  // Pickup Execution Modal (NEW)
+  const [pickupModal, setPickupModal] = useState<{ isOpen: boolean, job: Job | null }>({ isOpen: false, job: null });
+  const [pickupDateInput, setPickupDateInput] = useState('');
+
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Broadcast State
@@ -155,7 +160,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
 
   const isApiMode = settings.whatsappConfig?.mode === 'API';
 
-  const generateWaLink = (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready', overrideBookingDate?: string) => {
+  const generateWaLink = (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready', overrideDate?: string) => {
       const phone = formatWaNumber(job.customerPhone);
       if (!phone) return null;
       let template = '';
@@ -163,8 +168,16 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       else if (type === 'followup') template = settings.whatsappTemplates?.afterService || '';
       else if (type === 'ready') template = settings.whatsappTemplates?.readyForPickup || 'Kabar Gembira! Kendaraan {mobil} ({nopol}) milik Bpk/Ibu {nama} sudah selesai diperbaiki dan siap diambil. Terima kasih.';
       else template = broadcastMessage;
-      const displayBookingDate = overrideBookingDate || job.tanggalBooking || '(Belum Ditentukan)';
-      const message = template.replace(/{nama}/g, job.customerName).replace(/{mobil}/g, job.carModel).replace(/{nopol}/g, job.policeNumber).replace(/{tgl_booking}/g, displayBookingDate);
+      
+      const displayDate = overrideDate ? formatDateIndo(overrideDate) : (job.tanggalBooking || '(Belum Ditentukan)');
+      
+      // Replace Placeholders
+      let message = template
+        .replace(/{nama}/g, job.customerName)
+        .replace(/{mobil}/g, job.carModel)
+        .replace(/{nopol}/g, job.policeNumber)
+        .replace(/{tgl_booking}/g, displayDate); // Used for both Booking and Ready date if mapped
+
       return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   };
 
@@ -217,11 +230,13 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
           await updateDoc(jobRef, {
               tanggalBooking: bookingDateInput,
               statusKendaraan: 'Booking Masuk',
+              isBookingContacted: true, // Flag as Contacted by CRC for KPI
+              bookingSuccess: false, // Reset success metric
               updatedAt: serverTimestamp()
           });
           const link = generateWaLink(bookingModal.job, 'booking', bookingDateInput);
           if (link) window.open(link, '_blank');
-          showNotification("Jadwal disimpan & Status pindah ke Papan Control.", "success");
+          showNotification("Jadwal disimpan & KPI Contacted dicatat.", "success");
           setBookingModal({ isOpen: false, job: null });
       } catch (e: any) {
           showNotification("Gagal memproses booking.", "error");
@@ -230,12 +245,57 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
       }
   };
 
-  const handleSingleAction = (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready') => {
+  const executePickupProcess = async () => {
+      if (!pickupModal.job || !pickupDateInput) {
+          showNotification("Tanggal Janji Pengambilan wajib diisi.", "error");
+          return;
+      }
+      setIsUpdating(true);
+      try {
+          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, pickupModal.job.id);
+          
+          // Save Promised Date & Flag as Contacted
+          await updateDoc(jobRef, {
+              pickupPromiseDate: pickupDateInput,
+              isPickupContacted: true,
+              updatedAt: serverTimestamp()
+          });
+
+          // Generate WA link with the specific pickup date
+          const link = generateWaLink(pickupModal.job, 'ready', pickupDateInput);
+          if (link) window.open(link, '_blank');
+          
+          showNotification("Janji Ambil Disimpan. KPI Pickup Contacted dicatat.", "success");
+          setPickupModal({ isOpen: false, job: null });
+      } catch (e: any) {
+          showNotification("Gagal menyimpan janji: " + e.message, "error");
+      } finally {
+          setIsUpdating(false);
+      }
+  };
+
+  const handleSingleAction = async (job: Job, type: 'booking' | 'followup' | 'promo' | 'ready') => {
       if (type === 'booking') {
           setBookingModal({ isOpen: true, job });
           setBookingDateInput(job.tanggalBooking || '');
           return;
       }
+
+      if (type === 'ready') {
+          // Open Pickup Date Modal instead of direct WA
+          setPickupModal({ isOpen: true, job });
+          setPickupDateInput(new Date().toISOString().split('T')[0]); // Default to today
+          return;
+      }
+
+      // Handle other types directly
+      if (type === 'followup') {
+         // Service Follow Up -> Mark as Contacted
+         try {
+             await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { isServiceContacted: true });
+         } catch(e) { console.error("Failed to update Service Contact status", e); }
+      }
+
       const link = generateWaLink(job, type);
       if (link) window.open(link, '_blank');
       else showNotification("Nomor HP tidak valid", "error");
@@ -329,6 +389,7 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
                                             <td className="px-6 py-4 text-center">
                                                 <div className="text-xs font-bold text-gray-500">{formatDateIndo(job.updatedAt)}</div>
                                                 <div className="text-[10px] text-emerald-600 font-black flex items-center justify-center gap-1"><Clock size={10}/> SIAP DIAMBIL</div>
+                                                {job.pickupPromiseDate && <div className="text-[9px] text-indigo-600 font-bold mt-1 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">Janji: {formatDateIndo(job.pickupPromiseDate)}</div>}
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <button 
@@ -472,6 +533,22 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
                 </div>
                 <div className="space-y-2"><label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Pilih Tanggal Rencana Masuk *</label><input type="date" required className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl text-lg font-black text-indigo-900 outline-none" value={bookingDateInput} onChange={e => setBookingDateInput(e.target.value)}/></div>
                 <div className="pt-4 flex gap-3"><button onClick={() => setBookingModal({ isOpen: false, job: null })} disabled={isUpdating} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button onClick={executeBookingProcess} disabled={isUpdating || !bookingDateInput} className="flex-[2] flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all transform active:scale-95 disabled:opacity-50">{isUpdating ? <Loader2 size={20} className="animate-spin"/> : <><Save size={20}/> SIMPAN & KIRIM WA</>}</button></div>
+            </div>
+        </Modal>
+
+        {/* PICKUP MODAL */}
+        <Modal isOpen={pickupModal.isOpen} onClose={() => !isUpdating && setPickupModal({ isOpen: false, job: null })} title="Konfirmasi Jadwal Pengambilan">
+            <div className="space-y-6">
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex items-center gap-4">
+                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm"><Clock size={24}/></div>
+                    <div><h4 className="font-black text-gray-900 leading-none">{pickupModal.job?.policeNumber}</h4><p className="text-sm text-gray-500 mt-1">Status: Siap Ambil</p></div>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 text-xs text-amber-800 font-bold flex items-center gap-2">
+                    <AlertCircle size={16}/>
+                    Tanggal ini akan digunakan sebagai target KPI (Tepat Waktu/Tidak).
+                </div>
+                <div className="space-y-2"><label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Customer Berjanji Datang Tanggal *</label><input type="date" required className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-emerald-500 focus:bg-white rounded-2xl text-lg font-black text-emerald-900 outline-none" value={pickupDateInput} onChange={e => setPickupDateInput(e.target.value)}/></div>
+                <div className="pt-4 flex gap-3"><button onClick={() => setPickupModal({ isOpen: false, job: null })} disabled={isUpdating} className="flex-1 py-3 text-gray-400 font-bold hover:text-gray-600 transition-colors">BATAL</button><button onClick={executePickupProcess} disabled={isUpdating || !pickupDateInput} className="flex-[2] flex items-center justify-center gap-2 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-emerald-700 transition-all transform active:scale-95 disabled:opacity-50">{isUpdating ? <Loader2 size={20} className="animate-spin"/> : <><Send size={20}/> SIMPAN & BUKA WA</>}</button></div>
             </div>
         </Modal>
 

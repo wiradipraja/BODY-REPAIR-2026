@@ -180,7 +180,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
               };
               await addDoc(collection(db, CASHIER_COLLECTION), taxTrx);
               
-              generateReceiptPDF({...taxTrx, date: new Date()}, settings);
+              generateReceiptPDF({...taxTrx, date: new Date(), id: 'TEMP'} as any, settings);
           }
           
           showNotification(`Transaksi ${transactionNumber} berhasil disimpan.`, "success");
@@ -222,8 +222,9 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
-          await updateDoc(jobRef, {
+          const updates: any = {
               statusKendaraan: 'Sudah Diambil Pemilik', 
+              statusPekerjaan: 'Selesai', // Update visual status on Job Card to "Selesai"
               posisiKendaraan: 'Di Pemilik', 
               crcFollowUpStatus: 'Pending', 
               updatedAt: serverTimestamp(),
@@ -234,7 +235,25 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                   type: 'progress',
                   note: 'Unit Keluar (Gate Pass Printed)'
               })
-          });
+          };
+
+          // --- PICKUP KPI LOGIC ---
+          // Check if Pickup Date matches Promise Date
+          if (selectedJob.pickupPromiseDate) {
+              const today = new Date().toISOString().split('T')[0]; // Current Date (YYYY-MM-DD)
+              const promiseDate = selectedJob.pickupPromiseDate; // From Database (YYYY-MM-DD)
+              
+              const isSuccess = today === promiseDate;
+              updates.pickupSuccess = isSuccess;
+              
+              if (isSuccess) {
+                  showNotification("✅ KPI CRC: Pengambilan Tepat Waktu (Success)", "success");
+              } else {
+                  showNotification(`⚠️ KPI CRC: Pengambilan Tidak Sesuai Janji (Janji: ${formatDateIndo(promiseDate)})`, "info");
+              }
+          }
+
+          await updateDoc(jobRef, updates);
           
           showNotification("Gate Pass dicetak. Unit update ke 'Sudah Diambil'.", "success");
           setSelectedJob(null);

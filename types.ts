@@ -212,6 +212,17 @@ export interface Job {
   customerRating?: number;
   customerFeedback?: string;
   csiResults?: Record<string, number>; 
+
+  // KPI & CONTACT TRACKING FIELDS
+  isBookingContacted?: boolean;
+  bookingSuccess?: boolean;
+  bookingEntryDate?: string;
+  
+  isPickupContacted?: boolean;
+  pickupPromiseDate?: string; // Tgl Janji Pengambilan
+  pickupSuccess?: boolean;    // KPI Hit: Actual pickup date == Promise date
+  
+  isServiceContacted?: boolean;
 }
 
 // STRICT SEPARATION: Vehicle Master only holds static identity data

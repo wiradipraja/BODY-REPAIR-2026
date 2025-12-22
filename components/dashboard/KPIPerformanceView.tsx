@@ -74,12 +74,43 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     });
     const currentAchievedWeeklyGP = weeklyInvoicedJobs.reduce((acc, j) => acc + calculateGP(j), 0);
 
-    // 5. KPI ADMIN & CRC
-    const followUps = jobs.filter(j => j.crcFollowUpStatus && j.crcFollowUpStatus !== 'Pending');
-    const successFollowUps = followUps.filter(j => j.crcFollowUpStatus === 'Contacted').length;
-    const totalFollowUps = followUps.length;
-    const successRatio = totalFollowUps > 0 ? (successFollowUps / totalFollowUps) * 100 : 0;
+    // 5. KPI ADMIN & CRC (BOOKING, PICKUP, FOLLOW-UP CONVERSION)
+    // Modified to aggregate all CRC touchpoints within the period
     
+    // A. Booking Stage (Leads created in period)
+    const bookingJobs = jobs.filter(j => {
+        if (j.isDeleted) return false;
+        const d = j.createdAt?.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+    });
+    const bookingCont = bookingJobs.filter(j => j.isBookingContacted).length;
+    const bookingSucc = bookingJobs.filter(j => j.bookingSuccess).length;
+
+    // B. Service Follow-up Stage (Units closed in period)
+    const closedInPeriod = jobs.filter(j => {
+        if (!j.isClosed || !j.closedAt || j.isDeleted) return false;
+        const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
+        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+    });
+    const serviceCont = closedInPeriod.filter(j => j.isServiceContacted).length;
+    const serviceSucc = closedInPeriod.filter(j => j.crcFollowUpStatus === 'Contacted').length;
+
+    // C. Pickup Stage (Units ready or picked up in period)
+    const pickupCandidates = jobs.filter(j => {
+         const isReady = j.statusKendaraan === 'Selesai (Tunggu Pengambilan)';
+         const isClosedThisMonth = j.isClosed && j.closedAt && new Date(j.closedAt.toDate ? j.closedAt.toDate() : j.closedAt).getMonth() === selectedMonth;
+         // Approximate: jobs that are ready now or closed this month are pickup candidates for this month's report
+         return isReady || isClosedThisMonth;
+    });
+    const pickupCont = pickupCandidates.filter(j => j.isPickupContacted).length;
+    const pickupSucc = pickupCandidates.filter(j => j.pickupSuccess).length; // Check for explicit flag from Cashier check
+
+    // Aggregate Totals
+    const totalContacted = bookingCont + serviceCont + pickupCont;
+    const totalSuccess = bookingSucc + serviceSucc + pickupSucc;
+    const successRatio = totalContacted > 0 ? (totalSuccess / totalContacted) * 100 : 0;
+    
+    // Legacy metrics
     const bookingPotential = jobs.filter(j => !j.isClosed && j.posisiKendaraan === 'Di Pemilik').length;
     const confirmedBookings = jobs.filter(j => j.statusKendaraan === 'Booking Masuk').length;
 
@@ -105,12 +136,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const mechMap: Record<string, any> = {};
     (settings.mechanicNames || []).forEach(name => {
         mechMap[name] = { panels: 0, reworks: 0, units: 0 };
-    });
-
-    const closedInPeriod = jobs.filter(j => {
-        if (!j.isClosed || !j.closedAt || j.isDeleted) return false;
-        const d = j.closedAt.toDate ? j.closedAt.toDate() : new Date(j.closedAt);
-        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
 
     closedInPeriod.forEach(j => {
@@ -141,7 +166,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     });
 
     return { 
-        saMap, successRatio, totalFollowUps, bookingPotential, 
+        saMap, successRatio, totalContacted, bookingPotential, 
         confirmedBookings, agingProfile, mechMap, 
         totalGPRealizedMonth, currentAchievedWeeklyGP, 
         adjustedWeeklyTarget, remainingWeeks, currentWeekNum, totalAR
@@ -280,7 +305,27 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center"><h3 className="font-black text-emerald-900 flex items-center gap-2 uppercase tracking-widest text-xs"><MessageSquare size={18}/> CRM & Customer Care</h3></div>
-                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-6"><div><div className="flex justify-between items-end mb-2"><span className="text-xs font-bold text-gray-500 uppercase">Success Ratio Follow-up</span><span className="text-2xl font-black text-emerald-600">{stats.successRatio.toFixed(1)}%</span></div><div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden border border-gray-200"><div className="bg-emerald-500 h-full" style={{ width: `${stats.successRatio}%` }}></div></div><p className="text-[10px] text-gray-400 font-bold mt-2 flex items-center gap-1"><PhoneCall size={10}/> Total {stats.totalFollowUps} contacted</p></div></div><div className="bg-gray-50 rounded-3xl p-6 flex flex-col items-center justify-center text-center"><div className="p-4 bg-white rounded-full shadow-sm mb-4"><Target size={32} className="text-emerald-500"/></div><h4 className="font-black text-gray-800 text-sm">Booking Goal</h4><p className="text-xs text-gray-500 mt-2">Fokus pada konversi panggil menjadi jadwal Booking Fisik.</p></div></div>
+                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                        <div>
+                            <div className="flex justify-between items-end mb-2">
+                                <span className="text-xs font-bold text-gray-500 uppercase">Success Ratio (Booking+Pickup+FollowUp)</span>
+                                <span className="text-2xl font-black text-emerald-600">{stats.successRatio.toFixed(1)}%</span>
+                            </div>
+                            <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden border border-gray-200">
+                                <div className={`bg-emerald-500 h-full transition-all duration-1000`} style={{ width: `${stats.successRatio}%` }}></div>
+                            </div>
+                            <p className="text-[10px] text-gray-400 font-bold mt-2 flex items-center gap-1">
+                                <PhoneCall size={10}/> Total {stats.totalContacted} customer dihubungi (Semua Jalur)
+                            </p>
+                        </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-3xl p-6 flex flex-col items-center justify-center text-center">
+                        <div className="p-4 bg-white rounded-full shadow-sm mb-4"><Target size={32} className="text-emerald-500"/></div>
+                        <h4 className="font-black text-gray-800 text-sm">CRC Goal</h4>
+                        <p className="text-xs text-gray-500 mt-2">Target: Konversi Potensi Booking Menjadi Unit Masuk (Inap) Tepat Waktu & Respon Follow Up.</p>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">

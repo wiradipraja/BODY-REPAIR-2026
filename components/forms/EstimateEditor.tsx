@@ -138,12 +138,38 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           if (field === 'statusKendaraan') setCurrentStatus(value);
           if (field === 'posisiKendaraan') setCurrentPosisi(value);
 
-          // Update real-time hanya untuk visual di form, final update saat Save WO
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+          const updates: any = { 
               [field]: value, 
               updatedAt: serverTimestamp() 
-          });
-          showNotification(`Update Berhasil. ${field === 'statusKendaraan' ? 'Posisi di Papan Kontrol berubah.' : ''}`, "success");
+          };
+
+          // --- BOOKING KPI LOGIC ---
+          // Jika status fisik berubah jadi Di Bengkel (Inap) dan unit ini pernah di-WA Booking oleh CRC
+          if (field === 'posisiKendaraan' && value === 'Di Bengkel' && job.isBookingContacted) {
+              const today = new Date().toISOString().split('T')[0];
+              const bookingDate = job.tanggalBooking; // YYYY-MM-DD
+              
+              // Cek kesesuaian tanggal
+              const isSuccess = bookingDate === today;
+              
+              updates.bookingSuccess = isSuccess;
+              updates.bookingEntryDate = today;
+              
+              if (isSuccess) {
+                  showNotification("✅ KPI CRC: Booking Tepat Waktu (Success)", "success");
+              } else {
+                  showNotification("⚠️ KPI CRC: Booking Meleset/Tidak Sesuai Tanggal", "info");
+              }
+          }
+
+          // Update real-time hanya untuk visual di form, final update saat Save WO
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), updates);
+          
+          if (field === 'statusKendaraan') {
+              showNotification('Update Berhasil. Posisi di Papan Kontrol berubah.', "success");
+          } else {
+              showNotification('Update Berhasil.', "success");
+          }
       } catch (e) {
           showNotification("Gagal update status", "error");
       }
