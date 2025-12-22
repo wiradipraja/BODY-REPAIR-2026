@@ -1,4 +1,3 @@
-
 import { Timestamp, collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 import { db, CASHIER_COLLECTION } from "../services/firebase";
 
@@ -29,8 +28,9 @@ export const formatWaNumber = (phone: string | undefined): string => {
     return cleanNumber;
 };
 
-// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXXXX (5 Digit Sequence)
-export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber'): Promise<string> => {
+// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXXXX (Flexible Sequence Digit)
+// Added paddingLength parameter (default 5 for backward compatibility with Invoice)
+export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber', paddingLength: number = 5): Promise<string> => {
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2);
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
@@ -63,22 +63,24 @@ export const generateSequenceNumber = async (prefix: string, collectionName: str
             }
         }
 
-        // Return format: PREFIX-YYMM-00001
-        return `${periodCode}-${nextSequence.toString().padStart(5, '0')}`;
+        // Return format: PREFIX-YYMM-XXXX (Sesuai paddingLength)
+        return `${periodCode}-${nextSequence.toString().padStart(paddingLength, '0')}`;
         
     } catch (error) {
         console.error(`Gagal generate sequence ID untuk ${prefix}:`, error);
         // Fallback jika offline/error: Gunakan timestamp agar tetap unik tapi format mirip
-        const fallbackSeq = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+        const maxRandom = Math.pow(10, paddingLength);
+        const fallbackSeq = Math.floor(Math.random() * maxRandom).toString().padStart(paddingLength, '0');
         return `${periodCode}-ERR${fallbackSeq}`;
     }
 };
 
 // Wrapper khusus untuk Kasir (BKM/BKK) - Menggunakan Sequence Generator
+// UPDATED: Menggunakan 4 digit sequence sesuai permintaan (BKM-YYMM-XXXX)
 export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
     const prefix = type === 'IN' ? 'BKM' : 'BKK';
-    // Menggunakan fungsi generator sequence database
-    return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber');
+    // Menggunakan fungsi generator sequence database dengan padding 4 digit
+    return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber', 4);
 };
 
 // Backward compatibility wrapper (Deprecated Warning)
