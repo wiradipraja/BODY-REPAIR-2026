@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
-import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId, generateSequenceNumber } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
@@ -30,14 +30,12 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
       category: 'Bukan Pegawai'
   });
 
-  // Wizard PPh 25 State
   const [pph25Wizard, setPph25Wizard] = useState({
       pphTerutangSPT: 0,
-      kreditPajak: 0, // Total PPh 22, 23, 24
+      kreditPajak: 0,
       isSavingDefault: false
   });
 
-  // Form State for Tax Payment
   const [taxForm, setTaxForm] = useState({
       type: 'PPh 23',
       amount: 0,
@@ -50,20 +48,17 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
       refId: ''
   });
 
-  // Helper for formatting
   const handleNumberChange = (value: string, setter: (val: number) => void) => {
       const raw = value.replace(/\D/g, '');
       setter(raw ? parseInt(raw, 10) : 0);
   };
 
-  // --- GET SETTLED TAX REF IDS ---
   const settledTaxRefs = useMemo(() => {
       return new Set(transactions
         .filter(t => t.category === 'Pajak' && t.refNumber)
         .map(t => t.refNumber));
   }, [transactions]);
 
-  // --- DATA PROCESSING ---
   const pendingPPNInvoices = useMemo(() => {
       return jobs.filter(j => 
           j.hasInvoice && 
@@ -80,7 +75,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               supplier?.category === 'Jasa Luar' &&
               !settledTaxRefs.has(po.poNumber)
           );
-      // Sort based on createdAt as closedAt is not available for PurchaseOrders
       }).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [purchaseOrders, suppliers, settledTaxRefs]);
 
@@ -100,7 +94,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
       }).reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
   }, [jobs, selectedYear]);
 
-  // --- PPh 25 INSTALLMENT TRACKING ---
   const pph25InstallmentsPaid = useMemo(() => {
       return transactions.filter(t => 
         t.category === 'Pajak' && 
@@ -133,7 +126,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
         .sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
   }, [transactions]);
 
-  // --- CALCULATION LOGICS ---
   const pph21Result = useMemo(() => {
       const dpp = calcPPh21.grossIncome * 0.5;
       const rate = calcPPh21.hasNPWP ? 0.05 : 0.06;
@@ -147,7 +139,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
   const umkmTaxResult = Math.round(monthlyRevenue * 0.005);
 
-  // --- HANDLERS ---
   const applyCalcToForm = (type: string, amount: number, desc: string) => {
       setTaxForm({
           ...taxForm,
@@ -165,7 +156,6 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
       setPph25Wizard(prev => ({ ...prev, isSavingDefault: true }));
       try {
-          // Cari doc settings (bengkel-settings biasanya hanya 1 doc)
           const q = await getDocs(collection(db, SETTINGS_COLLECTION));
           if (!q.empty) {
               const settingsDocRef = doc(db, SETTINGS_COLLECTION, q.docs[0].id);
@@ -218,7 +208,9 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
       setIsProcessing(true);
       try {
-          const transactionNumber = await generateTransactionId('OUT');
+          // GENERATE ID: TAX-YYMM-XXXXX
+          const transactionNumber = await generateSequenceNumber('TAX', CASHIER_COLLECTION, 'transactionNumber');
+          
           const payload = {
               date: serverTimestamp(),
               createdAt: serverTimestamp(),
@@ -231,12 +223,11 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               customerName: 'Kantor Pelayanan Pajak (KPP)',
               description: `Bayar ${taxForm.type} - Masa ${taxForm.periodMonth + 1}/${taxForm.periodYear}. ${taxForm.notes}`,
               refNumber: taxForm.refNumber || undefined,
-              transactionNumber: transactionNumber // Audit ID (BKK-YYMM-XXXXX)
+              transactionNumber: transactionNumber // Override with TAX- format
           };
 
           await addDoc(collection(db, CASHIER_COLLECTION), payload);
           
-          // Auto Print Proof
           if (settings) {
               generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
           }

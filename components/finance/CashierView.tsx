@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId, generateSequenceNumber } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
 import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent, Info } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -55,7 +55,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       } catch (e) { console.error(e); }
   };
 
-  // BUG FIX: Increased slice limit to 15 for better search visibility
   const activeJobs = useMemo(() => {
       if (!woSearch) return [];
       const term = woSearch.toUpperCase();
@@ -73,20 +72,18 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       const totalBill = Math.floor(job.estimateData?.grandTotal || 0);
       
       const totalPaid = transactions
-          .filter(t => t.refJobId === job.id && t.type === 'IN') // Only counting IN (Payments received)
+          .filter(t => t.refJobId === job.id && t.type === 'IN') 
           .reduce((acc, t) => acc + (t.amount || 0), 0);
 
       const remaining = Math.max(0, totalBill - totalPaid);
 
       setPaymentSummary({ totalBill, totalPaid, remaining });
-      
-      // Auto-fill amount with remaining balance if any
       setAmount(remaining > 0 ? remaining : ''); 
       setWithholdingAmount('');
       setHasWithholding(false);
 
       if (totalPaid > 0) {
-          setNotes(remaining > 0 ? `Pelunasan Kekurangan (Revisi Tagihan). Total: ${formatCurrency(totalBill)}` : `Lunas. Total Bill: ${formatCurrency(totalBill)}`);
+          setNotes(remaining > 0 ? `Pelunasan Kekurangan. Total: ${formatCurrency(totalBill)}` : `Lunas. Total Bill: ${formatCurrency(totalBill)}`);
       } else {
           setNotes(`Pembayaran Full Invoice ${job.woNumber}`);
       }
@@ -122,18 +119,13 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           return;
       }
 
-      if (trxType === 'IN' && selectedJob && Number(amount) > paymentSummary.remaining + 5000) { // Tolerance 5000
-          if (!window.confirm(`Peringatan: Nominal Rp ${formatCurrency(Number(amount))} melebihi sisa tagihan Rp ${formatCurrency(paymentSummary.remaining)}. Lanjutkan?`)) {
-              return;
-          }
-      }
-
       setLoading(true);
       try {
-          // Use ASYNC ID generation for strict sequence
-          const transactionNumber = await generateTransactionId(trxType);
+          // 1. Generate ID Transaksi Utama (BKK / BKM)
+          // Pass category to determine if it's TAX (though 'Pelunasan' is standard BKM/BKK)
+          const transactionNumber = await generateTransactionId(trxType, category);
 
-          // 1. Create the Main Payment Transaction
+          // 2. Create the Main Payment Transaction
           const newTrx: any = {
               date: serverTimestamp(),
               type: trxType,
@@ -162,17 +154,30 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           await addDoc(collection(db, CASHIER_COLLECTION), newTrx);
 
           // Auto-generate Receipt PDF
-          // Mocking date for immediate PDF generation because serverTimestamp is pending
           const pdfTrx = { ...newTrx, date: new Date() };
           generateReceiptPDF(pdfTrx, settings);
 
-          // 2. Create the Withholding Tax Transaction if enabled
+          // 3. Handle Withholding Tax (Customer deducts PPh 23)
+          // This creates a TAX record (Bukti Potong)
           if (trxType === 'IN' && hasWithholding && withholdingAmount && Number(withholdingAmount) > 0) {
-              const taxTrxId = await generateTransactionId('IN'); // Generate distinct ID for Tax Record
+              
+              // Generate ID for TAX Transaction
+              let taxTrxId = await generateSequenceNumber('TAX', CASHIER_COLLECTION, 'transactionNumber');
+
+              // ID Collision Check (Manual Increment if DB is slow to update index)
+              if (taxTrxId === transactionNumber) {
+                  const parts = taxTrxId.split('-');
+                  const lastPart = parts.pop();
+                  if (lastPart) {
+                      const nextSeq = parseInt(lastPart) + 1;
+                      taxTrxId = `${parts.join('-')}-${nextSeq.toString().padStart(3, '0')}`; // Updated to 3 digits
+                  }
+              }
+
               const taxTrx: any = {
                   date: serverTimestamp(),
-                  type: 'IN',
-                  category: 'Potongan PPh (Pihak Ke-3)',
+                  type: 'IN', // Recorded as IN because it reduces receivable, but physically it's a paper
+                  category: 'Pajak (Bukti Potong PPh)',
                   amount: Number(withholdingAmount),
                   paymentMethod: 'Non-Tunai (Pajak)',
                   transactionNumber: taxTrxId,
@@ -186,11 +191,10 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
               };
               await addDoc(collection(db, CASHIER_COLLECTION), taxTrx);
               
-              // Generate PDF for Tax Receipt as well? Maybe useful.
               generateReceiptPDF({...taxTrx, date: new Date()}, settings);
           }
           
-          showNotification(`Transaksi ${transactionNumber} berhasil disimpan & Bukti PDF diunduh.`, "success");
+          showNotification(`Transaksi ${transactionNumber} berhasil disimpan.`, "success");
           
           setAmount('');
           setWithholdingAmount('');
@@ -220,41 +224,36 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           .reduce((acc, t) => acc + (t.amount || 0), 0);
       
       if (paid < bill - 1000) {
-          if(!window.confirm(`Peringatan: Unit ini belum lunas.\n\nTotal Tagihan: ${formatCurrency(bill)}\nSudah Bayar: ${formatCurrency(paid)}\nSisa: ${formatCurrency(bill - paid)}\n\nTetap cetak Gate Pass?`)) {
+          if(!window.confirm(`Peringatan: Unit ini belum lunas. Sisa: ${formatCurrency(bill - paid)}. Tetap cetak Gate Pass?`)) {
               return;
           }
       }
       
-      // 1. Generate PDF
       generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
 
-      // 2. TRIGGER JOB CONTROL & CRC UPDATE
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           await updateDoc(jobRef, {
-              statusKendaraan: 'Sudah Diambil Pemilik', // Status changed from 'Selesai (Tunggu Pengambilan)'
-              posisiKendaraan: 'Di Pemilik', // Position changed from 'Di Bengkel'
-              crcFollowUpStatus: 'Pending', // NEW: Trigger entry to CRC Dashboard
+              statusKendaraan: 'Sudah Diambil Pemilik', 
+              posisiKendaraan: 'Di Pemilik', 
+              crcFollowUpStatus: 'Pending', 
               updatedAt: serverTimestamp(),
               productionLogs: arrayUnion({
                   stage: 'Gate Pass',
                   timestamp: new Date().toISOString(),
                   user: userPermissions.role || 'Cashier',
                   type: 'progress',
-                  note: 'Unit Keluar (Gate Pass Printed) -> Masuk Antrian CRC'
+                  note: 'Unit Keluar (Gate Pass Printed)'
               })
           });
           
-          showNotification("Gate Pass didownload. Unit dipindah ke 'Sudah Diambil' & 'Antrian CRC'.", "success");
-          
-          // Clear Selection
+          showNotification("Gate Pass dicetak. Unit update ke 'Sudah Diambil'.", "success");
           setSelectedJob(null);
           setWoSearch('');
           setPaymentSummary({ totalBill: 0, totalPaid: 0, remaining: 0 });
 
       } catch (e: any) {
-          console.error("Error updating job status after Gatepass:", e);
-          showNotification("PDF dicetak, namun gagal update status unit di sistem.", "warning");
+          showNotification("Gagal update status unit.", "error");
       }
   };
 
@@ -263,7 +262,6 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       try {
         generateInvoicePDF(selectedJob, settings);
       } catch (e) {
-        console.error(e);
         showNotification("Gagal mencetak Invoice.", "error");
       }
   };
@@ -277,7 +275,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Kasir & Gatepass</h1>
-                    <p className="text-sm text-gray-500 font-medium">Penerimaan Pembayaran & Ijin Keluar Kendaraan</p>
+                    <p className="text-sm text-gray-500 font-medium">Input BKM (Uang Masuk), BKK (Uang Keluar), & Pajak</p>
                 </div>
             </div>
         </div>
@@ -286,7 +284,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
             <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-fit">
                 <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <FileText size={18} className="text-indigo-600"/> Input Transaksi Baru
+                        <FileText size={18} className="text-indigo-600"/> Input Transaksi
                     </h3>
                     <div className="flex bg-gray-200 rounded-lg p-1 text-xs font-bold">
                         <button 
@@ -327,6 +325,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                             <option value="Operasional">Biaya Operasional Besar</option>
                                             <option value="Refund">Refund Customer</option>
                                             <option value="Vendor">Pembayaran Vendor (Non-PO)</option>
+                                            <option value="Pajak">Pembayaran Pajak (PPh/PPN)</option>
                                         </>
                                     )}
                                 </select>
@@ -423,12 +422,9 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                         placeholder="0"
                                     />
                                 </div>
-                                {selectedJob && paymentSummary.remaining === 0 && (
-                                    <p className="text-xs text-green-600 font-bold mt-1 flex items-center gap-1"><CheckCircle size={12}/> Tagihan sudah lunas.</p>
-                                )}
                             </div>
 
-                            {/* WITHHOLDING TAX SECTION (PPh Diterima dari Pelanggan) */}
+                            {/* WITHHOLDING TAX SECTION */}
                             {trxType === 'IN' && selectedJob && (
                                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-4">
                                     <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -438,7 +434,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                             onChange={e => setHasWithholding(e.target.checked)}
                                             className="w-4 h-4 text-amber-600 rounded"
                                         />
-                                        <span className="text-sm font-bold text-amber-800">Ada Potongan Pajak oleh Pelanggan?</span>
+                                        <span className="text-sm font-bold text-amber-800">Potongan Pajak (Bukti Potong)?</span>
                                     </label>
 
                                     {hasWithholding && (
@@ -465,9 +461,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="flex justify-between items-center text-[10px] font-bold text-amber-700 bg-white p-2 rounded border border-amber-100">
-                                                <span>PELUNASAN PIUTANG AKAN DICATAT SEBESAR:</span>
-                                                <span className="text-sm">{formatCurrency(Number(amount || 0) + Number(withholdingAmount || 0))}</span>
+                                            <div className="text-[10px] font-bold text-amber-700 bg-white p-2 rounded border border-amber-100">
+                                                Total yang akan dibukukan sebagai Pelunasan: {formatCurrency(Number(amount || 0) + Number(withholdingAmount || 0))}
                                             </div>
                                         </div>
                                     )}
@@ -476,7 +471,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-2">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Metode Pembayaran (Uang Masuk)</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Metode Pembayaran</label>
                                     <div className="flex gap-2">
                                         {['Cash', 'Transfer', 'EDC'].map(m => (
                                             <button
@@ -493,44 +488,31 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
                                 {trxType === 'IN' && (paymentMethod === 'Transfer' || paymentMethod === 'EDC') && (
                                     <div className="col-span-2 animate-fade-in">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Bank Penerima (Rekening Bengkel)</label>
-                                        {settings.workshopBankAccounts && settings.workshopBankAccounts.length > 0 ? (
-                                            <div className="relative">
-                                                <select 
-                                                    value={selectedBank} 
-                                                    onChange={e => setSelectedBank(e.target.value)}
-                                                    className="w-full pl-9 p-2.5 border border-indigo-300 bg-indigo-50 rounded-lg focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-900"
-                                                >
-                                                    <option value="">-- Pilih Rekening --</option>
-                                                    {settings.workshopBankAccounts.map((bank, idx) => (
-                                                        <option key={idx} value={`${bank.bankName} - ${bank.accountNumber}`}>
-                                                            {bank.bankName} - {bank.accountNumber} ({bank.accountHolder})
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                <Building2 className="absolute left-3 top-3 text-indigo-500" size={18}/>
-                                            </div>
-                                        ) : (
-                                            <div className="p-3 bg-yellow-50 text-yellow-800 text-sm rounded border border-yellow-200 flex items-start gap-2">
-                                                <SettingsIcon size={16} className="mt-0.5 shrink-0"/>
-                                                <div>
-                                                    <strong>Belum ada data rekening bank.</strong>
-                                                    <br/>Harap tambahkan di menu Pengaturan - Database Sistem.
-                                                </div>
-                                            </div>
-                                        )}
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Bank Penerima</label>
+                                        <select 
+                                            value={selectedBank} 
+                                            onChange={e => setSelectedBank(e.target.value)}
+                                            className="w-full pl-2 p-2.5 border border-indigo-300 bg-indigo-50 rounded-lg focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-900"
+                                        >
+                                            <option value="">-- Pilih Rekening --</option>
+                                            {settings.workshopBankAccounts.map((bank, idx) => (
+                                                <option key={idx} value={`${bank.bankName} - ${bank.accountNumber}`}>
+                                                    {bank.bankName} - {bank.accountNumber} ({bank.accountHolder})
+                                                </option>
+                                            ))}
+                                        </select>
                                     </div>
                                 )}
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan / Keterangan</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
                                 <input 
                                     type="text" 
                                     value={notes} 
                                     onChange={e => setNotes(e.target.value)} 
                                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                                    placeholder={trxType === 'IN' ? "Contoh: Pelunasan Invoice #..." : "Contoh: Beli Bensin, Aqua Galon..."}
+                                    placeholder="Contoh: Beli Bensin, Pelunasan Invoice #..."
                                 />
                             </div>
                         </div>
@@ -583,20 +565,13 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                         {trx.customerName && <span className="font-semibold text-indigo-900">{trx.customerName} - </span>}
                                         {trx.description || '-'}
                                     </p>
-                                    {trx.taxCertificateNumber && (
-                                        <div className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 w-fit">
-                                            <ShieldCheck size={10}/> BP: {trx.taxCertificateNumber}
-                                        </div>
-                                    )}
                                     <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity mt-2">
-                                        {trx.paymentMethod !== 'Non-Tunai (Pajak)' && (
-                                            <button 
-                                                onClick={() => generateReceiptPDF(trx, settings)}
-                                                className="text-xs flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-gray-600 hover:text-indigo-600 hover:border-indigo-200"
-                                            >
-                                                <Printer size={12}/> Kwitansi
-                                            </button>
-                                        )}
+                                        <button 
+                                            onClick={() => generateReceiptPDF(trx, settings)}
+                                            className="text-xs flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-gray-600 hover:text-indigo-600 hover:border-indigo-200"
+                                        >
+                                            <Printer size={12}/> Kwitansi
+                                        </button>
                                     </div>
                                 </div>
                             ))}
