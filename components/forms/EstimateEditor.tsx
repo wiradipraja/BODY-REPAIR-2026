@@ -29,10 +29,11 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         sec_part: "B. SPAREPART & BAHAN",
         btn_add_jasa: "TAMBAH JASA",
         btn_add_part: "TAMBAH PART",
-        btn_print: "CETAK ESTIMASI",
-        btn_save_est: "SIMPAN ESTIMASI",
-        btn_save_wo: "TERBITKAN WO",
-        btn_update_wo: "UPDATE WORK ORDER",
+        btn_print_est: "CETAK ESTIMASI",
+        btn_print_wo: "CETAK WO",
+        btn_save_est: "SIMPAN DATA ESTIMASI",
+        btn_save_wo: "TERBITKAN WORK ORDER (WO)",
+        btn_update_wo: "UPDATE DATA WO",
         col_code: "Kode",
         col_type: "Jenis",
         col_desc: "Nama Pekerjaan",
@@ -49,10 +50,11 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         sec_part: "B. SPAREPARTS & MATERIALS",
         btn_add_jasa: "ADD SERVICE",
         btn_add_part: "ADD PART",
-        btn_print: "PRINT ESTIMATE",
-        btn_save_est: "SAVE ESTIMATE",
-        btn_save_wo: "GENERATE WO",
-        btn_update_wo: "UPDATE WORK ORDER",
+        btn_print_est: "PRINT ESTIMATE",
+        btn_print_wo: "PRINT WO",
+        btn_save_est: "SAVE ESTIMATE DATA",
+        btn_save_wo: "GENERATE WORK ORDER (WO)",
+        btn_update_wo: "UPDATE WO DATA",
         col_code: "Code",
         col_type: "Type",
         col_desc: "Description",
@@ -247,18 +249,31 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       setIsSubmitting(true);
       try {
           const data = prepareEstimateData();
-          const resultNumber = await onSave(job.id, data, saveType);
-          if (saveType === 'wo' && resultNumber) {
-              const finalJobForPdf = { ...job, woNumber: resultNumber };
-              const finalDataForPdf = { ...data, estimationNumber: resultNumber };
-              generateEstimationPDF(finalJobForPdf, finalDataForPdf, settings, creatorName);
-          }
+          await onSave(job.id, data, saveType);
       } catch (e) { 
           console.error(e); 
           showNotification("Gagal menyimpan data", "error");
       } finally { 
           setIsSubmitting(false); 
       }
+  };
+
+  const handlePrint = (type: 'estimate' | 'wo') => {
+      // Use current live data from form to generate PDF, ensuring WYSIWYG
+      const currentData = prepareEstimateData();
+      // If printing WO, ensure we display WO Number if exists
+      const docTypeData = {
+          ...currentData,
+          estimationNumber: type === 'wo' ? (job.woNumber || currentData.estimationNumber) : currentData.estimationNumber
+      };
+      
+      const jobForPdf = {
+          ...job,
+          // Only force WO number appearance if printing WO type
+          woNumber: type === 'wo' ? job.woNumber : undefined 
+      };
+
+      generateEstimationPDF(jobForPdf, docTypeData, settings, creatorName);
   };
 
   return (
@@ -482,7 +497,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       {/* SUMMARY */}
       <div className="bg-slate-900 text-white p-8 rounded-3xl flex flex-col md:flex-row justify-between items-center shadow-2xl relative overflow-hidden ring-4 ring-indigo-50/50">
           <div className="absolute right-0 top-0 p-4 opacity-5 rotate-12 scale-150"><Calculator size={150}/></div>
-          <div className="flex gap-3 relative z-10"><button onClick={() => generateEstimationPDF(job, prepareEstimateData(), settings, creatorName)} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-2xl font-black transition-all shadow-lg"><Printer size={20}/> {t('btn_print')}</button></div>
+          
+          {/* Action Buttons for Printing - ALWAYS VISIBLE TO PRINT */}
+          <div className="flex gap-3 relative z-10">
+              <button 
+                onClick={() => handlePrint('estimate')} 
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-2xl font-black transition-all shadow-lg text-xs"
+              >
+                  <Printer size={16}/> {t('btn_print_est')}
+              </button>
+              
+              {job.woNumber && (
+                  <button 
+                    onClick={() => handlePrint('wo')} 
+                    className="flex items-center gap-2 bg-indigo-800 hover:bg-indigo-700 px-6 py-3 rounded-2xl font-black transition-all shadow-lg text-xs border border-indigo-500"
+                  >
+                      <Printer size={16}/> {t('btn_print_wo')}
+                  </button>
+              )}
+          </div>
+
           <div className="flex items-center gap-8 mt-6 md:mt-0 relative z-10">
               <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PPN ({ppnPercentage}%)</p><p className="font-bold text-slate-200">{formatCurrency(totals.ppnAmount)}</p></div>
               <div className="h-12 w-px bg-slate-700"></div>
@@ -490,12 +524,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           </div>
       </div>
 
+      {/* SAVE / PUBLISH ACTION BUTTONS */}
       <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
           <button onClick={onCancel} className="px-8 py-3 bg-gray-100 text-gray-500 rounded-2xl hover:bg-gray-200 font-black transition-all">{lang === 'id' ? 'BATAL / TUTUP' : 'CANCEL / CLOSE'}</button>
           {!job.isClosed && (
               <>
-                  <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting} className="px-8 py-3 border-2 border-indigo-600 text-indigo-700 rounded-2xl hover:bg-indigo-50 font-black transition-all">{t('btn_save_est')}</button>
-                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-12 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 font-black shadow-xl transition-all transform active:scale-95"><Save size={20}/> {job.woNumber ? t('btn_update_wo') : t('btn_save_wo')}</button>
+                  <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting} className="px-8 py-3 border-2 border-indigo-600 text-indigo-700 rounded-2xl hover:bg-indigo-50 font-black transition-all text-xs">
+                      {t('btn_save_est')}
+                  </button>
+                  <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting} className="flex items-center gap-2 px-12 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 font-black shadow-xl transition-all transform active:scale-95 text-xs">
+                      <Save size={20}/> {job.woNumber ? t('btn_update_wo') : t('btn_save_wo')}
+                  </button>
               </>
           )}
       </div>

@@ -195,74 +195,119 @@ const AppContent: React.FC = () => {
       openModal('create_estimation', newJobDraft);
   };
 
+  // --- HELPER UNTUK GENERATE ID SECARA BERURUTAN ---
+  const generateDocumentNumber = (prefix: string, jobList: Job[]) => {
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const codePrefix = `${prefix}${year}${month}`;
+      
+      // Filter existing numbers from ALL jobs to ensure no duplicate even if filtered in view
+      const existingSequences = jobList
+          .map(j => {
+              const num = prefix === 'WO' ? j.woNumber : j.estimateData?.estimationNumber;
+              if (num && num.startsWith(codePrefix)) {
+                  // Format: BEYYMMXXXX or WOYYMMXXXX
+                  // Extract last 4 digits
+                  return parseInt(num.substring(codePrefix.length));
+              }
+              return 0;
+          })
+          .filter(n => !isNaN(n));
+      
+      const maxSeq = existingSequences.length > 0 ? Math.max(...existingSequences) : 0;
+      const nextSeq = maxSeq + 1;
+      return `${codePrefix}${nextSeq.toString().padStart(4, '0')}`;
+  };
+
   const handleSaveEstimate = async (jobId: string, estimateData: EstimateData, saveType: 'estimate' | 'wo'): Promise<string> => {
       try {
+          // Get Current Job Data (Merge with new estimate data)
           const currentJob = jobs.find(j => j.id === jobId) || actualModalState.data;
-          const isNew = jobId.startsWith('TEMP_');
+          const isNewJob = jobId.startsWith('TEMP_');
           
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
-          const now = new Date();
-          const year = now.getFullYear().toString().slice(-2); 
-          const month = (now.getMonth() + 1).toString().padStart(2, '0'); 
-
-          if (!estimationNumber) {
-              const prefix = `BE${year}${month}`; 
-              const existing = jobs.map(j => j.estimateData?.estimationNumber).filter(n => n && n.startsWith(prefix));
-              let maxSeq = 0;
-              existing.forEach(n => {
-                  const seq = parseInt(n!.substring(prefix.length)); 
-                  if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-              });
-              estimationNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
+          
+          // --- LOGIKA ESTIMASI ---
+          if (saveType === 'estimate') {
+              // Jika belum ada nomor estimasi, generate baru (BE-YYMM-XXXX)
+              if (!estimationNumber) {
+                  estimationNumber = generateDocumentNumber('BE', jobs);
+              }
+              
+              // Status Logic untuk Estimasi
+              // Jika asuransi, status 'Tunggu SPK Asuransi', jika Pribadi 'Tunggu Estimasi'
+              // Posisi Kendaraan bisa 'Di Bengkel' atau 'Di Pemilik' (tidak dipaksa berubah)
           }
 
-          if (saveType === 'wo' && !woNumber) {
-              const prefix = `WO${year}${month}`; 
-              const existing = jobs.map(j => j.woNumber).filter(n => n && n.startsWith(prefix));
-              let maxSeq = 0;
-              existing.forEach(n => {
-                  const seq = parseInt(n!.substring(prefix.length)); 
-                  if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-              });
-              woNumber = `${prefix}${(maxSeq + 1).toString().padStart(4, '0')}`;
+          // --- LOGIKA WORK ORDER (WO) ---
+          if (saveType === 'wo') {
+              // Pastikan nomor estimasi ada (jika direct WO)
+              if (!estimationNumber) {
+                  estimationNumber = generateDocumentNumber('BE', jobs);
+              }
+
+              // Generate WO jika belum ada
+              if (!woNumber) {
+                  woNumber = generateDocumentNumber('WO', jobs);
+              }
           }
 
+          // Construct Payload
           const basePayload = {
               ...currentJob,
-              estimateData: { ...estimateData, estimationNumber },
+              estimateData: { 
+                  ...estimateData, 
+                  estimationNumber // Ensure BE number is saved
+              },
               hargaJasa: estimateData.subtotalJasa,
               hargaPart: estimateData.subtotalPart,
               namaSA: estimateData.estimatorName || userData.displayName,
               updatedAt: serverTimestamp()
           };
-          delete basePayload.id;
+          delete basePayload.id; // Remove ID to prevent overwrite error
 
-          if (saveType === 'estimate' && basePayload.namaAsuransi !== 'Umum / Pribadi') {
-              if (basePayload.statusKendaraan === 'Tunggu Estimasi') {
-                  basePayload.statusKendaraan = 'Tunggu SPK Asuransi';
+          // --- STATUS UPDATES BASED ON TYPE ---
+          if (saveType === 'estimate') {
+              // Estimasi hanya update status jika belum WO
+              if (!woNumber) {
+                  if (basePayload.namaAsuransi !== 'Umum / Pribadi') {
+                      basePayload.statusKendaraan = 'Tunggu SPK Asuransi';
+                  } else {
+                      basePayload.statusKendaraan = 'Tunggu Estimasi';
+                  }
+                  // Posisi Kendaraan: Jangan ubah otomatis, ikuti inputan atau existing
               }
+          } else if (saveType === 'wo') {
+              // TERBITKAN WO: Kunci Status ke Produksi
+              basePayload.woNumber = woNumber;
+              basePayload.statusKendaraan = 'Work In Progress'; // Trigger masuk Job Control
+              basePayload.statusPekerjaan = 'Belum Mulai Perbaikan'; // Reset produksi step
+              basePayload.posisiKendaraan = 'Di Bengkel'; // WO aktif artinya unit harus di bengkel
           }
 
-          if (woNumber) { 
-              basePayload.woNumber = woNumber; 
-              if (basePayload.statusKendaraan === 'Tunggu Estimasi' || basePayload.statusKendaraan === 'Tunggu SPK Asuransi') {
-                basePayload.statusKendaraan = 'Work In Progress'; 
-              }
-          }
-
-          if (isNew) {
-              // This is where Job Data enters SERVICE_JOBS_COLLECTION
+          // DATABASE OPERATION
+          if (isNewJob) {
               await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));
           } else {
               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
           }
           
-          showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi Tersimpan`, "success");
-          closeModal();
-          setCurrentView('entry_data'); 
+          showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi ${estimationNumber} Tersimpan`, "success");
+          
+          // Close modal only if publishing WO to force workflow, otherwise stay open for editing
+          if (saveType === 'wo') {
+              closeModal();
+              setCurrentView('entry_data'); 
+          }
+          
           return saveType === 'wo' ? woNumber! : estimationNumber!;
-      } catch (e) { console.error(e); showNotification("Gagal menyimpan transaksi.", "error"); throw e; }
+      } catch (e) { 
+          console.error(e); 
+          showNotification("Gagal menyimpan transaksi.", "error"); 
+          throw e; 
+      }
   };
 
   const handleCloseJob = async (job: Job) => {

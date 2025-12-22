@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; // Added setDoc
-import * as firebaseAuth from 'firebase/auth';
-import * as firebaseApp from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signOut, updatePassword } from 'firebase/auth';
+import { deleteApp, initializeApp } from 'firebase/app';
 import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
 import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound } from 'lucide-react';
@@ -150,13 +150,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   throw new Error("Password minimal 6 karakter.");
               }
               const tempAppName = `tempApp-${Date.now()}`;
-              tempApp = firebaseApp.initializeApp(firebaseConfig, tempAppName);
-              const tempAuth = firebaseAuth.getAuth(tempApp);
-              const cred = await firebaseAuth.createUserWithEmailAndPassword(tempAuth, userForm.email, userForm.password);
+              tempApp = initializeApp(firebaseConfig, tempAppName);
+              const tempAuth = getAuth(tempApp);
+              const cred = await createUserWithEmailAndPassword(tempAuth, userForm.email, userForm.password);
               newUid = cred.user.uid;
               
               // Clean up: Sign out from temp app immediately just in case
-              await firebaseAuth.signOut(tempAuth);
+              await signOut(tempAuth);
           }
 
           // 2. Create/Update User Profile in Firestore
@@ -199,7 +199,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           showNotification("Gagal menambah user: " + msg, "error");
       } finally { 
           if (tempApp) {
-              await firebaseApp.deleteApp(tempApp);
+              await deleteApp(tempApp);
           }
           setIsLoading(false); 
       }
@@ -216,7 +216,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const handleResetPassword = async (email: string) => {
       if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return;
       try {
-          await firebaseAuth.sendPasswordResetEmail(auth, email);
+          await sendPasswordResetEmail(auth, email);
           showNotification("Email reset password berhasil dikirim.", "success");
       } catch (e: any) {
           showNotification("Gagal mengirim email reset.", "error");
@@ -237,7 +237,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       setIsLoading(true);
       try {
           if (auth.currentUser) {
-              await firebaseAuth.updatePassword(auth.currentUser, newPassword);
+              await updatePassword(auth.currentUser, newPassword);
               showNotification("Password berhasil diubah.", "success");
               setNewPassword('');
               setConfirmPassword('');

@@ -1,7 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import * as firebaseAuth from 'firebase/auth';
-import type { User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, ADMIN_UID, USERS_COLLECTION } from '../services/firebase';
 import { UserProfile, UserPermissions, Settings } from '../types';
@@ -28,7 +27,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize Firebase Auth Listener
   useEffect(() => {
-    const unsubscribe = firebaseAuth.onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         // 1. Check if user is Super Admin
@@ -109,11 +108,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password?: string) => {
     if (!password) throw new Error("Password required");
-    await firebaseAuth.signInWithEmailAndPassword(auth, email, password);
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
   const logout = async () => {
-    await firebaseAuth.signOut(auth);
+    await signOut(auth);
   };
 
   return (

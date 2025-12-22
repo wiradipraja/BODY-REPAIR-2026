@@ -1,6 +1,6 @@
 
-import * as firebaseApp from 'firebase/app';
-import * as firebaseAuth from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import { getFirestore, increment as firestoreIncrement } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -13,8 +13,8 @@ export const firebaseConfig = {
   appId: "1:672061097149:web:2998766b147a4c20a6a3d4"
 };
 
-const app = firebaseApp.initializeApp(firebaseConfig);
-export const auth = firebaseAuth.getAuth(app);
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const increment = firestoreIncrement;
