@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, generateTransactionId, generateSequenceNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionId, generateRandomId } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
 import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent, Info } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -121,9 +121,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       setLoading(true);
       try {
-          // 1. Generate ID Transaksi Utama (BKK / BKM)
-          // Pass category to determine if it's TAX (though 'Pelunasan' is standard BKM/BKK)
-          const transactionNumber = await generateTransactionId(trxType, category);
+          // 1. Generate ID Transaksi Utama (BKK / BKM) - SYNCHRONOUS
+          const transactionNumber = generateTransactionId(trxType, category);
 
           // 2. Create the Main Payment Transaction
           const newTrx: any = {
@@ -161,18 +160,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           // This creates a TAX record (Bukti Potong)
           if (trxType === 'IN' && hasWithholding && withholdingAmount && Number(withholdingAmount) > 0) {
               
-              // Generate ID for TAX Transaction
-              let taxTrxId = await generateSequenceNumber('TAX', CASHIER_COLLECTION, 'transactionNumber');
-
-              // ID Collision Check (Manual Increment if DB is slow to update index)
-              if (taxTrxId === transactionNumber) {
-                  const parts = taxTrxId.split('-');
-                  const lastPart = parts.pop();
-                  if (lastPart) {
-                      const nextSeq = parseInt(lastPart) + 1;
-                      taxTrxId = `${parts.join('-')}-${nextSeq.toString().padStart(3, '0')}`; // Updated to 3 digits
-                  }
-              }
+              // Generate ID for TAX Transaction - SYNCHRONOUS
+              const taxTrxId = generateRandomId('TAX');
 
               const taxTrx: any = {
                   date: serverTimestamp(),

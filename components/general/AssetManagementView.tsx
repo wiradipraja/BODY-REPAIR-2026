@@ -68,7 +68,7 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
           // 2. Create Cashier Transaction (Capital Expenditure)
           if (assetForm.createCashierTrx) {
-              const transactionNumber = await generateTransactionId('OUT');
+              const transactionNumber = generateTransactionId('OUT');
               const payload = {
                   date: serverTimestamp(),
                   type: 'OUT',
@@ -111,7 +111,7 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
       setIsProcessing(true);
       try {
-          const transactionNumber = await generateTransactionId('OUT');
+          const transactionNumber = generateTransactionId('OUT');
           const payload = {
               date: serverTimestamp(),
               type: 'OUT',

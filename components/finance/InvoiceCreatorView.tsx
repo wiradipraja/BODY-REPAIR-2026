@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
-import { formatCurrency, formatDateIndo, cleanObject, generateSequenceNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
 import { doc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -24,61 +25,43 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
   const isManager = userPermissions.role === 'Manager';
 
-  // Helper to check if a job is fully ready for invoice
-  // UPDATED: Logic dilonggarkan agar unit yang secara teknis sudah di tahap akhir (QC/Finishing/Selesai) bisa difaktur
-  // Validasi parts/bahan dipindah ke UI Warning, bukan filter search.
   const isJobReadyForInvoice = (job: Job) => {
       if (!job.woNumber || job.isDeleted) return false;
-      
       const validStatuses = ['Quality Control', 'Finishing', 'Selesai', 'Selesai (Tunggu Pengambilan)'];
       const isStatusReady = validStatuses.includes(job.statusPekerjaan) || validStatuses.includes(job.statusKendaraan);
-      
       return isStatusReady || job.isClosed || job.hasInvoice;
   };
 
-  // Filter ready WOs for the search dropdown results
-  // UPDATED: Normalisasi format Nopol (hapus spasi) untuk pencarian yang lebih baik
   const eligibleWOs = useMemo(() => {
       const rawTerm = searchTerm.toUpperCase();
-      const cleanTerm = rawTerm.replace(/\s/g, ''); // Hapus spasi dari keyword pencarian
+      const cleanTerm = rawTerm.replace(/\s/g, ''); 
 
       return jobs.filter(j => {
-          // Filter 1: Status Eligibility
           if (!isJobReadyForInvoice(j)) return false;
-
-          // Filter 2: Search Matching
           if (searchTerm === '') return true;
-
-          const nopol = (j.policeNumber || '').toUpperCase().replace(/\s/g, ''); // Hapus spasi dari data nopol
+          const nopol = (j.policeNumber || '').toUpperCase().replace(/\s/g, '');
           const wo = (j.woNumber || '').toUpperCase().replace(/\s/g, '');
-          const cust = (j.customerName || '').toUpperCase(); // Nama tetap pakai spasi (rawTerm)
-
+          const cust = (j.customerName || '').toUpperCase();
           return nopol.includes(cleanTerm) || wo.includes(cleanTerm) || cust.includes(rawTerm);
       });
   }, [jobs, searchTerm]);
 
-  // Validation Warnings for Selected Job
   const validationWarnings = useMemo(() => {
       if (!selectedJob) return [];
       const warnings = [];
-      
       const allPartsIssued = (selectedJob.estimateData?.partItems || []).every(p => p.hasArrived);
       const materialsIssued = selectedJob.usageLog?.some(l => l.category === 'material');
       const allSpklClosed = (selectedJob.spklItems || []).every(s => s.status === 'Closed');
-
       if (!allPartsIssued) warnings.push("Terdapat Sparepart yang belum Issued/Datang.");
       if (!materialsIssued) warnings.push("Belum ada record pemakaian Bahan (Material).");
       if (!allSpklClosed) warnings.push("Ada SPKL (Jasa Luar) yang belum Closed.");
-      
       return warnings;
   }, [selectedJob]);
 
-  // Check if search has results but they are locked by WIP status (not ready yet)
   const searchMatchesWIP = useMemo(() => {
       if (!searchTerm || eligibleWOs.length > 0) return false;
       const rawTerm = searchTerm.toUpperCase();
       const cleanTerm = rawTerm.replace(/\s/g, '');
-      
       return jobs.some(j => {
           const nopol = (j.policeNumber || '').toUpperCase().replace(/\s/g, '');
           const wo = (j.woNumber || '').toUpperCase().replace(/\s/g, '');
@@ -86,7 +69,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       });
   }, [jobs, searchTerm, eligibleWOs]);
 
-  // List of Invoices History
   const invoicesHistory = useMemo(() => {
       return jobs
         .filter(j => j.hasInvoice && !j.isDeleted)
@@ -97,14 +79,12 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
         });
   }, [jobs]);
 
-  // List of Work In Progress (WIP) Units
   const wipUnits = useMemo(() => {
       return jobs
         .filter(j => !j.isClosed && j.woNumber && !j.isDeleted)
         .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [jobs]);
 
-  // Load Job into State
   useEffect(() => {
       if (selectedJob && selectedJob.estimateData) {
           setDiscountJasa(selectedJob.estimateData.discountJasa || 0);
@@ -114,29 +94,22 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
   const calculations = useMemo(() => {
       if (!selectedJob || !selectedJob.estimateData) return null;
-      
       const jasaItems = selectedJob.estimateData.jasaItems || [];
       const partItems = selectedJob.estimateData.partItems || [];
-
       const subtotalJasa = jasaItems.reduce((acc, item) => acc + (item.price || 0), 0);
       const subtotalPart = partItems.reduce((acc, item) => acc + ((item.price || 0) * (item.qty || 1)), 0);
-
       const discJasaRp = (subtotalJasa * discountJasa) / 100;
       const discPartRp = (subtotalPart * discountPart) / 100;
-
       const totalJasaNet = subtotalJasa - discJasaRp;
       const totalPartNet = subtotalPart - discPartRp;
-
       const dpp = totalJasaNet + totalPartNet;
       const ppn = (dpp * settings.ppnPercentage) / 100;
       const grandTotal = dpp + ppn;
-
       return { subtotalJasa, subtotalPart, discJasaRp, discPartRp, dpp, ppn, grandTotal };
   }, [selectedJob, discountJasa, discountPart, settings.ppnPercentage]);
 
   const handleFinalizeAndPrint = async () => {
       if (!selectedJob || !calculations) return;
-      
       if (validationWarnings.length > 0) {
           if (!window.confirm(`PERINGATAN:\n${validationWarnings.join('\n')}\n\nApakah Anda yakin ingin tetap menerbitkan faktur?`)) return;
       }
@@ -165,11 +138,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
               'hasInvoice': true 
           };
 
-          // Generate Invoice Number if new using Centralized Generator (INV-YYMM-XXX)
           let invoiceNumber = selectedJob.invoiceNumber;
           if (!isAlreadyInvoiced) {
-              // CHANGE: Menggunakan generateSequenceNumber untuk INV dengan padding 3 digit (INV-YYMM-001)
-              invoiceNumber = await generateSequenceNumber('INV', SERVICE_JOBS_COLLECTION, 'invoiceNumber', 3);
+              // GENERATE INVOICE ID: INV-YYMM-RRR (Sync)
+              invoiceNumber = generateRandomId('INV');
               updatePayload.invoiceNumber = invoiceNumber;
           }
 
@@ -178,7 +150,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
           const updatedJob = {
               ...selectedJob,
               hasInvoice: true,
-              invoiceNumber: invoiceNumber, // Ensure this is passed for PDF
+              invoiceNumber: invoiceNumber,
               estimateData: {
                   ...selectedJob.estimateData!,
                   discountJasa,
@@ -220,15 +192,11 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       setIsProcessing(true);
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
-          // Update Status:
-          // 1. hasInvoice: false (Hilangkan status Invoiced)
-          // 2. isClosed: false (Buka WO agar SA bisa edit estimasi)
-          // 3. statusKendaraan: Kembalikan ke 'Work In Progress' atau 'Tunggu Estimasi' agar muncul di dashboard SA
           await updateDoc(jobRef, {
               hasInvoice: false,
               isClosed: false,
-              statusKendaraan: 'Work In Progress', // Re-activate for SA
-              statusPekerjaan: 'Finishing', // Set to a working state
+              statusKendaraan: 'Work In Progress', 
+              statusPekerjaan: 'Finishing', 
               'estimateData.invoiceCancelReason': reason
           });
           
@@ -243,7 +211,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
-        {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
                 <div className="p-3 bg-indigo-600 rounded-xl shadow-sm text-white">
@@ -256,7 +223,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
             </div>
         </div>
 
-        {/* SEARCH & SELECTION */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <div className="relative mb-4">
                 <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
@@ -312,7 +278,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
         {!selectedJob && !searchTerm && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 animate-fade-in">
-                {/* WIP UNITS DASHBOARD */}
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -372,7 +337,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                     </div>
                 </div>
 
-                {/* INVOICE HISTORY TABLE */}
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -426,7 +390,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
 
         {selectedJob && calculations && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
-                {/* LEFT PANEL: INFO */}
                 <div className="lg:col-span-2 space-y-6">
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
@@ -436,7 +399,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded border border-indigo-200">{selectedJob.woNumber}</span>
                             </div>
                         </div>
-                        
                         <div className="p-6 grid grid-cols-2 gap-6 text-sm">
                             <div>
                                 <div className="flex items-center gap-2 font-bold text-gray-500 mb-2"><User size={16}/> Pelanggan</div>
@@ -453,21 +415,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 <p className="mt-2 text-gray-500 font-mono text-xs">VIN: {selectedJob.nomorRangka || '-'}</p>
                             </div>
                         </div>
-
-                        {/* WARNINGS BLOCK */}
-                        {validationWarnings.length > 0 && !selectedJob.hasInvoice && (
-                            <div className="mx-6 mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20}/>
-                                <div>
-                                    <p className="font-bold text-amber-800 text-sm">Validasi Pra-Faktur (Perhatian)</p>
-                                    <ul className="list-disc list-inside text-xs text-amber-700 mt-1 space-y-0.5">
-                                        {validationWarnings.map((w, idx) => <li key={idx}>{w}</li>)}
-                                    </ul>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* SPKL ITEMS PREVIEW */}
                         {(selectedJob.spklItems || []).length > 0 && (
                             <div className="border-t border-indigo-100 bg-indigo-50/30">
                                 <div className="px-6 py-2 flex justify-between items-center">
@@ -476,8 +423,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 </div>
                             </div>
                         )}
-
-                        {/* TABLES: JASA & PARTS */}
                         <div className="border-t border-gray-100">
                             <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase">Jasa Perbaikan</div>
                             <table className="w-full text-sm">
@@ -491,7 +436,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 </tbody>
                             </table>
                         </div>
-
                         <div className="border-t border-gray-100">
                             <div className="px-6 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase">Sparepart & Bahan</div>
                             <table className="w-full text-sm">
@@ -512,7 +456,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                     </div>
                 </div>
 
-                {/* RIGHT PANEL: FINANCIAL SUMMARY & ACTIONS */}
                 <div className="space-y-6">
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-6"><Calculator size={18} className="text-emerald-600"/> Kalkulasi Biaya</h3>
@@ -572,7 +515,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                             >
                                 {isProcessing ? 'Memproses...' : <><Printer size={20}/> {selectedJob.hasInvoice ? 'Cetak Salinan (Copy)' : 'Simpan & Cetak Faktur'}</>}
                             </button>
-                            
                             {selectedJob.hasInvoice && (
                                 <button 
                                     onClick={handleCancelInvoice}
@@ -583,7 +525,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                     <XCircle size={18}/> Batalkan Faktur & Buka WO
                                 </button>
                             )}
-                            
                             <button onClick={() => setSelectedJob(null)} disabled={isProcessing} className="w-full text-gray-500 font-medium text-sm hover:text-gray-700 py-2 flex items-center justify-center gap-1">
                                 <RotateCcw size={14}/> Batalkan / Ganti Unit
                             </button>

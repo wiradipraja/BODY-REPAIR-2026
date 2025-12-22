@@ -147,7 +147,8 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
       }
 
       try {
-          const transactionNumber = await generateTransactionId(paymentTarget.type);
+          // Generate ID - SYNCHRONOUS
+          const transactionNumber = generateTransactionId(paymentTarget.type);
 
           // 1. Prepare Base Payload (Cleaned first)
           const baseData: any = {

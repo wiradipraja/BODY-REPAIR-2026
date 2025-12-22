@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
-import { formatCurrency, formatDateIndo, cleanObject, generateSequenceNumber } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
 import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock, Calendar } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -393,8 +393,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       setLoading(true);
       try {
-          // Generate Sequential PO Number: PO-YYMM-XXXXX
-          const poNumber = await generateSequenceNumber('PO', PURCHASE_ORDERS_COLLECTION, 'poNumber');
+          // Generate Sequential PO Number: PO-YYMM-RRR (Sync Random)
+          const poNumber = generateRandomId('PO');
 
           const payload: any = {
               supplierId: poForm.supplierId,
