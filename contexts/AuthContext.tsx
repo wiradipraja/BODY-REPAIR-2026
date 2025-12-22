@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import * as firebaseAuth from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, ADMIN_UID, USERS_COLLECTION } from '../services/firebase';
 import { UserProfile, UserPermissions, Settings } from '../types';
@@ -27,13 +28,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize Firebase Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         // 1. Check if user is Super Admin
         const isSuperAdmin = currentUser.uid === ADMIN_UID;
         
         let role = 'Staff'; // Default role
+        let firestoreDisplayName = '';
         
         if (isSuperAdmin) {
              role = 'Manager';
@@ -52,18 +54,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                          createdAt: serverTimestamp()
                      }, { merge: true });
                  }
+                 if (userSnap.exists()) {
+                     firestoreDisplayName = userSnap.data().displayName;
+                 }
              } catch (err: any) {
                  console.error("Failed to sync admin role to Firestore.", err);
              }
         } else {
              // 2. Fetch Role from Firestore 'users' collection
              try {
-                 const userDocRef = doc(db, USERS_COLLECTION, currentUser.uid);
-                 const userDocSnap = await getDoc(userDocRef);
+                 let userDocRef = doc(db, USERS_COLLECTION, currentUser.uid);
+                 let userDocSnap = await getDoc(userDocRef);
+                 
+                 // Fallback: Check by Email if UID doc doesn't exist (legacy support)
+                 if (!userDocSnap.exists() && currentUser.email) {
+                     userDocRef = doc(db, USERS_COLLECTION, currentUser.email.toLowerCase());
+                     userDocSnap = await getDoc(userDocRef);
+                 }
                  
                  if (userDocSnap.exists()) {
                      const data = userDocSnap.data();
                      role = data.role || 'Staff';
+                     firestoreDisplayName = data.displayName;
                  }
              } catch (error) {
                  console.error("Error fetching user role:", error);
@@ -76,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserData({
             uid: currentUser.uid,
             email: currentUser.email,
-            displayName: currentUser.displayName || 'User',
+            displayName: firestoreDisplayName || currentUser.displayName || 'User',
             jobdesk: role,
             role: role
         });
@@ -97,11 +109,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password?: string) => {
     if (!password) throw new Error("Password required");
-    await signInWithEmailAndPassword(auth, email, password);
+    await firebaseAuth.signInWithEmailAndPassword(auth, email, password);
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await firebaseAuth.signOut(auth);
   };
 
   return (

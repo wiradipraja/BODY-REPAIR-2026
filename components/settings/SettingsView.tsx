@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; // Added setDoc
-import { sendPasswordResetEmail, updatePassword, getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { initializeApp, deleteApp } from 'firebase/app';
+import * as firebaseAuth from 'firebase/auth';
+import * as firebaseApp from 'firebase/app';
 import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
 import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound } from 'lucide-react';
@@ -141,6 +141,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       setIsLoading(true);
       
       let tempApp: any = null;
+      let newUid: string | null = null;
 
       try {
           // 1. Create User in Firebase Auth (Secondary App to prevent admin logout)
@@ -149,19 +150,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   throw new Error("Password minimal 6 karakter.");
               }
               const tempAppName = `tempApp-${Date.now()}`;
-              tempApp = initializeApp(firebaseConfig, tempAppName);
-              const tempAuth = getAuth(tempApp);
-              await createUserWithEmailAndPassword(tempAuth, userForm.email, userForm.password);
+              tempApp = firebaseApp.initializeApp(firebaseConfig, tempAppName);
+              const tempAuth = firebaseAuth.getAuth(tempApp);
+              const cred = await firebaseAuth.createUserWithEmailAndPassword(tempAuth, userForm.email, userForm.password);
+              newUid = cred.user.uid;
+              
               // Clean up: Sign out from temp app immediately just in case
-              await signOut(tempAuth);
+              await firebaseAuth.signOut(tempAuth);
           }
 
           // 2. Create/Update User Profile in Firestore
-          await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
+          // Use newUid if available (cleanest), otherwise fallback to email as ID (legacy support for updates)
+          const docId = newUid || userForm.email.toLowerCase();
+
+          await setDoc(doc(db, USERS_COLLECTION, docId), {
               email: userForm.email.toLowerCase(),
               displayName: userForm.displayName,
               role: userForm.role,
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              uid: newUid // Store UID in field as well if available
           }, { merge: true }); // Merge ensures we don't wipe existing fields if they exist unexpectedly
           
           showNotification(`User ${userForm.displayName} berhasil didaftarkan.`, "success");
@@ -173,13 +180,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           if (e.code === 'auth/email-already-in-use') {
               // If user exists in Auth, we still try to update Firestore permission
               try {
+                  // If we don't have UID, try updating by email as ID (best effort for legacy)
                   await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
                       email: userForm.email.toLowerCase(),
                       displayName: userForm.displayName,
                       role: userForm.role,
                       createdAt: serverTimestamp()
                   }, { merge: true });
-                  showNotification("Email sudah terdaftar. Hak akses diperbarui.", "success");
+                  
+                  showNotification("Email sudah terdaftar. Hak akses diperbarui (via Email Key).", "success");
                   setIsUserModalOpen(false);
                   setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
                   return; // Exit successfully
@@ -190,7 +199,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           showNotification("Gagal menambah user: " + msg, "error");
       } finally { 
           if (tempApp) {
-              await deleteApp(tempApp);
+              await firebaseApp.deleteApp(tempApp);
           }
           setIsLoading(false); 
       }
@@ -207,7 +216,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const handleResetPassword = async (email: string) => {
       if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return;
       try {
-          await sendPasswordResetEmail(auth, email);
+          await firebaseAuth.sendPasswordResetEmail(auth, email);
           showNotification("Email reset password berhasil dikirim.", "success");
       } catch (e: any) {
           showNotification("Gagal mengirim email reset.", "error");
@@ -228,7 +237,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       setIsLoading(true);
       try {
           if (auth.currentUser) {
-              await updatePassword(auth.currentUser, newPassword);
+              await firebaseAuth.updatePassword(auth.currentUser, newPassword);
               showNotification("Password berhasil diubah.", "success");
               setNewPassword('');
               setConfirmPassword('');
