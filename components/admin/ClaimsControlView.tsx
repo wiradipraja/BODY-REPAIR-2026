@@ -175,8 +175,27 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
   };
 
   const getAgingDays = (job: Job) => {
-      const dateMs = (job.updatedAt?.seconds || job.createdAt?.seconds || 0) * 1000;
-      return Math.max(0, Math.floor((Date.now() - dateMs) / (1000 * 3600 * 24)));
+      // Prioritaskan updatedAt karena ini mereset saat pindah kolom. Fallback ke createdAt.
+      const rawDate = job.updatedAt || job.createdAt;
+      if (!rawDate) return 0;
+
+      // Handle format Firestore Timestamp ({seconds, ...}) atau Date standard
+      const lastDate = new Date(
+          (rawDate.seconds ? rawDate.seconds * 1000 : rawDate)
+      );
+      const today = new Date();
+
+      // Reset jam ke 00:00:00 untuk membandingkan selisih hari kalender
+      lastDate.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+
+      // Hitung selisih waktu
+      const diffTime = today.getTime() - lastDate.getTime();
+      
+      // Konversi ke hari (ms * sec * min * hour)
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      return Math.max(0, diffDays);
   };
 
   return (
