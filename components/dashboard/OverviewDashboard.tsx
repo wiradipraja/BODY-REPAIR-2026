@@ -50,6 +50,16 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const lang = settings.language || 'id';
 
+  // Helper untuk parsing tanggal (Timestamp Firebase atau Date Object) agar robust
+  const parseDate = (dateInput: any): Date => {
+      if (!dateInput) return new Date();
+      if (dateInput instanceof Date) return dateInput;
+      if (typeof dateInput.toDate === 'function') return dateInput.toDate();
+      if (dateInput.seconds) return new Date(dateInput.seconds * 1000);
+      const parsed = new Date(dateInput);
+      return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   // TRANSLATIONS
   const t = (key: string) => {
       const dict: any = {
@@ -96,10 +106,16 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
   };
 
   const stats = useMemo(() => {
-    // 1. WIP Stats
+    // 1. WIP Stats - Unit yang memiliki WO dan belum ditutup (Active Production)
     const activeJobsList = allJobs.filter(j => j.woNumber && !j.isClosed && !j.isDeleted);
     const activeJobsCount = activeJobsList.length;
-    const completedWaiting = allJobs.filter(j => j.statusPekerjaan === 'Selesai' && !j.isClosed && !j.isDeleted).length;
+    
+    // Unit Selesai (Ready for Delivery) - Cek status text yang mungkin panjang
+    const completedWaiting = allJobs.filter(j => 
+        !j.isClosed && 
+        !j.isDeleted && 
+        (j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' || j.statusPekerjaan?.includes('Selesai'))
+    ).length;
 
     // --- FORECAST LOGIC ---
     // Hitung potensi revenue dari unit WIP (belum closed)
@@ -124,7 +140,9 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
     // 2. Filtered Stats (Realized)
     const periodJobs = allJobs.filter(j => {
         if (j.isDeleted) return false;
-        const dateObj = j.closedAt?.toDate ? j.closedAt.toDate() : (j.createdAt?.toDate ? j.createdAt.toDate() : new Date());
+        // Prioritaskan tanggal closing untuk laporan realized, fallback ke createdAt
+        const refDate = j.closedAt || j.createdAt; 
+        const dateObj = parseDate(refDate);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
 
@@ -138,13 +156,15 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
 
     const grossProfit = invoicedJobs.reduce((acc, j) => {
         const revTotal = (j.hargaJasa || 0) + (j.hargaPart || 0);
+        // Perhitungan Cost Real (HPP) dari database
         const costTotal = (j.costData?.hargaModalBahan || 0) + (j.costData?.hargaBeliPart || 0) + (j.costData?.jasaExternal || 0);
         return acc + (revTotal - costTotal);
     }, 0);
 
     const statusCounts: Record<string, number> = {};
-    allJobs.filter(j => !j.isClosed && !j.isDeleted).forEach(j => {
-      statusCounts[j.statusPekerjaan] = (statusCounts[j.statusPekerjaan] || 0) + 1;
+    allJobs.filter(j => !j.isClosed && !j.isDeleted && j.statusPekerjaan).forEach(j => {
+      const status = j.statusPekerjaan || 'Unknown';
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
     });
 
     return { 

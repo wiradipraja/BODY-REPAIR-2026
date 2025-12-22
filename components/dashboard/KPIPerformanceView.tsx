@@ -19,7 +19,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  // Helper untuk parsing tanggal (Timestamp Firebase atau Date Object)
+  // Helper untuk parsing tanggal (Timestamp Firebase atau Date Object) agar robust
   const parseDate = (dateInput: any): Date => {
       if (!dateInput) return new Date();
       if (dateInput instanceof Date) return dateInput;
@@ -34,6 +34,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
 
     // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation (Realized Profit)
+    // Menggunakan data jobs yang dilempar dari App.tsx (sumber Firestore)
     const invoicedPeriodJobs = jobs.filter(j => {
         if (j.isDeleted || !j.hasInvoice || !j.closedAt) return false;
         const dateObj = parseDate(j.closedAt);
@@ -129,6 +130,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const successRatio = totalContacted > 0 ? (totalSuccess / totalContacted) * 100 : 0;
     
     // 6. KPI FINANCE (AR AGING - Piutang)
+    // Menggunakan real-time transactions dari props
     const arItems = jobs.filter(j => j.woNumber && !j.isDeleted && !j.isClosed).map(job => {
         const totalBill = job.estimateData?.grandTotal || 0;
         const paid = transactions
@@ -154,6 +156,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
     // 7. KPI PRODUKSI (MEKANIK)
     const mechMap: Record<string, any> = {};
+    // Pre-fill dari settings agar mekanik yang belum ada job tetap muncul (nilai 0)
     (settings.mechanicNames || []).forEach(name => {
         mechMap[name] = { panels: 0, reworks: 0, units: 0 };
     });
@@ -164,17 +167,19 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
         
         involvedMechs.forEach((m: any) => {
-            if (mechMap[m]) {
-                mechMap[m].panels += panels;
-                mechMap[m].units += 1;
-            }
+            if (!mechMap[m]) mechMap[m] = { panels: 0, reworks: 0, units: 0 };
+            mechMap[m].panels += panels;
+            mechMap[m].units += 1;
         });
 
-        // Hitung Rework berdasarkan Production Logs
+        // Hitung Rework berdasarkan Production Logs (type: 'rework')
         j.productionLogs?.forEach(log => {
             if (log.type === 'rework') {
                 const picAtStage = j.assignedMechanics?.find(a => a.stage === log.stage)?.name;
-                if (picAtStage && mechMap[picAtStage]) mechMap[picAtStage].reworks++;
+                if (picAtStage) {
+                    if (!mechMap[picAtStage]) mechMap[picAtStage] = { panels: 0, reworks: 0, units: 0 };
+                    mechMap[picAtStage].reworks++;
+                }
             }
         });
     });
@@ -204,6 +209,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
 
   return (
     <div className="space-y-8 animate-fade-in pb-12">
+        {/* HEADER */}
         <div className="bg-slate-900 p-8 rounded-3xl text-white shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
             <div className="absolute right-0 top-0 p-4 opacity-10 rotate-12 scale-150"><Trophy size={200}/></div>
             <div className="relative z-10 text-center md:text-left">
@@ -226,7 +232,9 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             </div>
         </div>
 
+        {/* TARGET CARDS */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            {/* Monthly Card */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><Flag size={120}/></div>
                 <div className="flex justify-between items-start mb-6">
@@ -258,6 +266,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
+            {/* Weekly Card */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><Zap size={120}/></div>
                 <div className="flex justify-between items-start mb-6">
@@ -291,7 +300,9 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             </div>
         </div>
 
+        {/* DETAILS GRID */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            {/* SA TABLE */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
                     <h3 className="font-black text-indigo-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Users size={18}/> Service Advisor Performance (Realized GP)</h3>
@@ -316,18 +327,53 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
-                <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center"><h3 className="font-black text-blue-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Hammer size={18}/> Produksi & Kualitas (Closed WOs)</h3></div>
-                <div className="p-6 overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="text-[10px] font-black text-gray-400 uppercase tracking-widest border-b"><tr><th className="pb-3">Mekanik</th><th className="pb-3 text-center">Unit Selesai</th><th className="pb-3 text-center">Total Panel</th><th className="pb-3 text-center">Kualitas</th></tr></thead>
-                        <tbody className="divide-y divide-gray-50">{Object.entries(stats.mechMap).map(([name, data]: any) => (
-                            <tr key={name} className="hover:bg-gray-50 transition-colors"><td className="py-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black">{(name || 'M')[0]}</div><span className="font-bold text-gray-800">{name}</span></div></td><td className="py-4 text-center font-black text-gray-600">{data.units}</td><td className="py-4 text-center font-black text-blue-700">{data.panels.toFixed(1)}</td><td className="py-4 text-center"><span className={`px-2 py-0.5 rounded text-[10px] font-black border ${data.reworks > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{data.reworks === 0 ? 'PERFECT' : `${data.reworks} REWORK`}</span></td></tr>
-                        ))}</tbody>
-                    </table>
+            {/* MEKANIK TABLE - WITH SCROLL BAR FIX */}
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col h-full max-h-[500px]">
+                <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center shrink-0">
+                    <h3 className="font-black text-blue-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Hammer size={18}/> Produksi & Kualitas (Closed WOs)</h3>
+                </div>
+                {/* Scrollable Container */}
+                <div className="p-0 overflow-hidden flex flex-col h-full">
+                    <div className="overflow-y-auto scrollbar-thin h-full p-6">
+                        <table className="w-full text-left text-sm relative">
+                            <thead className="text-[10px] font-black text-gray-400 uppercase tracking-widest border-b bg-white sticky top-0 z-10">
+                                <tr>
+                                    <th className="pb-3">Mekanik</th>
+                                    <th className="pb-3 text-center">Unit Selesai</th>
+                                    <th className="pb-3 text-center">Total Panel</th>
+                                    <th className="pb-3 text-center">Kualitas</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {Object.entries(stats.mechMap).map(([name, data]: any) => (
+                                    <tr key={name} className="hover:bg-gray-50 transition-colors">
+                                        <td className="py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black">
+                                                    {(name || 'M')[0]}
+                                                </div>
+                                                <span className="font-bold text-gray-800">{name}</span>
+                                            </div>
+                                        </td>
+                                        <td className="py-4 text-center font-black text-gray-600">{data.units}</td>
+                                        <td className="py-4 text-center font-black text-blue-700">{data.panels.toFixed(1)}</td>
+                                        <td className="py-4 text-center">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${data.reworks > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                                {data.reworks === 0 ? 'PERFECT' : `${data.reworks} REWORK`}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {Object.keys(stats.mechMap).length === 0 && (
+                                    <tr><td colSpan={4} className="py-8 text-center text-gray-400 italic">Belum ada data produksi periode ini.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
+            {/* CRC CARD */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center"><h3 className="font-black text-emerald-900 flex items-center gap-2 uppercase tracking-widest text-xs"><MessageSquare size={18}/> CRM & Customer Care</h3></div>
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -353,6 +399,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
+            {/* FINANCE CARD */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-rose-50 border-b border-rose-100 flex justify-between items-center">
                     <h3 className="font-black text-rose-900 flex items-center gap-2 uppercase tracking-widest text-xs">
