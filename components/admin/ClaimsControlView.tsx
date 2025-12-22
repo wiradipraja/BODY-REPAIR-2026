@@ -65,7 +65,6 @@ const DICTIONARY: Record<string, Record<string, string>> = {
 const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, vehicles, settings, showNotification, openModal, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   
-  // State untuk Modal Add Existing Unit
   const [isAddUnitOpen, setIsAddUnitOpen] = useState(false);
   const [unitSearch, setUnitSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -101,7 +100,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       return columns;
   }, [activeClaimJobs]);
 
-  // Filter kendaraan untuk modal Add Unit
   const availableVehicles = useMemo(() => {
       if (!unitSearch) return [];
       const term = unitSearch.toUpperCase().replace(/\s/g, '');
@@ -109,7 +107,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
           const police = (v.policeNumber || '').toUpperCase().replace(/\s/g, '');
           const customer = (v.customerName || '').toUpperCase();
           return police.includes(term) || customer.includes(term);
-      }).slice(0, 10); // Limit results
+      }).slice(0, 10);
   }, [vehicles, unitSearch]);
 
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
@@ -121,12 +119,8 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       }
   };
 
-  // NEW FEATURE: Resolve Banding Logic
   const handleResolveBanding = async (job: Job) => {
       const isWipReturn = job.posisiKendaraan === 'Di Bengkel';
-      
-      // Skenario 2: Jika unit di bengkel (WIP Tambahan), kembalikan ke Work In Progress
-      // Skenario 1: Jika unit di pemilik (Awal), lanjut ke Unit di Pemilik (Tunggu Part)
       const newStatus = isWipReturn ? 'Work In Progress' : 'Unit di Pemilik (Tunggu Part)';
       
       const confirmMsg = isWipReturn 
@@ -147,7 +141,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
   };
 
   const handleAddExistingUnit = async (vehicle: Vehicle) => {
-      // Cek apakah unit sudah ada di Job Aktif
       const activeJob = jobs.find(j => j.unitId === vehicle.id && !j.isClosed && !j.isDeleted);
       if (activeJob) {
           alert(`Unit ${vehicle.policeNumber} sudah ada di dalam list aktif (Status: ${activeJob.statusKendaraan}). Tidak bisa duplikasi.`);
@@ -158,8 +151,9 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
 
       setIsSubmitting(true);
       try {
+          // CREATE NEW JOB in SERVICE_JOBS_COLLECTION based on Vehicle Master Data
           const newJob: Partial<Job> = {
-              unitId: vehicle.id,
+              unitId: vehicle.id, // CRITICAL: Reference ID
               policeNumber: vehicle.policeNumber,
               customerName: vehicle.customerName,
               customerPhone: vehicle.customerPhone,
@@ -171,7 +165,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
               nomorRangka: vehicle.nomorRangka,
               nomorMesin: vehicle.nomorMesin,
               tahunPembuatan: vehicle.tahunPembuatan,
-              namaAsuransi: vehicle.namaAsuransi || 'Asuransi Lainnya', // Default to insurance context
+              namaAsuransi: vehicle.namaAsuransi || 'Asuransi Lainnya', 
               nomorPolis: vehicle.nomorPolis,
               asuransiExpiryDate: vehicle.asuransiExpiryDate,
               
@@ -204,10 +198,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
   const getAgingDays = (job: Job) => {
       const rawDate = job.updatedAt || job.createdAt;
       if (!rawDate) return 0;
-
       let lastDate: Date;
-      
-      // Safe parsing untuk menangani berbagai format (Timestamp, string, date)
       try {
           if (typeof rawDate === 'object' && 'seconds' in rawDate) {
                lastDate = new Date((rawDate as any).seconds * 1000);
@@ -217,21 +208,13 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       } catch (e) {
           return 0; 
       }
-
-      // Validasi apakah tanggal valid
       if (isNaN(lastDate.getTime())) return 0;
-
       const today = new Date();
-      // Reset jam ke 00:00:00 untuk membandingkan selisih hari kalender
       lastDate.setHours(0, 0, 0, 0);
       today.setHours(0, 0, 0, 0);
-
       const diffTime = today.getTime() - lastDate.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      // Pastikan hasil tidak negatif dan bukan NaN
-      const result = Math.max(0, diffDays);
-      return isNaN(result) ? 0 : result;
+      return Math.max(0, diffDays);
   };
 
   return (
@@ -263,7 +246,7 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                         <div className="p-3 flex-grow overflow-y-auto space-y-4 scrollbar-hide">
                             {boardData[stage]?.map(job => {
                                 const aging = getAgingDays(job);
-                                const latestProdRequest = job.productionLogs?.filter(l => l.note?.startsWith('REQUEST TAMBAHAN: ', '')).reverse()[0];
+                                const latestProdRequest = job.productionLogs?.filter((l: any) => l.note?.startsWith('REQUEST TAMBAHAN: ', '')).reverse()[0];
                                 return (
                                     <div key={job.id} onClick={() => openModal('create_estimation', job)} className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.statusKendaraan === 'Booking Masuk' ? 'border-indigo-600 ring-1 ring-indigo-50' : 'border-gray-100 hover:border-indigo-200'}`}>
                                         {aging > 3 ? <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-500"></div> : aging >= 2 ? <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-400"></div> : null}
@@ -286,7 +269,6 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                             <div className="mb-4 py-1.5 px-2 bg-emerald-100/50 rounded-lg flex items-center gap-2 border border-emerald-200 animate-pulse"><Zap size={14} className="text-emerald-600 fill-emerald-600"/><span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">{t('ready_badge')}</span></div>
                                         )}
                                         
-                                        {/* TRIGGER BUTTON UNTUK BANDING HARGA SPK */}
                                         {stage === 'Banding Harga SPK' && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleResolveBanding(job); }}

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, doc, updateDoc, deleteDoc, addDoc, getDocs, query, orderBy, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; // Added setDoc
 import { sendPasswordResetEmail, updatePassword } from 'firebase/auth';
 import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
@@ -23,11 +23,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const [serviceSearchQuery, setServiceSearchQuery] = useState('');
   const isManager = userPermissions.role === 'Manager';
   
+  // Real-time Data States
   const [services, setServices] = useState<ServiceMasterItem[]>([]);
+  const [systemUsers, setSystemUsers] = useState<UserProfile[]>([]);
+
   const [serviceForm, setServiceForm] = useState<Partial<ServiceMasterItem>>({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
   const [isEditingService, setIsEditingService] = useState(false);
 
-  const [systemUsers, setSystemUsers] = useState<UserProfile[]>([]);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userForm, setUserForm] = useState({
       email: '',
@@ -42,26 +44,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     setLocalSettings(currentSettings);
   }, [currentSettings]);
 
+  // Real-time Listeners for Settings Sub-data
   useEffect(() => {
-      if (activeTab === 'services') loadServices();
-      if (activeTab === 'database') loadUsers();
-  }, [activeTab]);
-
-  const loadServices = async () => {
-      try {
-          const q = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
-          const snap = await getDocs(q);
+      // 1. Services Listener
+      const qServices = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
+      const unsubServices = onSnapshot(qServices, (snap) => {
           setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
-      } catch (e) { console.error("Load services error", e); }
-  };
+      }, (error) => console.error("Services Listener Error:", error));
 
-  const loadUsers = async () => {
-      try {
-          const q = query(collection(db, USERS_COLLECTION));
-          const snap = await getDocs(q);
+      // 2. Users Listener
+      const qUsers = query(collection(db, USERS_COLLECTION));
+      const unsubUsers = onSnapshot(qUsers, (snap) => {
           setSystemUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
-      } catch (e) { console.error("Load users error", e); }
-  };
+      }, (error) => console.error("Users Listener Error:", error));
+
+      return () => {
+          unsubServices();
+          unsubUsers();
+      };
+  }, []);
 
   const filteredServices = useMemo(() => {
       if (!serviceSearchQuery) return services;
@@ -114,14 +115,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     }
     setIsLoading(true);
     try {
-      const q = await getDocs(collection(db, SETTINGS_COLLECTION));
+      // Logic for saving settings document (Main Settings)
+      // Note: Services and Users are saved independently via other handlers
+      const q = await getDocs(collection(db, SETTINGS_COLLECTION)); // Still use getDocs for single fetch to find ID
+      // Real-time update for main settings handled in App.tsx via onSnapshot
       if (q.empty) {
         await addDoc(collection(db, SETTINGS_COLLECTION), localSettings);
       } else {
         await updateDoc(doc(db, SETTINGS_COLLECTION, q.docs[0].id), localSettings as any);
       }
       showNotification("Pengaturan berhasil disimpan.", "success");
-      refreshSettings();
+      // refreshSettings is optional now as onSnapshot in App.tsx will update
     } catch (e: any) {
       showNotification("Gagal menyimpan: " + e.message, "error");
     } finally {
@@ -134,18 +138,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       if (!isManager) return;
       setIsLoading(true);
       try {
-          await updateDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
+          // Fix: Use setDoc with merge: true or just setDoc to create/overwrite
+          await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
               email: userForm.email.toLowerCase(),
               displayName: userForm.displayName,
               role: userForm.role,
               createdAt: serverTimestamp()
-          });
+          }, { merge: true }); // Merge ensures we don't wipe existing fields if they exist unexpectedly
+          
           showNotification(`User ${userForm.displayName} didaftarkan.`, "success");
           setIsUserModalOpen(false);
           setUserForm({ email: '', displayName: '', role: 'Staff' });
-          loadUsers();
+          // List updates automatically via onSnapshot
       } catch (e: any) {
-          showNotification("Gagal menambah user.", "error");
+          console.error("Error creating user:", e);
+          showNotification("Gagal menambah user: " + e.message, "error");
       } finally { setIsLoading(false); }
   };
 
@@ -154,7 +161,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       try {
           await deleteDoc(doc(db, USERS_COLLECTION, uid));
           showNotification("User dihapus.", "success");
-          loadUsers();
       } catch (e) { showNotification("Gagal menghapus.", "error"); }
   };
 
@@ -205,7 +211,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       if (!window.confirm("Sinkronisasi data unit masif?")) return;
       setIsLoading(true);
       try {
-          const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION));
+          const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION)); // Batch op needs getDocs
           const poSnap = await getDocs(collection(db, PURCHASE_ORDERS_COLLECTION));
           const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isClosed && !j.isDeleted);
           const allPOs = poSnap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder));
@@ -256,7 +262,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           if (window.confirm(`Hapus ${toDelete.length} duplikat?`)) {
               for (const id of toDelete) await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
               showNotification("Pembersihan selesai.", "success");
-              loadServices();
           }
       } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
@@ -272,7 +277,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           showNotification("Data diperbarui", "success");
           setServiceForm({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
           setIsEditingService(false);
-          loadServices();
+          // List updates via onSnapshot
       } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
@@ -281,7 +286,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       try {
           await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
           showNotification("Terhapus", "success");
-          loadServices();
       } catch(e) { showNotification("Gagal", "error"); }
   };
 
@@ -311,7 +315,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   }
               }
               showNotification("Import Selesai", "success");
-              loadServices();
           } catch (err: any) { showNotification("Error: " + err.message, "error"); } finally { setIsLoading(false); e.target.value = ''; }
       };
       reader.readAsBinaryString(file);

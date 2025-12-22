@@ -126,7 +126,7 @@ export interface UsageLogItem {
   notes?: string;
   issuedAt: string;
   issuedBy: string;
-  refPartIndex?: number; // NEW: To precisely identify which part line item to revert
+  refPartIndex?: number; 
 }
 
 export interface SpklItem {
@@ -178,8 +178,8 @@ export interface Job {
   
   tanggalMasuk: string; 
   tanggalEstimasiSelesai?: string;
-  actualStartDate?: string; // NEW: Triggered when repair starts
-  isVVIP?: boolean; // NEW: Flag for Directors/Special Units
+  actualStartDate?: string; 
+  isVVIP?: boolean; 
   tanggalBooking?: string; 
   
   woNumber?: string;
@@ -201,7 +201,7 @@ export interface Job {
   isClosed: boolean;
   closedAt?: any; 
   hasInvoice?: boolean;
-  invoiceNumber?: string; // NEW: Official Invoice Number INV-YYMM-XXXX
+  invoiceNumber?: string; 
   
   createdAt?: any; 
   updatedAt?: any; 
@@ -214,13 +214,17 @@ export interface Job {
   csiResults?: Record<string, number>; 
 }
 
+// STRICT SEPARATION: Vehicle Master only holds static identity data
 export interface Vehicle {
   id: string;
   policeNumber: string;
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
+  customerKelurahan?: string;
+  customerKecamatan?: string;
   customerKota?: string;
+  customerProvinsi?: string;
   carBrand: string;
   carModel: string;
   warnaMobil: string;
@@ -317,7 +321,7 @@ export interface CashierTransaction {
   refJobId?: string;
   refPoId?: string;
   
-  transactionNumber?: string; // NEW: Audit Transaction Number (BKK/BKM/TRX)
+  transactionNumber?: string; 
   taxCertificateNumber?: string;
   
   createdBy: string;

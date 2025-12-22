@@ -1,21 +1,22 @@
 
 import React, { useState, useEffect } from 'react';
-import { Job, Settings } from '../../types';
+import { Vehicle, Settings } from '../../types'; // Changed type to Vehicle
 import { formatPoliceNumber } from '../../utils/helpers';
-import { Save, Loader2, User, Car, Shield, Search, Info, Zap, Wallet, Calendar, MapPin, Tag } from 'lucide-react';
+import { Save, Loader2, User, Car, Shield, Search, Info, MapPin, Tag, Calendar, Database } from 'lucide-react';
 
 interface JobFormProps {
-  initialData?: Job | null;
+  initialData?: Vehicle | null; // Changed from Job to Vehicle
   settings: Settings;
-  onSave: (data: Partial<Job>) => Promise<void>;
+  onSave: (data: Partial<Vehicle>) => Promise<void>; // Changed from Job to Vehicle
   onCancel: () => void;
-  allJobs?: Job[]; 
+  allJobs?: any[]; // Kept for checking existing, but logic is simplified
 }
 
 const DICTIONARY: Record<string, Record<string, string>> = {
     id: {
-        title: "Input Data Unit Baru",
-        edit_title: "Perbarui Data Unit",
+        title: "Registrasi Master Unit", // Updated Title
+        edit_title: "Perbarui Data Unit Master",
+        desc_banner: "Menu ini khusus untuk mendaftarkan database kendaraan baru. Untuk memulai perbaikan, silakan masuk ke menu 'Estimasi & WO' setelah data unit tersimpan.",
         sec_vehicle: "Spesifikasi Kendaraan",
         label_police: "No. Polisi (Nopol)",
         placeholder_police: "B 1234 ABC",
@@ -27,7 +28,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         placeholder_vin: "17 Digit VIN...",
         label_engine: "Nomor Mesin",
         label_year: "Tahun Pembuatan",
-        sec_admin: "Administrasi & Penjamin",
+        sec_admin: "Data Penjamin (Master)",
         label_insurance: "Pihak Penjamin (Asuransi)",
         label_policy_no: "Nomor Polis",
         label_policy_expiry: "Masa Berlaku Polis",
@@ -40,13 +41,14 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         label_kec: "Kecamatan",
         label_city: "Kota / Kabupaten",
         label_prov: "Provinsi",
-        btn_save: "DAFTARKAN UNIT",
-        btn_update: "PERBARUI DATA",
+        btn_save: "SIMPAN DATABASE UNIT",
+        btn_update: "PERBARUI DATA MASTER",
         btn_cancel: "Batal"
     },
     en: {
-        title: "New Vehicle Intake",
-        edit_title: "Update Vehicle Data",
+        title: "Master Vehicle Registration",
+        edit_title: "Update Master Vehicle Data",
+        desc_banner: "This menu is strictly for registering new vehicle database. To start a repair job, please go to 'Estimates & WO' after saving unit data.",
         sec_vehicle: "Vehicle Specification",
         label_police: "Plate Number",
         placeholder_police: "B 1234 ABC",
@@ -58,7 +60,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         placeholder_vin: "17 Digit VIN...",
         label_engine: "Engine Number",
         label_year: "Year of Manufacture",
-        sec_admin: "Administration & Insurance",
+        sec_admin: "Insurance Data (Master)",
         label_insurance: "Payer / Insurance",
         label_policy_no: "Policy Number",
         label_policy_expiry: "Policy Expiry Date",
@@ -71,8 +73,8 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         label_kec: "Sub-district (Kecamatan)",
         label_city: "City / Regency",
         label_prov: "Province",
-        btn_save: "REGISTER VEHICLE",
-        btn_update: "UPDATE DATA",
+        btn_save: "SAVE TO DATABASE",
+        btn_update: "UPDATE MASTER DATA",
         btn_cancel: "Cancel"
     }
 };
@@ -81,13 +83,8 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
 
-  const [formData, setFormData] = useState<Partial<Job>>({
-    statusKendaraan: 'Tunggu Estimasi',
-    statusPekerjaan: 'Belum Mulai Perbaikan',
-    posisiKendaraan: 'Di Bengkel',
-    jumlahPanel: 0,
-    woNumber: '',
-    namaSA: '', 
+  // REMOVED: statusKendaraan, statusPekerjaan, posisiKendaraan, woNumber, namaSA
+  const [formData, setFormData] = useState<Partial<Vehicle>>({
     customerName: '',
     customerPhone: '',
     customerAddress: '',
@@ -108,7 +105,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [existingDataAlert, setExistingDataAlert] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
   useEffect(() => {
@@ -118,44 +114,15 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
     }
   }, [initialData]);
 
-  const checkExistingData = (field: 'policeNumber' | 'nomorRangka' | 'nomorMesin', value: string) => {
-      if (!value || value.length < 3) return;
-      const searchTerm = value.toUpperCase();
-      const found = allJobs.find(j => {
-          const val = j[field];
-          return val && String(val).toUpperCase() === searchTerm;
-      });
-      if (found) {
-          if (isEditMode && formData.id === found.id) return;
-          const confirmLoad = window.confirm(`Data Kendaraan Ditemukan!\n\nNopol: ${found.policeNumber}\nPelanggan: ${found.customerName}\n\nApakah Anda ingin memuat data ini untuk diedit/update?`);
-          if (confirmLoad) {
-              setFormData({ ...found });
-              setIsEditMode(true);
-              setExistingDataAlert(`Mode Edit Aktif: Menampilkan data eksisting untuk ${found.policeNumber}.`);
-          }
-      }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, field: 'policeNumber' | 'nomorRangka' | 'nomorMesin') => {
-      if (e.key === 'Enter') {
-          e.preventDefault();
-          checkExistingData(field, (e.target as HTMLInputElement).value);
-      }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     let processedValue: string | number = value;
     if (name === 'policeNumber') processedValue = formatPoliceNumber(value);
-    else if (type === 'number') processedValue = Number(value);
-
-    setFormData(prev => {
-        const newData = { ...prev, [name]: processedValue };
-        if (name === 'namaAsuransi') {
-            newData.statusKendaraan = value !== 'Umum / Pribadi' ? 'Tunggu Estimasi' : 'Booking Masuk';
-        }
-        return newData;
-    });
+    
+    setFormData(prev => ({
+        ...prev, 
+        [name]: processedValue 
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -168,17 +135,14 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   const isInsurance = formData.namaAsuransi !== 'Umum / Pribadi';
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-10 animate-fade-in max-w-5xl mx-auto py-4">
-      {existingDataAlert && (
-          <div className="bg-indigo-50/50 border border-indigo-200 p-4 rounded-2xl flex items-start gap-4">
-              <Info className="text-indigo-500 mt-1" size={20}/>
-              <div className="flex-grow">
-                  <p className="font-bold text-indigo-900 text-sm">Sistem Mendeteksi Data Eksisting</p>
-                  <p className="text-xs text-indigo-700/80 mt-0.5">{existingDataAlert}</p>
-              </div>
-              <button type="button" onClick={() => { setExistingDataAlert(null); setIsEditMode(false); setFormData(prev => ({ ...prev, id: undefined })); }} className="text-xs font-bold text-indigo-600 hover:underline">Reset Form</button>
+    <form onSubmit={handleSubmit} className="space-y-8 animate-fade-in max-w-5xl mx-auto py-2">
+      <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-start gap-3">
+          <Database className="text-blue-600 mt-1 shrink-0" size={24}/>
+          <div>
+              <h4 className="font-bold text-blue-900 text-sm">Mode Registrasi Master Data</h4>
+              <p className="text-xs text-blue-800 mt-1 leading-relaxed">{t('desc_banner')}</p>
           </div>
-      )}
+      </div>
 
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
@@ -189,7 +153,7 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_police')}</label>
                 <div className="relative">
-                    <input type="text" name="policeNumber" value={formData.policeNumber} onChange={handleChange} onKeyDown={(e) => handleKeyDown(e, 'policeNumber')} onBlur={(e) => checkExistingData('policeNumber', e.target.value)} placeholder={t('placeholder_police')} className="w-full p-3 pl-11 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all uppercase font-black text-indigo-900 tracking-tight" required autoFocus />
+                    <input type="text" name="policeNumber" value={formData.policeNumber} onChange={handleChange} placeholder={t('placeholder_police')} className="w-full p-3 pl-11 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all uppercase font-black text-indigo-900 tracking-tight" required autoFocus />
                     <Search className="absolute left-4 top-3.5 text-gray-300" size={18}/>
                 </div>
             </div>
@@ -215,11 +179,11 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             </div>
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_vin')}</label>
-                <input type="text" name="nomorRangka" value={formData.nomorRangka || ''} onChange={handleChange} onKeyDown={(e) => handleKeyDown(e, 'nomorRangka')} onBlur={(e) => checkExistingData('nomorRangka', e.target.value)} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-mono text-xs font-bold uppercase" placeholder={t('placeholder_vin')} />
+                <input type="text" name="nomorRangka" value={formData.nomorRangka || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-mono text-xs font-bold uppercase" placeholder={t('placeholder_vin')} />
             </div>
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_engine')}</label>
-                <input type="text" name="nomorMesin" value={formData.nomorMesin || ''} onChange={handleChange} onKeyDown={(e) => handleKeyDown(e, 'nomorMesin')} onBlur={(e) => checkExistingData('nomorMesin', e.target.value)} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-mono text-xs font-bold uppercase" placeholder={t('label_engine')} />
+                <input type="text" name="nomorMesin" value={formData.nomorMesin || ''} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-mono text-xs font-bold uppercase" placeholder={t('label_engine')} />
             </div>
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_year')}</label>

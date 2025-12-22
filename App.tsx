@@ -2,8 +2,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
-import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION } from './services/firebase';
-import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder, Asset } from './types';
+import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from './services/firebase';
+import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder, Asset, ServiceMasterItem, UserProfile } from './types';
 import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
 
@@ -43,6 +43,7 @@ const AppContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   
+  // Real-time Data States
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -53,6 +54,7 @@ const AppContent: React.FC = () => {
   
   const [loadingData, setLoadingData] = useState(true);
 
+  // Global Listeners
   useEffect(() => {
     if (!user) return;
     setLoadingData(true);
@@ -86,26 +88,18 @@ const AppContent: React.FC = () => {
         setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
     }, handleError("Assets"));
 
+    const unsubSettings = onSnapshot(collection(db, SETTINGS_COLLECTION), (snap) => {
+       if (!snap.empty) {
+           setAppSettings({ ...initialSettingsState, ...snap.docs[0].data() } as Settings);
+       }
+    });
+
     setLoadingData(false);
     return () => { 
         unsubVehicles(); unsubJobs(); unsubInventory();
-        unsubSuppliers(); unsubTransactions(); unsubPOs(); unsubAssets();
+        unsubSuppliers(); unsubTransactions(); unsubPOs(); unsubAssets(); unsubSettings();
     };
   }, [user]);
-
-  const refreshSettings = async () => {
-      try {
-          const q = await getDocs(collection(db, SETTINGS_COLLECTION));
-          if (!q.empty) {
-              const firestoreData = q.docs[0].data();
-              setAppSettings({ ...initialSettingsState, ...firestoreData } as Settings);
-          } else {
-              setAppSettings(initialSettingsState);
-          }
-      } catch (e) { console.error(e); }
-  };
-
-  useEffect(() => { if (user) refreshSettings(); }, [user]);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -129,24 +123,49 @@ const AppContent: React.FC = () => {
 
   const handleSaveVehicle = async (formData: Partial<Vehicle>) => {
       try {
+          // STRICT DATA SEPARATION: Only save vehicle master fields.
+          // Exclude any potential job/transaction fields if passed.
+          const vehiclePayload = {
+              policeNumber: formData.policeNumber,
+              customerName: formData.customerName,
+              customerPhone: formData.customerPhone,
+              customerAddress: formData.customerAddress,
+              customerKelurahan: formData.customerKelurahan,
+              customerKecamatan: formData.customerKecamatan,
+              customerKota: formData.customerKota,
+              customerProvinsi: formData.customerProvinsi,
+              carBrand: formData.carBrand,
+              carModel: formData.carModel,
+              warnaMobil: formData.warnaMobil,
+              nomorRangka: formData.nomorRangka,
+              nomorMesin: formData.nomorMesin,
+              tahunPembuatan: formData.tahunPembuatan,
+              namaAsuransi: formData.namaAsuransi,
+              nomorPolis: formData.nomorPolis,
+              asuransiExpiryDate: formData.asuransiExpiryDate,
+              isDeleted: false
+          };
+
           if (formData.id) {
-              await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(formData));
+              await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(vehiclePayload));
               showNotification("Database Unit diperbarui.", "success");
           } else {
-              const payload = {
-                  ...formData,
-                  namaSA: (formData as any).namaSA || userData.displayName,
+              const newPayload = {
+                  ...vehiclePayload,
                   createdAt: serverTimestamp(),
-                  isDeleted: false
               };
-              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject(payload));
-              showNotification("Unit baru berhasil didaftarkan.", "success");
+              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject(newPayload));
+              showNotification("Unit baru terdaftar di Master Database. Silakan masuk menu Estimasi untuk memulai Job.", "success");
           }
           closeModal();
-      } catch (e) { console.error(e); showNotification("Gagal menyimpan unit.", "error"); }
+      } catch (e: any) { 
+          console.error(e); 
+          showNotification("Gagal menyimpan unit: " + e.message, "error"); 
+      }
   };
 
   const handleCreateTransaction = (vehicle: Vehicle) => {
+      // Create new Job Draft based on selected Vehicle Master
       const newJobDraft: Partial<Job> = {
           id: `TEMP_${Date.now()}`,
           unitId: vehicle.id,
@@ -233,6 +252,7 @@ const AppContent: React.FC = () => {
           }
 
           if (isNew) {
+              // This is where Job Data enters SERVICE_JOBS_COLLECTION
               await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));
           } else {
               await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
@@ -256,7 +276,6 @@ const AppContent: React.FC = () => {
       const hasOpenSpkl = (job.spklItems || []).some(s => s.status === 'Open');
       if (hasOpenSpkl) { alert("Gagal Tutup WO: Masih ada SPKL (Jasa Luar) yang berstatus OPEN. Selesaikan biaya vendor terlebih dahulu."); return; }
 
-      // BUG FIX: Check for the new final status
       if (job.statusKendaraan !== 'Selesai (Tunggu Pengambilan)' && job.statusPekerjaan !== 'Selesai') {
           if (!window.confirm("Unit belum dinyatakan selesai di Papan Kontrol. Yakin ingin menutup WO secara paksa?")) return;
       } else {
@@ -338,10 +357,13 @@ const AppContent: React.FC = () => {
         {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} assets={assets} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
         {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
-        {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={refreshSettings} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
+        
+        {/* Updated SettingsView to receive Real-time Props if needed, or maintain internal listeners */}
+        {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={async () => {}} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
+        
         {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} vehicles={vehicles} /> )}
 
-        <Modal isOpen={actualModalState.isOpen} onClose={closeModal} title={actualModalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Form Unit'} maxWidth={actualModalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
+        <Modal isOpen={actualModalState.isOpen} onClose={closeModal} title={actualModalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Registrasi Master Unit'} maxWidth={actualModalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
             {actualModalState.type === 'create_estimation' && actualModalState.data && ( <EstimateEditor job={actualModalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}
             {actualModalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={actualModalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
