@@ -4,7 +4,7 @@ import { Job, Settings, UserPermissions, InventoryItem, Vehicle } from '../../ty
 import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers';
-import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart } from 'lucide-react';
+import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface ClaimsControlViewProps {
@@ -62,6 +62,12 @@ const DICTIONARY: Record<string, Record<string, string>> = {
 
 const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, vehicles, settings, showNotification, openModal, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // State untuk Modal Add Existing Unit
+  const [isAddUnitOpen, setIsAddUnitOpen] = useState(false);
+  const [unitSearch, setUnitSearch] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
 
@@ -93,12 +99,78 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       return columns;
   }, [activeClaimJobs]);
 
+  // Filter kendaraan untuk modal Add Unit
+  const availableVehicles = useMemo(() => {
+      if (!unitSearch) return [];
+      const term = unitSearch.toUpperCase().replace(/\s/g, '');
+      return vehicles.filter(v => {
+          const police = (v.policeNumber || '').toUpperCase().replace(/\s/g, '');
+          const customer = (v.customerName || '').toUpperCase();
+          return police.includes(term) || customer.includes(term);
+      }).slice(0, 10); // Limit results
+  }, [vehicles, unitSearch]);
+
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
       const idx = CLAIM_STAGES.indexOf(job.statusKendaraan);
       let newIdx = direction === 'next' ? idx + 1 : idx - 1;
       if (newIdx >= 0 && newIdx < CLAIM_STAGES.length) {
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: CLAIM_STAGES[newIdx], updatedAt: serverTimestamp() });
           showNotification(`Moved to: ${CLAIM_STAGES[newIdx]}`, "success");
+      }
+  };
+
+  const handleAddExistingUnit = async (vehicle: Vehicle) => {
+      // Cek apakah unit sudah ada di Job Aktif
+      const activeJob = jobs.find(j => j.unitId === vehicle.id && !j.isClosed && !j.isDeleted);
+      if (activeJob) {
+          alert(`Unit ${vehicle.policeNumber} sudah ada di dalam list aktif (Status: ${activeJob.statusKendaraan}). Tidak bisa duplikasi.`);
+          return;
+      }
+
+      if (!window.confirm(`Masukkan unit ${vehicle.policeNumber} ke kolom Tunggu Estimasi?`)) return;
+
+      setIsSubmitting(true);
+      try {
+          const newJob: Partial<Job> = {
+              unitId: vehicle.id,
+              policeNumber: vehicle.policeNumber,
+              customerName: vehicle.customerName,
+              customerPhone: vehicle.customerPhone,
+              customerAddress: vehicle.customerAddress,
+              customerKota: vehicle.customerKota,
+              carBrand: vehicle.carBrand,
+              carModel: vehicle.carModel,
+              warnaMobil: vehicle.warnaMobil,
+              nomorRangka: vehicle.nomorRangka,
+              nomorMesin: vehicle.nomorMesin,
+              tahunPembuatan: vehicle.tahunPembuatan,
+              namaAsuransi: vehicle.namaAsuransi || 'Asuransi Lainnya', // Default to insurance context
+              nomorPolis: vehicle.nomorPolis,
+              asuransiExpiryDate: vehicle.asuransiExpiryDate,
+              
+              statusKendaraan: 'Tunggu Estimasi',
+              statusPekerjaan: 'Belum Mulai Perbaikan',
+              posisiKendaraan: 'Di Bengkel',
+              tanggalMasuk: new Date().toISOString(),
+              
+              isClosed: false,
+              isDeleted: false,
+              hargaJasa: 0,
+              hargaPart: 0,
+              costData: { hargaModalBahan: 0, hargaBeliPart: 0, jasaExternal: 0 },
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+          };
+
+          await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject(newJob));
+          
+          showNotification("Unit berhasil masuk antrian Tunggu Estimasi.", "success");
+          setIsAddUnitOpen(false);
+          setUnitSearch('');
+      } catch (e: any) {
+          showNotification("Gagal menambahkan unit: " + e.message, "error");
+      } finally {
+          setIsSubmitting(false);
       }
   };
 
@@ -125,9 +197,9 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                             <div className="flex flex-col"><h3 className="font-bold text-gray-800 text-[11px] uppercase tracking-widest">{t(stage)}</h3><span className="text-[10px] text-indigo-500 font-bold">{boardData[stage]?.length || 0} Unit</span></div>
                             {stage === 'Tunggu Estimasi' && (
                                 <button 
-                                    onClick={() => onNavigate('estimation_create')}
+                                    onClick={() => setIsAddUnitOpen(true)}
                                     className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm transition-all flex items-center justify-center"
-                                    title="Tambah Unit Baru / Buat Estimasi"
+                                    title="Tarik Unit dari Database (Outstanding)"
                                 >
                                     <Plus size={16} />
                                 </button>
@@ -176,6 +248,54 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500"><div className="w-2.5 h-2.5 rounded-full bg-orange-400"></div><span className="tracking-tight uppercase">{t('legend_2')}</span></div>
              <div className="flex items-center gap-2.5 text-xs font-bold text-gray-500"><div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div><span className="tracking-tight uppercase">{t('legend_3')}</span></div>
         </div>
+
+        {/* MODAL ADD UNIT TO QUEUE */}
+        <Modal isOpen={isAddUnitOpen} onClose={() => setIsAddUnitOpen(false)} title="Tarik Data Unit ke Klaim Control">
+            <div className="space-y-4">
+                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex items-start gap-3">
+                    <Info className="text-indigo-500 mt-0.5 shrink-0" size={20}/>
+                    <div className="text-xs text-indigo-800">
+                        <p className="font-bold mb-1">Fungsi ini untuk unit yang belum memiliki estimasi.</p>
+                        <p>Pilih unit yang sudah terdaftar di database (Input SA) untuk dimasukkan ke antrian <strong>Tunggu Estimasi</strong>. Jika unit belum ada di database, harap Input Unit Baru terlebih dahulu.</p>
+                    </div>
+                </div>
+
+                <div className="relative">
+                    <input 
+                        type="text" 
+                        autoFocus
+                        placeholder="Ketik Nopol atau Nama Pelanggan..." 
+                        value={unitSearch}
+                        onChange={(e) => setUnitSearch(e.target.value)}
+                        className="w-full pl-10 p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-indigo-100 font-bold uppercase"
+                    />
+                    <Search className="absolute left-3 top-3.5 text-gray-400" size={18}/>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-50">
+                    {unitSearch && availableVehicles.length > 0 ? (
+                        availableVehicles.map(v => (
+                            <button 
+                                key={v.id} 
+                                onClick={() => handleAddExistingUnit(v)}
+                                disabled={isSubmitting}
+                                className="w-full text-left p-3 hover:bg-gray-50 flex justify-between items-center group transition-colors"
+                            >
+                                <div>
+                                    <div className="font-black text-gray-800">{v.policeNumber}</div>
+                                    <div className="text-xs text-gray-500">{v.carModel} • {v.customerName}</div>
+                                </div>
+                                <Plus size={18} className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"/>
+                            </button>
+                        ))
+                    ) : unitSearch ? (
+                        <div className="p-4 text-center text-gray-400 text-xs italic">
+                            Unit tidak ditemukan. Pastikan unit sudah diinput di menu "Input Unit Baru".
+                        </div>
+                    ) : null}
+                </div>
+            </div>
+        </Modal>
     </div>
   );
 };
