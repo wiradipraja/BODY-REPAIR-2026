@@ -296,9 +296,10 @@ const AppContent: React.FC = () => {
           
           showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi ${estimationNumber} Tersimpan`, "success");
           
-          // Close modal only if publishing WO to force workflow, otherwise stay open for editing
+          // Close modal automatically for both Estimate and WO actions
+          closeModal();
+          
           if (saveType === 'wo') {
-              closeModal();
               setCurrentView('entry_data'); 
           }
           
@@ -355,7 +356,8 @@ const AppContent: React.FC = () => {
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} settings={appSettings} />
 
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
-        {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-50 animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
+        {/* Increased Z-Index to 100 to ensure notification appears above Modals */}
+        {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-[100] animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
 
         {currentView === 'overview' && ( <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} /> )}
         {currentView === 'business_intelligence' && ( <BusinessIntelligenceView jobs={jobs} settings={appSettings} /> )}
@@ -417,8 +419,10 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  return ( <AuthProvider> <AppContent /> </AuthProvider> );
-};
+const App: React.FC = () => (
+  <AuthProvider>
+    <AppContent />
+  </AuthProvider>
+);
 
 export default App;
