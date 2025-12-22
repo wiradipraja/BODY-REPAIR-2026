@@ -6,7 +6,7 @@ import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2, Crown, Timer, CalendarClock
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2, Crown, Timer, CalendarClock, CalendarDays
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -134,19 +134,40 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   }, [activeProductionJobs, settings]);
 
   const getJobProgress = (job: Job) => {
-      const start = job.actualStartDate ? new Date(job.actualStartDate) : new Date(job.createdAt.seconds * 1000);
+      // 1. Resolve Start Date (Safe Parsing)
+      let start: Date;
+      try {
+          if (job.actualStartDate) {
+              start = new Date(job.actualStartDate);
+          } else if (job.createdAt) {
+              // Handle Firestore Timestamp or Standard Date
+              start = (job.createdAt as any).toDate ? (job.createdAt as any).toDate() : new Date(job.createdAt as any);
+              if ((job.createdAt as any).seconds) start = new Date((job.createdAt as any).seconds * 1000);
+          } else {
+              start = new Date();
+          }
+      } catch (e) {
+          start = new Date();
+      }
+
+      // Check if date is valid
+      if (isNaN(start.getTime())) start = new Date();
+
       const now = new Date();
-      const diffTime = Math.abs(now.getTime() - start.getTime());
+      const diffTime = now.getTime() - start.getTime();
       const daysRunning = Math.floor(diffTime / (1000 * 60 * 60 * 24)); 
 
+      // 2. Resolve Remaining Date
       let daysRemaining = null;
       if (job.tanggalEstimasiSelesai) {
           const est = new Date(job.tanggalEstimasiSelesai);
-          const remTime = est.getTime() - now.getTime();
-          daysRemaining = Math.ceil(remTime / (1000 * 60 * 60 * 24));
+          if (!isNaN(est.getTime())) {
+              const remTime = est.getTime() - now.getTime();
+              daysRemaining = Math.ceil(remTime / (1000 * 60 * 60 * 24));
+          }
       }
 
-      return { daysRunning, daysRemaining };
+      return { daysRunning: Math.max(0, daysRunning), daysRemaining };
   };
 
   const toggleVVIP = async (job: Job) => {
@@ -157,6 +178,33 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       const newStatus = !job.isVVIP;
       await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { isVVIP: newStatus });
       showNotification(newStatus ? "Unit diset VVIP (Prioritas)" : "Status VVIP dihapus", "success");
+  };
+
+  const handleSetDates = async (job: Job) => {
+      const currentStart = job.actualStartDate ? new Date(job.actualStartDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const currentEnd = job.tanggalEstimasiSelesai ? new Date(job.tanggalEstimasiSelesai).toISOString().split('T')[0] : '';
+
+      const newStart = window.prompt("Set Tanggal Mulai Perbaikan (YYYY-MM-DD):", currentStart);
+      if (newStart === null) return;
+
+      const newEnd = window.prompt("Set Estimasi Selesai (YYYY-MM-DD):", currentEnd);
+      if (newEnd === null) return;
+
+      if (!newStart || !newEnd) {
+          showNotification("Tanggal tidak valid.", "error");
+          return;
+      }
+
+      try {
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
+              actualStartDate: new Date(newStart).toISOString(),
+              tanggalEstimasiSelesai: new Date(newEnd).toISOString(),
+              updatedAt: serverTimestamp()
+          });
+          showNotification("Jadwal produksi diperbarui.", "success");
+      } catch (e: any) {
+          showNotification("Gagal update jadwal: " + e.message, "error");
+      }
   };
 
   const handleMoveStage = async (job: Job, direction: 'next' | 'prev') => {
@@ -182,7 +230,6 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           const isFinalStage = newStage === "Selesai (Tunggu Pengambilan)";
 
           // --- TRIGGER LOGIC START ---
-          // Jika pindah ke BONGKAR (Awal Produksi) dan belum ada Start Date
           const updatePayload: any = { 
               statusPekerjaan: newStage, 
               statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
@@ -290,6 +337,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                     const isAdminPending = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan);
                                     const currentPIC = job.assignedMechanics?.find(a => a.stage === (isAdminPending ? 'Persiapan Kendaraan' : job.statusPekerjaan || 'Bongkar'))?.name;
                                     const { daysRunning, daysRemaining } = getJobProgress(job);
+                                    const totalPanelValue = job.estimateData?.jasaItems?.reduce((acc, item) => acc + (item.panelCount || 0), 0) || 0;
                                     
                                     return (
                                         <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md relative ${job.isVVIP ? 'border-l-yellow-400 ring-2 ring-yellow-200' : isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
@@ -299,11 +347,17 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
                                                 <div className="flex gap-1">
                                                     <button onClick={() => toggleVVIP(job)} className={`p-1 rounded transition-colors ${job.isVVIP ? 'text-yellow-500 bg-yellow-50' : 'text-gray-300 hover:text-yellow-500'}`} title="Set VVIP"><Crown size={14}/></button>
+                                                    <button onClick={() => handleSetDates(job)} className="p-1 hover:bg-gray-100 rounded transition-colors text-blue-600" title="Atur Jadwal"><CalendarDays size={14}/></button>
                                                     <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors"><History size={14} className="text-gray-400"/></button>
                                                 </div>
                                             </div>
-                                            <p className="text-[11px] font-bold text-gray-500 mb-1 truncate uppercase">{job.carModel} | {job.customerName}</p>
+                                            <p className="text-[11px] font-bold text-gray-500 mb-2 truncate uppercase">{job.carModel} | {job.customerName}</p>
                                             
+                                            <div className="flex justify-between items-center text-[10px] text-gray-500 mb-2 border-b border-gray-100 pb-1">
+                                                <div className="flex items-center gap-1"><User size={10}/> {job.namaSA || 'No SA'}</div>
+                                                <div className="font-bold bg-gray-100 px-1.5 py-0.5 rounded">{totalPanelValue.toFixed(1)} Panels</div>
+                                            </div>
+
                                             {/* Progress Indicators */}
                                             {!isAdminPending && !isFinal && (
                                                 <div className="flex gap-2 my-2">
