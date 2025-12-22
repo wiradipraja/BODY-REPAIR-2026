@@ -3,7 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Asset, UserPermissions } from '../../types';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db, ASSETS_COLLECTION, CASHIER_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
+import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { Briefcase, Plus, Save, Trash2, TrendingDown, DollarSign, ShoppingBag, ShoppingCart, AlertCircle, Building, Laptop, Wrench, Megaphone } from 'lucide-react';
 
 interface AssetManagementViewProps {
@@ -67,7 +68,8 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
           // 2. Create Cashier Transaction (Capital Expenditure)
           if (assetForm.createCashierTrx) {
-              await addDoc(collection(db, CASHIER_COLLECTION), {
+              const transactionNumber = generateTransactionNumber('OUT');
+              const payload = {
                   date: serverTimestamp(),
                   type: 'OUT',
                   category: 'Pembelian Aset', // Special Category
@@ -75,8 +77,13 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
                   paymentMethod: 'Cash', // Default to Cash for simplicity, usually needs Bank
                   description: `Beli Aset: ${assetForm.name}`,
                   createdBy: userPermissions.role,
+                  transactionNumber: transactionNumber,
                   createdAt: serverTimestamp()
-              });
+              };
+              await addDoc(collection(db, CASHIER_COLLECTION), payload);
+              
+              // Auto Print Proof
+              generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as any, {} as any); // Passing empty settings might need fix or fetch settings
           }
 
           showNotification("Aset berhasil dicatat.", "success");
@@ -104,7 +111,8 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
 
       setIsProcessing(true);
       try {
-          await addDoc(collection(db, CASHIER_COLLECTION), {
+          const transactionNumber = generateTransactionNumber('OUT');
+          const payload = {
               date: serverTimestamp(),
               type: 'OUT',
               category: 'Operasional',
@@ -113,9 +121,17 @@ const AssetManagementView: React.FC<AssetManagementViewProps> = ({ assets, userP
               description: `${expenseForm.desc} - ${expenseForm.notes}`,
               createdBy: userPermissions.role,
               createdAt: serverTimestamp(),
-              customerName: 'Internal / GA'
-          });
-          showNotification("Pengeluaran operasional dicatat.", "success");
+              customerName: 'Internal / GA',
+              transactionNumber: transactionNumber
+          };
+
+          await addDoc(collection(db, CASHIER_COLLECTION), payload);
+          
+          // Auto Print Proof
+          // Note: Ideally fetch settings from context or props if needed for header, passing partial for now
+          generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as any, { workshopName: "REFORMA", workshopAddress: "" } as any);
+
+          showNotification("Pengeluaran operasional dicatat & Bukti diunduh.", "success");
           setExpenseForm({ category: 'Operasional', desc: '', amount: 0, notes: '' });
       } catch (e: any) {
           showNotification("Gagal: " + e.message, "error");

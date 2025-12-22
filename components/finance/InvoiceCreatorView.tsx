@@ -3,9 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
-// Added Eye to the imports from lucide-react
 import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw, Box, Truck, Eye, ExternalLink } from 'lucide-react';
 
 interface InvoiceCreatorViewProps {
@@ -32,10 +31,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       
       const allPartsIssued = (job.estimateData?.partItems || []).every(p => p.hasArrived);
       const materialsIssued = job.usageLog?.some(l => l.category === 'material');
-      
-      // NEW VALIDATION: Check for SPKL items
       const allSpklClosed = (job.spklItems || []).every(s => s.status === 'Closed');
-      
       const isClosed = job.isClosed;
 
       return isClosed && allPartsIssued && materialsIssued && allSpklClosed;
@@ -111,6 +107,39 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       return { subtotalJasa, subtotalPart, discJasaRp, discPartRp, dpp, ppn, grandTotal };
   }, [selectedJob, discountJasa, discountPart, settings.ppnPercentage]);
 
+  const generateNewInvoiceNumber = async (): Promise<string> => {
+      // Logic: INV-YYMM-XXXX
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const prefix = `INV-${year}${month}-`;
+
+      // Cari invoice terakhir di bulan ini
+      // Note: Client-side filtering because Firestore "startswith" queries are limited without specific index fields
+      // Optimization: Fetch only jobs with invoiceNumber, sort client side. Or use a simpler logic for now.
+      
+      // Let's query recent jobs to find max.
+      // This is a "best effort" client side generation. In high concurrency, use Cloud Functions or Transaction.
+      // For this app scope, querying existing jobs in memory (props) is acceptable if list is full, 
+      // but to be safe we use firestore query.
+      
+      const q = query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('invoiceNumber', 'desc'), limit(50));
+      const snapshot = await getDocs(q);
+      
+      let maxSeq = 0;
+      snapshot.forEach(doc => {
+          const data = doc.data() as Job;
+          if (data.invoiceNumber && data.invoiceNumber.startsWith(prefix)) {
+              const seqStr = data.invoiceNumber.replace(prefix, '');
+              const seq = parseInt(seqStr);
+              if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+          }
+      });
+
+      const nextSeq = (maxSeq + 1).toString().padStart(4, '0');
+      return `${prefix}${nextSeq}`;
+  };
+
   const handleFinalizeAndPrint = async () => {
       if (!selectedJob || !calculations) return;
       
@@ -124,7 +153,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       setIsProcessing(true);
       try {
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
-          const updatePayload = {
+          const updatePayload: any = {
               'estimateData.discountJasa': discountJasa,
               'estimateData.discountPart': discountPart,
               'estimateData.discountJasaAmount': calculations.discJasaRp,
@@ -138,11 +167,19 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
               'hasInvoice': true 
           };
 
+          // Generate Invoice Number if new
+          let invoiceNumber = selectedJob.invoiceNumber;
+          if (!isAlreadyInvoiced) {
+              invoiceNumber = await generateNewInvoiceNumber();
+              updatePayload.invoiceNumber = invoiceNumber;
+          }
+
           await updateDoc(jobRef, cleanObject(updatePayload));
 
           const updatedJob = {
               ...selectedJob,
               hasInvoice: true,
+              invoiceNumber: invoiceNumber, // Ensure this is passed for PDF
               estimateData: {
                   ...selectedJob.estimateData!,
                   discountJasa,
@@ -157,7 +194,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
           };
 
           generateInvoicePDF(updatedJob, settings);
-          showNotification(isAlreadyInvoiced ? "Salinan Faktur dicetak." : "Faktur berhasil dibuat & disimpan.", "success");
+          showNotification(isAlreadyInvoiced ? "Salinan Faktur dicetak." : `Faktur #${invoiceNumber} berhasil diterbitkan.`, "success");
           
           if (!isAlreadyInvoiced) setSelectedJob(null); 
 
@@ -186,6 +223,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
           const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
           await updateDoc(jobRef, {
               hasInvoice: false,
+              invoiceNumber: null, // Reset invoice number? Or keep it for audit? Usually cancel keeps it but invalidates.
+              // Let's keep it null for simplicity in this system so it disappears from reports, 
+              // but ideally status should be 'Cancelled'.
+              // For now, resetting hasInvoice hides it.
               'estimateData.invoiceCancelReason': reason
           });
           
@@ -348,7 +389,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                                 {invoicesHistory.map((job) => (
                                     <tr key={job.id} className="hover:bg-gray-50 transition-colors">
                                         <td className="px-4 py-3">
-                                            <div className="font-bold text-indigo-700">{job.woNumber}</div>
+                                            <div className="font-bold text-indigo-700">{job.invoiceNumber || job.woNumber}</div>
                                             <div className="text-[10px] text-gray-500">{formatDateIndo(job.closedAt)}</div>
                                         </td>
                                         <td className="px-4 py-3 font-medium text-gray-800">
@@ -386,7 +427,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
                         <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
                             <h3 className="font-bold text-gray-800 flex items-center gap-2"><FileText size={18}/> Detail Pekerjaan</h3>
                             <div className="flex items-center gap-2">
-                                {selectedJob.hasInvoice && <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded border border-green-200 flex items-center gap-1"><FileCheck size={12}/> SUDAH TERBIT</span>}
+                                {selectedJob.hasInvoice && <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded border border-green-200 flex items-center gap-1"><FileCheck size={12}/> {selectedJob.invoiceNumber || 'INVOICED'}</span>}
                                 <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded border border-indigo-200">{selectedJob.woNumber}</span>
                             </div>
                         </div>

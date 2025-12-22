@@ -63,6 +63,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                 .filter(t => t.category.includes('Pajak') || t.description?.toLowerCase().includes('ppn') || t.description?.toLowerCase().includes('pph'))
                 .filter(t => isInRange(t.date))
                 .map(t => ({
+                    'No. Transaksi': t.transactionNumber || '-',
                     'Tanggal Transaksi': formatDateIndo(t.date),
                     'Tipe Pajak': t.type === 'IN' ? 'Pajak Masuk / Potongan' : 'Setoran Pajak / Keluar',
                     'Kategori Pajak': t.category,
@@ -93,6 +94,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                         .reduce((acc, t) => acc + (t.amount || 0), 0);
                     const remaining = totalBill - paidAmount;
                     return {
+                        'No. Invoice': job.invoiceNumber || '-',
                         'No. WO': job.woNumber,
                         'No. Polisi': job.policeNumber,
                         'Nama Pelanggan': job.customerName,
@@ -117,7 +119,6 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               break;
 
           case 'DEBT_REPORT':
-              // IMPROVED DEBT REPORT with explicit date field
               data = purchaseOrders
                 .filter(po => ['Received', 'Partial', 'Ordered'].includes(po.status))
                 .map(po => {
@@ -128,7 +129,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                     const remaining = totalBill - paidAmount;
                     return {
                         'No. PO': po.poNumber,
-                        'Tanggal PO': po.date ? formatDateIndo(po.date) : formatDateIndo(po.createdAt || po.approvedAt), // Improved logic
+                        'Tanggal PO': po.date ? formatDateIndo(po.date) : formatDateIndo(po.createdAt || po.approvedAt), 
                         'Nama Supplier': po.supplierName,
                         'Status Barang': po.status,
                         'Total Hutang (Rp)': totalBill,
@@ -152,6 +153,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
           case 'UNIT_FLOW':
               data = jobs.filter(j => isInRange(j.createdAt) || isInRange(j.closedAt)).map(j => ({
                   'Tgl Masuk': formatDateIndo(j.tanggalMasuk), 
+                  'No. Invoice': j.invoiceNumber || '-',
                   'No. WO': j.woNumber || '-', 
                   'No. Polisi': j.policeNumber, 
                   'Nama Pelanggan': j.customerName, 
@@ -172,6 +174,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
                   const rev = (j.hargaJasa || 0) + (j.hargaPart || 0);
                   const cogs = (j.costData?.hargaModalBahan || 0) + (j.costData?.hargaBeliPart || 0) + (j.costData?.jasaExternal || 0);
                   return { 
+                      'No. Invoice': j.invoiceNumber || '-',
                       'No. WO': j.woNumber, 
                       'No. Polisi': j.policeNumber, 
                       'Asuransi / Penjamin': j.namaAsuransi,
@@ -194,6 +197,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs, transactions,
               data = transactions
                 .filter(t => isInRange(t.date))
                 .map(t => ({ 
+                    'No. Transaksi': t.transactionNumber || '-',
                     'Tanggal': formatDateIndo(t.date), 
                     'No. Ref (WO/PO)': t.refNumber || '-', 
                     'Tipe Arus': t.type === 'IN' ? 'UANG MASUK' : 'UANG KELUAR', 

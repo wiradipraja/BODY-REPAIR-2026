@@ -28,6 +28,22 @@ export const formatWaNumber = (phone: string | undefined): string => {
     return cleanNumber;
 };
 
+// NEW: Generate Audit Transaction Number (BKM/BKK/TRX)
+export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hour = now.getHours().toString().padStart(2, '0');
+    const minute = now.getMinutes().toString().padStart(2, '0');
+    const second = now.getSeconds().toString().padStart(2, '0');
+    
+    // Format: TYPE-YYMMDD-HHMMSS (Unique by second)
+    // Example: BKM-240101-143005
+    const prefix = type === 'IN' ? 'BKM' : 'BKK'; 
+    return `${prefix}-${year}${month}${day}-${hour}${minute}${second}`;
+};
+
 // Recursive function to remove undefined values for Firestore
 export const cleanObject = (obj: any): any => {
   if (obj === null || typeof obj !== 'object' || obj instanceof Timestamp || obj instanceof Date) {

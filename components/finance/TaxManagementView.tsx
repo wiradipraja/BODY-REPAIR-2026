@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, Settings, UserPermissions, Supplier } from '../../types';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
-// Added getDocs to imports to fix reference error
+import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
+import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
 import { Landmark, Calendar, Landmark as TaxIcon, ArrowUpRight, ArrowDownRight, Calculator, Plus, History, Receipt, AlertCircle, Building2, Save, Loader2, ListChecks, CheckCircle2, FileText, ShoppingCart, Percent, XCircle, Wrench, Info, Users, ArrowRight, BarChart3, TrendingUp, ShieldCheck, ClipboardCheck } from 'lucide-react';
@@ -217,6 +218,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
 
       setIsProcessing(true);
       try {
+          const transactionNumber = generateTransactionNumber('OUT');
           const payload = {
               date: serverTimestamp(),
               createdAt: serverTimestamp(),
@@ -228,10 +230,17 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
               bankName: taxForm.paymentMethod !== 'Cash' ? taxForm.bankName : undefined,
               customerName: 'Kantor Pelayanan Pajak (KPP)',
               description: `Bayar ${taxForm.type} - Masa ${taxForm.periodMonth + 1}/${taxForm.periodYear}. ${taxForm.notes}`,
-              refNumber: taxForm.refNumber || undefined
+              refNumber: taxForm.refNumber || undefined,
+              transactionNumber: transactionNumber // Audit ID
           };
 
           await addDoc(collection(db, CASHIER_COLLECTION), payload);
+          
+          // Auto Print Proof
+          if (settings) {
+              generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
+          }
+
           showNotification(`Berhasil mencatat pembebanan ${taxForm.type}`, "success");
           setTaxForm(prev => ({ ...prev, amount: 0, notes: '', refNumber: '', refId: '' }));
           setActiveTab('history');
@@ -702,6 +711,7 @@ const TaxManagementView: React.FC<TaxManagementViewProps> = ({ jobs, purchaseOrd
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="font-medium text-gray-800">{trx.description}</div>
+                                        {trx.transactionNumber && <span className="text-[9px] font-mono text-gray-400">{trx.transactionNumber}</span>}
                                     </td>
                                     <td className="px-6 py-4 text-right font-black text-red-600">
                                         {formatCurrency(trx.amount)}

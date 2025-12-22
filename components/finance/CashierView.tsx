@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
 import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -122,6 +122,8 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
       setLoading(true);
       try {
+          const transactionNumber = generateTransactionNumber(trxType);
+
           // 1. Create the Main Payment Transaction
           const newTrx: any = {
               date: serverTimestamp(),
@@ -130,6 +132,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
               amount: Number(amount),
               paymentMethod,
               description: notes,
+              transactionNumber: transactionNumber,
               createdBy: userPermissions.role || 'Staff',
               createdAt: serverTimestamp()
           };
@@ -149,14 +152,21 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
 
           await addDoc(collection(db, CASHIER_COLLECTION), newTrx);
 
+          // Auto-generate Receipt PDF
+          // Mocking date for immediate PDF generation because serverTimestamp is pending
+          const pdfTrx = { ...newTrx, date: new Date() };
+          generateReceiptPDF(pdfTrx, settings);
+
           // 2. Create the Withholding Tax Transaction if enabled
           if (trxType === 'IN' && hasWithholding && withholdingAmount && Number(withholdingAmount) > 0) {
+              const taxTrxId = generateTransactionNumber('IN'); // Distinct ID for Tax Record
               const taxTrx: any = {
                   date: serverTimestamp(),
                   type: 'IN',
                   category: 'Potongan PPh (Pihak Ke-3)',
                   amount: Number(withholdingAmount),
                   paymentMethod: 'Non-Tunai (Pajak)',
+                  transactionNumber: taxTrxId,
                   description: `Potongan Pajak PPh oleh Pelanggan. Ref: ${newTrx.refNumber}`,
                   taxCertificateNumber: taxCertificateNo || 'PENDING',
                   createdBy: userPermissions.role || 'Staff',
@@ -166,9 +176,12 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                   customerName: selectedJob?.customerName
               };
               await addDoc(collection(db, CASHIER_COLLECTION), taxTrx);
+              
+              // Generate PDF for Tax Receipt as well? Maybe useful.
+              generateReceiptPDF({...taxTrx, date: new Date()}, settings);
           }
           
-          showNotification("Transaksi berhasil disimpan.", "success");
+          showNotification("Transaksi berhasil disimpan & Bukti PDF diunduh.", "success");
           
           setAmount('');
           setWithholdingAmount('');
@@ -516,6 +529,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
                                                 {trx.category} 
                                                 {trx.bankName && <span className="text-indigo-600 ml-1">- {trx.bankName}</span>}
                                             </p>
+                                            <span className="text-[9px] font-mono text-gray-400 bg-gray-50 px-1 rounded">{trx.transactionNumber || '-'}</span>
                                         </div>
                                         <div className="text-right">
                                             <span className={`font-mono font-bold ${trx.type === 'IN' ? 'text-emerald-700' : 'text-red-700'}`}>

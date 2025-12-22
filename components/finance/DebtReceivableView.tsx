@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, UserPermissions, Settings } from '../../types';
 import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateTransactionNumber } from '../../utils/helpers';
+import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { Scale, ArrowUpRight, ArrowDownLeft, Filter, Wallet, Building2, User, FileText, CheckCircle, Clock, AlertTriangle, Save } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -146,6 +147,8 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
       }
 
       try {
+          const transactionNumber = generateTransactionNumber(paymentTarget.type);
+
           const payload: any = {
               date: serverTimestamp(),
               createdAt: serverTimestamp(),
@@ -158,14 +161,20 @@ const DebtReceivableView: React.FC<DebtReceivableViewProps> = ({ jobs, purchaseO
               refNumber: paymentTarget.refNumber,
               customerName: paymentTarget.name,
               description: paymentForm.notes || (paymentTarget.type === 'IN' ? `Pelunasan WO ${paymentTarget.refNumber}` : `Pembayaran PO ${paymentTarget.refNumber}`),
+              transactionNumber: transactionNumber, // NEW: Audit ID
               // CRITICAL LINKS
               refJobId: paymentTarget.type === 'IN' ? paymentTarget.refId : undefined,
               refPoId: paymentTarget.type === 'OUT' ? paymentTarget.refId : undefined
           };
 
-          await addDoc(collection(db, CASHIER_COLLECTION), payload);
+          await addDoc(collection(db, CASHIER_COLLECTION), cleanObject(payload));
           
-          showNotification("Pembayaran berhasil dicatat.", "success");
+          // Auto Print Proof
+          if (settings) {
+              generateReceiptPDF({...payload, date: new Date(), id: 'TEMP'} as CashierTransaction, settings);
+          }
+
+          showNotification("Pembayaran berhasil dicatat & Bukti diunduh.", "success");
           setIsPaymentModalOpen(false);
           
       } catch (err: any) {

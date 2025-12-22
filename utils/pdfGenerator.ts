@@ -161,9 +161,12 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
   doc.text("FAKTUR / INVOICE", pageWidth - 15, 20, { align: 'right' });
   
   // No Invoice aligned with Address (Y=25)
+  // USE NEW INVOICE NUMBER FORMAT IF AVAILABLE
+  const invNumber = job.invoiceNumber || `INV/${job.woNumber}`;
+
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.text(`No: INV/${job.woNumber}`, pageWidth - 15, 25, { align: 'right' });
+  doc.text(`No: ${invNumber}`, pageWidth - 15, 25, { align: 'right' });
   
   // Date aligned with Phone (Y=29)
   doc.text(`Tgl: ${formatDateIndo(new Date())}`, pageWidth - 15, 29, { align: 'right' });
@@ -192,7 +195,7 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
   doc.text(`Nopol: ${job.policeNumber}`, col2, 52);
   doc.text(`Merk: ${job.carBrand} ${job.carModel}`, col2, 57);
   doc.text(`Warna: ${job.warnaMobil}`, col2, 62);
-  doc.text(`Rangka: ${job.nomorRangka || '-'}`, col2, 67);
+  doc.text(`Ref WO: ${job.woNumber}`, col2, 67); // Changed from Rangka to Ref WO
 
   const estimate = job.estimateData;
   if (!estimate) return;
@@ -336,7 +339,7 @@ export const generateInvoicePDF = (job: Job, settings: Settings) => {
   doc.text("( ........................... )", 30, signY + 25, {align: 'center'});
   doc.text("( ........................... )", pageWidth - 50, signY + 25, {align: 'center'});
 
-  doc.save(`INVOICE_${job.woNumber}.pdf`);
+  doc.save(`${invNumber.replace(/[\/\\\s]/g, '_')}.pdf`);
 };
 
 export const generatePurchaseOrderPDF = (po: PurchaseOrder, settings: Settings, supplierAddress?: string) => {
@@ -573,7 +576,7 @@ export const generateGatePassPDF = (job: Job, settings: Settings, cashierName: s
     doc.save(`GATEPASS_${job.policeNumber}.pdf`);
 };
 
-// --- NEW FUNCTION: RECEIPT ---
+// --- RECEIPT / BUKTI TRANSAKSI ---
 export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) => {
     const doc: any = new jsPDF('l', 'mm', 'a5'); // Landscape A5
     const pageWidth = doc.internal.pageSize.width;
@@ -588,10 +591,10 @@ export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) 
 
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    doc.text("KWITANSI PEMBAYARAN", pageWidth - 10, 15, { align: 'right' });
+    doc.text(trx.type === 'IN' ? "BUKTI KAS MASUK (BKM)" : "BUKTI KAS KELUAR (BKK)", pageWidth - 10, 15, { align: 'right' });
     
     doc.setFontSize(10);
-    doc.text(`No: ${String(trx.createdAt?.seconds || Date.now()).slice(-6)}`, pageWidth - 10, 22, { align: 'right' });
+    doc.text(`No. Dokumen: ${trx.transactionNumber || 'TRX-PENDING'}`, pageWidth - 10, 22, { align: 'right' });
     doc.text(`Tanggal: ${formatDateIndo(trx.date)}`, pageWidth - 10, 27, { align: 'right' });
 
     doc.line(10, 32, pageWidth - 10, 32);
@@ -600,22 +603,21 @@ export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) 
     const lineHeight = 10;
 
     doc.setFontSize(11);
-    doc.text("Telah Terima Dari", 15, startY);
-    doc.text(`:  ${trx.customerName || 'Pelanggan Umum'}`, 55, startY);
+    doc.text(trx.type === 'IN' ? "Telah Terima Dari" : "Dibayarkan Kepada", 15, startY);
+    doc.text(`:  ${trx.customerName || '-'}`, 55, startY);
 
     doc.text("Uang Sejumlah", 15, startY + lineHeight);
     doc.setFont("helvetica", "bold");
     doc.text(`:  ${formatCurrency(trx.amount)}`, 55, startY + lineHeight);
     doc.setFont("helvetica", "normal");
 
-    doc.text("Untuk Pembayaran", 15, startY + (lineHeight * 2));
+    doc.text("Keterangan / Ref", 15, startY + (lineHeight * 2));
     doc.text(`:  ${trx.category} - ${trx.description || ''}`, 55, startY + (lineHeight * 2));
     if(trx.refNumber) {
-        doc.text(`   (Ref: ${trx.refNumber})`, 55, startY + (lineHeight * 2) + 5);
+        doc.text(`   (Ref ID: ${trx.refNumber})`, 55, startY + (lineHeight * 2) + 5);
     }
 
-    doc.text("Metode Bayar", 15, startY + (lineHeight * 3) + 5);
-    // Display Bank Name in Receipt if available
+    doc.text("Metode / Bank", 15, startY + (lineHeight * 3) + 5);
     const paymentInfo = trx.bankName ? `${trx.paymentMethod} - ${trx.bankName}` : trx.paymentMethod;
     doc.text(`:  ${paymentInfo}`, 55, startY + (lineHeight * 3) + 5);
 
@@ -631,7 +633,7 @@ export const generateReceiptPDF = (trx: CashierTransaction, settings: Settings) 
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.text("Kasir / Finance,", pageWidth - 40, 105, { align: 'center' });
-    doc.text(`( ${trx.createdBy} )`, pageWidth - 40, 130, { align: 'center' });
+    doc.text(`( ${trx.createdBy || 'Admin'} )`, pageWidth - 40, 130, { align: 'center' });
 
-    doc.save(`RECEIPT_${trx.refNumber || 'TRX'}.pdf`);
+    doc.save(`${trx.transactionNumber || 'RECEIPT'}.pdf`);
 };

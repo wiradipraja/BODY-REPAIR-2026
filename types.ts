@@ -201,6 +201,7 @@ export interface Job {
   isClosed: boolean;
   closedAt?: any; 
   hasInvoice?: boolean;
+  invoiceNumber?: string; // NEW: Official Invoice Number INV-YYMM-XXXX
   
   createdAt?: any; 
   updatedAt?: any; 
@@ -316,6 +317,7 @@ export interface CashierTransaction {
   refJobId?: string;
   refPoId?: string;
   
+  transactionNumber?: string; // NEW: Audit Transaction Number (BKK/BKM/TRX)
   taxCertificateNumber?: string;
   
   createdBy: string;
