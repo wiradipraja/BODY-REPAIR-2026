@@ -4,7 +4,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, increment as firestoreIncrement } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyA4z2XCxu3tNAL5IiNXfY7suu6tYszPAYQ",
   authDomain: "body-repair-system.firebaseapp.com",
   projectId: "body-repair-system",

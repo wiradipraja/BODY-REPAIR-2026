@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; // Added setDoc
-import { sendPasswordResetEmail, updatePassword } from 'firebase/auth';
-import { db, auth, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
+import { sendPasswordResetEmail, updatePassword, getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
 import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -33,6 +34,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userForm, setUserForm] = useState({
       email: '',
+      password: '',
       displayName: '',
       role: 'Staff'
   });
@@ -137,8 +139,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       e.preventDefault();
       if (!isManager) return;
       setIsLoading(true);
+      
+      let tempApp: any = null;
+
       try {
-          // Fix: Use setDoc with merge: true or just setDoc to create/overwrite
+          // 1. Create User in Firebase Auth (Secondary App to prevent admin logout)
+          if (userForm.password) {
+              if (userForm.password.length < 6) {
+                  throw new Error("Password minimal 6 karakter.");
+              }
+              const tempAppName = `tempApp-${Date.now()}`;
+              tempApp = initializeApp(firebaseConfig, tempAppName);
+              const tempAuth = getAuth(tempApp);
+              await createUserWithEmailAndPassword(tempAuth, userForm.email, userForm.password);
+              // Clean up: Sign out from temp app immediately just in case
+              await signOut(tempAuth);
+          }
+
+          // 2. Create/Update User Profile in Firestore
           await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
               email: userForm.email.toLowerCase(),
               displayName: userForm.displayName,
@@ -146,14 +164,36 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               createdAt: serverTimestamp()
           }, { merge: true }); // Merge ensures we don't wipe existing fields if they exist unexpectedly
           
-          showNotification(`User ${userForm.displayName} didaftarkan.`, "success");
+          showNotification(`User ${userForm.displayName} berhasil didaftarkan.`, "success");
           setIsUserModalOpen(false);
-          setUserForm({ email: '', displayName: '', role: 'Staff' });
-          // List updates automatically via onSnapshot
+          setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
       } catch (e: any) {
           console.error("Error creating user:", e);
-          showNotification("Gagal menambah user: " + e.message, "error");
-      } finally { setIsLoading(false); }
+          let msg = e.message;
+          if (e.code === 'auth/email-already-in-use') {
+              // If user exists in Auth, we still try to update Firestore permission
+              try {
+                  await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
+                      email: userForm.email.toLowerCase(),
+                      displayName: userForm.displayName,
+                      role: userForm.role,
+                      createdAt: serverTimestamp()
+                  }, { merge: true });
+                  showNotification("Email sudah terdaftar. Hak akses diperbarui.", "success");
+                  setIsUserModalOpen(false);
+                  setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
+                  return; // Exit successfully
+              } catch (fsErr: any) {
+                  msg = "Email ada di Auth tapi gagal update Firestore: " + fsErr.message;
+              }
+          }
+          showNotification("Gagal menambah user: " + msg, "error");
+      } finally { 
+          if (tempApp) {
+              await deleteApp(tempApp);
+          }
+          setIsLoading(false); 
+      }
   };
 
   const handleDeleteUser = async (uid: string) => {
@@ -706,7 +746,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                                   />
                               </div>
                               <div>
-                                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Konfirmasi Password Baru</label>
+                                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Konfirmasi Password Baru</label>
                                   <input 
                                       type="password" required 
                                       value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
@@ -778,11 +818,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           <form onSubmit={handleCreateUser} className="space-y-5">
               <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 flex items-start gap-3 mb-4">
                   <Info className="text-amber-600 mt-1 shrink-0" size={20}/>
-                  <p className="text-xs text-amber-800 leading-relaxed font-medium">User yang didaftarkan harus memiliki akun Firebase terdaftar atau Admin akan mengirimkan link reset password untuk pembuatan password awal.</p>
+                  <p className="text-xs text-amber-800 leading-relaxed font-medium">Password awal wajib diisi untuk membuat akun login baru. Jika user sudah punya akun, password ini akan diabaikan.</p>
               </div>
               <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Email Aktif (Login ID) *</label>
                   <input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" placeholder="user@reforma.com"/>
+              </div>
+              <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Password Awal (Min 6 Karakter) *</label>
+                  <input type="text" required value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-4 focus:ring-indigo-50 font-bold" placeholder="Password123"/>
               </div>
               <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nama Lengkap Tampilan *</label>
