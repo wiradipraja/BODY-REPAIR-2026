@@ -1,4 +1,3 @@
-
 import { Timestamp, collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 import { db, CASHIER_COLLECTION } from "../services/firebase";
 
@@ -13,31 +12,37 @@ export const formatPoliceNumber = (value: string) => {
 // Standardize WA Number to 628xxx format
 export const formatWaNumber = (phone: string | undefined): string => {
     if (!phone) return '';
+    
+    // 1. Remove all non-numeric characters (spaces, dashes, plus signs)
     let cleanNumber = phone.replace(/\D/g, '');
+
+    // 2. Handle '0' prefix
     if (cleanNumber.startsWith('0')) {
         cleanNumber = '62' + cleanNumber.substring(1);
-    } else if (cleanNumber.startsWith('8')) {
+    }
+    // 3. Handle if starts with '8' (user forgot 0 or 62)
+    else if (cleanNumber.startsWith('8')) {
         cleanNumber = '62' + cleanNumber;
     }
+
     return cleanNumber;
 };
 
-// --- CORE SEQUENCE GENERATOR ---
-// Format: PREFIX-YYMM-XXX (3 Digit)
-export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber'): Promise<string> => {
+// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXX (3 Digit Sequence Default)
+// UPDATED: Default paddingLength is now 3 as requested (001, 002...)
+export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber', paddingLength: number = 3): Promise<string> => {
     const now = new Date();
-    const year = now.getFullYear().toString().slice(-2); // 24
-    const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 05
-    
-    // Format Periode: PREFIX-YYMM (Contoh: BKK-2405)
-    const periodCode = `${prefix}-${year}${month}`; 
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const periodCode = `${prefix}-${year}${month}`; // Contoh: BKK-2405
 
     try {
-        // Query untuk mencari nomor terakhir dengan prefix periode yang sama
+        // Query transaksi terakhir pada periode bulan ini dengan kode yang sama
+        // Filter: fieldName >= periodCode AND fieldName <= periodCode + char terakhir tinggi
         const q = query(
             collection(db, collectionName),
             where(fieldName, '>=', periodCode),
-            where(fieldName, '<=', periodCode + '\uf8ff'), // Karakter unicode tinggi untuk range string
+            where(fieldName, '<=', periodCode + '\uf8ff'),
             orderBy(fieldName, 'desc'),
             limit(1)
         );
@@ -47,93 +52,109 @@ export const generateSequenceNumber = async (prefix: string, collectionName: str
 
         if (!snapshot.empty) {
             const lastId = snapshot.docs[0].data()[fieldName] as string;
-            if (lastId) {
-                // Parse: PREFIX-YYMM-XXX -> Ambil bagian XXX
-                const parts = lastId.split('-');
-                const lastSeqStr = parts[parts.length - 1]; 
-                const lastSeqNum = parseInt(lastSeqStr, 10);
-                
+            // Format eksisting: CODE-YYMM-XXX
+            // Split by '-' and take the last part
+            const parts = lastId.split('-');
+            if (parts.length === 3) {
+                const lastSeqNum = parseInt(parts[2]);
                 if (!isNaN(lastSeqNum)) {
                     nextSequence = lastSeqNum + 1;
                 }
             }
         }
 
-        // Return Format: PREFIX-YYMM-001 (3 Digit Padding)
-        return `${periodCode}-${nextSequence.toString().padStart(3, '0')}`;
+        // Return format: PREFIX-YYMM-001 (Sesuai paddingLength)
+        return `${periodCode}-${nextSequence.toString().padStart(paddingLength, '0')}`;
         
     } catch (error) {
-        console.error(`Gagal generate ID untuk ${prefix}:`, error);
-        // Fallback Emergency
-        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        return `${periodCode}-ERR${random}`;
+        console.error(`Gagal generate sequence ID untuk ${prefix}:`, error);
+        // Fallback jika offline/error: Gunakan timestamp/random agar tetap unik
+        const maxRandom = Math.pow(10, paddingLength);
+        const fallbackSeq = Math.floor(Math.random() * maxRandom).toString().padStart(paddingLength, '0');
+        return `${periodCode}-ERR${fallbackSeq}`;
     }
 };
 
-/**
- * Helper khusus untuk menentukan Prefix Transaksi Keuangan
- * @param type 'IN' (Masuk) atau 'OUT' (Keluar)
- * @param category Kategori transaksi (untuk mendeteksi Pajak)
- */
-export const generateTransactionId = async (type: 'IN' | 'OUT', category: string = ''): Promise<string> => {
-    let prefix = '';
-
-    // 1. Cek apakah ini Pajak
-    if (category.toLowerCase().includes('pajak') || category.toLowerCase().includes('ppn') || category.toLowerCase().includes('pph')) {
-        prefix = 'TAX';
-    } 
-    // 2. Jika bukan pajak, tentukan BKM atau BKK
-    else {
-        prefix = type === 'IN' ? 'BKM' : 'BKK';
-    }
-
-    return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber');
-};
-
-// Deprecated wrapper maintained for backward compatibility but redirected to new logic
-export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
-    console.warn("Sync ID generation is deprecated. Use async generateTransactionId.");
+// Wrapper khusus untuk Kasir (BKM/BKK) - Menggunakan Sequence Generator 3 Digit
+export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
     const prefix = type === 'IN' ? 'BKM' : 'BKK';
-    return `${prefix}-TEMP-${Math.floor(Math.random() * 1000)}`;
+    // Menggunakan fungsi generator sequence database dengan padding 3 digit (BKM-YYMM-001)
+    return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber', 3);
 };
 
+// Backward compatibility wrapper (Deprecated Warning)
+export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
+    console.warn("Deprecation Warning: Gunakan generateTransactionId (async) untuk nomor urut yang akurat.");
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const prefix = type === 'IN' ? 'BKM' : 'BKK';
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefix}-${year}${month}-TEMP${random}`; 
+};
+
+// Recursive function to remove undefined values for Firestore
 export const cleanObject = (obj: any): any => {
   if (obj === null || typeof obj !== 'object' || obj instanceof Timestamp || obj instanceof Date) {
     return obj;
   }
-  if (Array.isArray(obj)) return obj.map(item => cleanObject(item));
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanObject(item));
+  }
+
   const newObj: any = {};
   Object.keys(obj).forEach((key) => {
-    if (obj[key] !== undefined) newObj[key] = cleanObject(obj[key]);
+    if (obj[key] !== undefined) {
+      newObj[key] = cleanObject(obj[key]);
+    }
   });
   return newObj;
 };
 
+// Internal helper to convert any date-like object to a real JS Date
 const resolveToDate = (date: any): Date | null => {
     if (!date) return null;
+    
+    // 1. Handle actual Date object
     if (date instanceof Date) return date;
+    
+    // 2. Handle Firestore Timestamp Instance
     if (typeof date.toDate === 'function') return date.toDate();
-    if (typeof date === 'object' && date.seconds !== undefined) return new Date(date.seconds * 1000);
+    
+    // 3. Handle Plain Object representation of Firestore Timestamp ({seconds, nanoseconds})
+    if (typeof date === 'object' && date.seconds !== undefined) {
+        return new Date(date.seconds * 1000);
+    }
+    
+    // 4. Handle String or Number (ISO string or Epoch)
     const d = new Date(date);
     if (!isNaN(d.getTime())) return d;
+
     return null;
 };
 
+// Untuk input type="date" value (Format HTML standar harus YYYY-MM-DD)
 export const toYyyyMmDd = (date: any): string => {
     const d = resolveToDate(date);
     if (!d || isNaN(d.getTime())) return '';
+    
     const year = d.getFullYear();
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
+    
     return `${year}-${month}-${day}`;
 };
 
+// Untuk Tampilan (Display) format Indonesia (dd/mm/yyyy)
 export const formatDateIndo = (date: any): string => {
     const d = resolveToDate(date);
     if (!d || isNaN(d.getTime())) return '-';
+
     const day = d.getDate().toString().padStart(2, '0');
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const year = d.getFullYear();
+
     return `${day}/${month}/${year}`;
 };
 
@@ -155,12 +176,15 @@ export const exportToCsv = (filename: string, rows: any[]) => {
         }
         return finalVal + '\n';
     };
+
     const headers = Object.keys(rows[0]);
     let csvFile = 'sep=' + separator + '\n';
     csvFile += processRow(headers);
+
     for (let i = 0; i < rows.length; i++) {
         csvFile += processRow(Object.values(rows[i]));
     }
+
     const blob = new Blob(['\uFEFF' + csvFile], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     if (link.download !== undefined) {
