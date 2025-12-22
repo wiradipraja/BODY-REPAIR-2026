@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
-import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateSequenceNumber } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
 import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock, Calendar } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
@@ -382,11 +382,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       const supplier = suppliers.find(s => s.id === poForm.supplierId);
       if (!supplier) return;
 
-      // IMPROVED PO NUMBERING: Timestamp + Random to prevent collisions
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(2, 14);
-      const poNumber = `PO-${timestamp}`;
-
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
 
       const sanitizedItems = (poForm.items || []).map((item: any) => ({
@@ -396,24 +391,27 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           isStockManaged: item.isStockManaged ?? true
       }));
 
-      const payload: any = {
-          supplierId: poForm.supplierId,
-          items: sanitizedItems,
-          notes: poForm.notes || '',
-          hasPpn: poForm.hasPpn || false,
-          date: poForm.date, 
-          poNumber,
-          supplierName: supplier.name,
-          status,
-          subtotal,
-          ppnAmount,
-          totalAmount,
-          createdAt: serverTimestamp(),
-          createdBy: userPermissions.role
-      };
-
       setLoading(true);
       try {
+          // Generate Sequential PO Number: PO-YYMM-XXXXX
+          const poNumber = await generateSequenceNumber('PO', PURCHASE_ORDERS_COLLECTION, 'poNumber');
+
+          const payload: any = {
+              supplierId: poForm.supplierId,
+              items: sanitizedItems,
+              notes: poForm.notes || '',
+              hasPpn: poForm.hasPpn || false,
+              date: poForm.date, 
+              poNumber,
+              supplierName: supplier.name,
+              status,
+              subtotal,
+              ppnAmount,
+              totalAmount,
+              createdAt: serverTimestamp(),
+              createdBy: userPermissions.role
+          };
+
           await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
           for (const item of sanitizedItems) {
               if (item.refJobId && item.refPartIndex !== null) {

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
-import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateSequenceNumber } from '../../utils/helpers';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
 import { doc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
@@ -135,30 +135,6 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
       return { subtotalJasa, subtotalPart, discJasaRp, discPartRp, dpp, ppn, grandTotal };
   }, [selectedJob, discountJasa, discountPart, settings.ppnPercentage]);
 
-  const generateNewInvoiceNumber = async (): Promise<string> => {
-      // Logic: INV-YYMM-XXXX
-      const now = new Date();
-      const year = now.getFullYear().toString().slice(-2);
-      const month = (now.getMonth() + 1).toString().padStart(2, '0');
-      const prefix = `INV-${year}${month}-`;
-
-      const q = query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('invoiceNumber', 'desc'), limit(50));
-      const snapshot = await getDocs(q);
-      
-      let maxSeq = 0;
-      snapshot.forEach(doc => {
-          const data = doc.data() as Job;
-          if (data.invoiceNumber && data.invoiceNumber.startsWith(prefix)) {
-              const seqStr = data.invoiceNumber.replace(prefix, '');
-              const seq = parseInt(seqStr);
-              if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-          }
-      });
-
-      const nextSeq = (maxSeq + 1).toString().padStart(4, '0');
-      return `${prefix}${nextSeq}`;
-  };
-
   const handleFinalizeAndPrint = async () => {
       if (!selectedJob || !calculations) return;
       
@@ -190,10 +166,10 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
               'hasInvoice': true 
           };
 
-          // Generate Invoice Number if new
+          // Generate Invoice Number if new using Centralized Generator (INV-YYMM-XXXXX)
           let invoiceNumber = selectedJob.invoiceNumber;
           if (!isAlreadyInvoiced) {
-              invoiceNumber = await generateNewInvoiceNumber();
+              invoiceNumber = await generateSequenceNumber('INV', SERVICE_JOBS_COLLECTION, 'invoiceNumber');
               updatePayload.invoiceNumber = invoiceNumber;
           }
 

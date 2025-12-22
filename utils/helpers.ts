@@ -29,21 +29,20 @@ export const formatWaNumber = (phone: string | undefined): string => {
     return cleanNumber;
 };
 
-// NEW: Generate Audit Transaction Number (BKM-YYMM-XXXXX) - ASYNC
-export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
-    const prefix = type === 'IN' ? 'BKM' : 'BKK';
+// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXXXX
+export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber'): Promise<string> => {
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2);
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const periodCode = `${prefix}-${year}${month}`; // Contoh: BKM-2405
+    const periodCode = `${prefix}-${year}${month}`; // Contoh: INV-2405
 
     try {
         // Query transaksi terakhir pada periode bulan ini dengan kode yang sama
         const q = query(
-            collection(db, CASHIER_COLLECTION),
-            where('transactionNumber', '>=', periodCode),
-            where('transactionNumber', '<=', periodCode + '\uf8ff'),
-            orderBy('transactionNumber', 'desc'),
+            collection(db, collectionName),
+            where(fieldName, '>=', periodCode),
+            where(fieldName, '<=', periodCode + '\uf8ff'),
+            orderBy(fieldName, 'desc'),
             limit(1)
         );
 
@@ -51,7 +50,7 @@ export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string>
         let nextSequence = 1;
 
         if (!snapshot.empty) {
-            const lastId = snapshot.docs[0].data().transactionNumber as string;
+            const lastId = snapshot.docs[0].data()[fieldName] as string;
             // Format eksisting: CODE-YYMM-XXXXX
             // Split by '-' and take the last part
             const parts = lastId.split('-');
@@ -63,15 +62,21 @@ export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string>
             }
         }
 
-        // Return format: BKM-2405-00001
+        // Return format: PREFIX-YYMM-00001 (5 Digit Sequence)
         return `${periodCode}-${nextSequence.toString().padStart(5, '0')}`;
         
     } catch (error) {
-        console.error("Gagal generate sequence ID:", error);
+        console.error(`Gagal generate sequence ID untuk ${prefix}:`, error);
         // Fallback jika offline/error: Gunakan timestamp agar tetap unik
-        const fallbackSeq = Math.floor(Math.random() * 10000).toString().padStart(5, '0');
+        const fallbackSeq = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
         return `${periodCode}-ERR${fallbackSeq}`;
     }
+};
+
+// Wrapper khusus untuk Kasir (BKM/BKK) - Backward Compatible Interface
+export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
+    const prefix = type === 'IN' ? 'BKM' : 'BKK';
+    return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber');
 };
 
 // Backward compatibility wrapper (jika ada komponen lain yg butuh sync, tapi disarankan pakai yg async di atas)
