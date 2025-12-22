@@ -4,7 +4,7 @@ import { Job, Settings, UserPermissions, InventoryItem, Vehicle } from '../../ty
 import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers';
-import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2 } from 'lucide-react';
+import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2, Gavel } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface ClaimsControlViewProps {
@@ -40,7 +40,8 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         "Tunggu SPK Asuransi": "Tunggu SPK Asuransi",
         "Banding Harga SPK": "Banding Harga SPK",
         "Unit di Pemilik (Tunggu Part)": "Unit di Pemilik (Tunggu Part)",
-        "Booking Masuk": "Booking Masuk"
+        "Booking Masuk": "Booking Masuk",
+        btn_deal: "SPK DEAL / ACC"
     },
     en: {
         title: "Claim Control Desk",
@@ -56,7 +57,8 @@ const DICTIONARY: Record<string, Record<string, string>> = {
         "Tunggu SPK Asuransi": "Awaiting Approval",
         "Banding Harga SPK": "Negotiation Phase",
         "Unit di Pemilik (Tunggu Part)": "With Owner (Awaiting Part)",
-        "Booking Masuk": "Scheduled Booking"
+        "Booking Masuk": "Scheduled Booking",
+        btn_deal: "SPK APPROVED"
     }
 };
 
@@ -116,6 +118,31 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
       if (newIdx >= 0 && newIdx < CLAIM_STAGES.length) {
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { statusKendaraan: CLAIM_STAGES[newIdx], updatedAt: serverTimestamp() });
           showNotification(`Moved to: ${CLAIM_STAGES[newIdx]}`, "success");
+      }
+  };
+
+  // NEW FEATURE: Resolve Banding Logic
+  const handleResolveBanding = async (job: Job) => {
+      const isWipReturn = job.posisiKendaraan === 'Di Bengkel';
+      
+      // Skenario 2: Jika unit di bengkel (WIP Tambahan), kembalikan ke Work In Progress
+      // Skenario 1: Jika unit di pemilik (Awal), lanjut ke Unit di Pemilik (Tunggu Part)
+      const newStatus = isWipReturn ? 'Work In Progress' : 'Unit di Pemilik (Tunggu Part)';
+      
+      const confirmMsg = isWipReturn 
+          ? `Unit ini fisik ada Di Bengkel (WIP).\n\nHarga Banding sudah Deal?\nKlik OK untuk mengembalikan status ke 'Work In Progress' agar bisa dikerjakan mekanik.`
+          : `Unit ini fisik ada Di Pemilik.\n\nHarga Banding sudah Deal?\nKlik OK untuk memindahkan ke 'Unit di Pemilik (Tunggu Part)'.`;
+
+      if(!window.confirm(confirmMsg)) return;
+
+      try {
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
+              statusKendaraan: newStatus, 
+              updatedAt: serverTimestamp() 
+          });
+          showNotification(`Banding Selesai. Status: ${newStatus}`, "success");
+      } catch (e: any) {
+          showNotification("Gagal update status: " + e.message, "error");
       }
   };
 
@@ -258,6 +285,17 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                         {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && (
                                             <div className="mb-4 py-1.5 px-2 bg-emerald-100/50 rounded-lg flex items-center gap-2 border border-emerald-200 animate-pulse"><Zap size={14} className="text-emerald-600 fill-emerald-600"/><span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">{t('ready_badge')}</span></div>
                                         )}
+                                        
+                                        {/* TRIGGER BUTTON UNTUK BANDING HARGA SPK */}
+                                        {stage === 'Banding Harga SPK' && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleResolveBanding(job); }}
+                                                className="w-full mb-3 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-sm transition-all transform active:scale-95"
+                                            >
+                                                <Gavel size={14} /> {t('btn_deal')}
+                                            </button>
+                                        )}
+
                                         <div className="flex justify-between items-center pt-3 border-t border-gray-50">
                                             <button onClick={(e) => { e.stopPropagation(); handleMoveStage(job, 'prev'); }} disabled={stage === CLAIM_STAGES[0]} className="p-1 text-gray-300 hover:text-indigo-600 disabled:opacity-0 transition-colors"><ChevronRight size={18} className="rotate-180"/></button>
                                             <button onClick={(e) => { e.stopPropagation(); handleMoveStage(job, 'next'); }} disabled={stage === CLAIM_STAGES[CLAIM_STAGES.length - 1]} className="p-1 text-gray-300 hover:text-indigo-600 disabled:opacity-0 transition-colors"><ChevronRight size={18}/></button>
