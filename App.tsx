@@ -314,7 +314,7 @@ const AppContent: React.FC = () => {
         )}
 
         {currentView === 'claims_control' && (
-            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} />
+            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} onNavigate={setCurrentView} />
         )}
 
         {currentView === 'entry_data' && (

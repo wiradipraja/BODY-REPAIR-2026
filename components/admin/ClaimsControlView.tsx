@@ -14,6 +14,7 @@ interface ClaimsControlViewProps {
   settings: Settings;
   showNotification: (msg: string, type: string) => void;
   openModal: (type: string, data: any) => void;
+  onNavigate: (view: string) => void;
 }
 
 const CLAIM_STAGES = [
@@ -59,7 +60,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
     }
 };
 
-const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, vehicles, settings, showNotification, openModal }) => {
+const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryItems, vehicles, settings, showNotification, openModal, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
@@ -122,11 +123,20 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                     <div key={stage} className="w-72 flex flex-col h-full rounded-2xl bg-gray-50/50 border border-gray-200 shadow-sm">
                         <div className="p-4 flex justify-between items-center sticky top-0 z-10">
                             <div className="flex flex-col"><h3 className="font-bold text-gray-800 text-[11px] uppercase tracking-widest">{t(stage)}</h3><span className="text-[10px] text-indigo-500 font-bold">{boardData[stage]?.length || 0} Unit</span></div>
+                            {stage === 'Tunggu Estimasi' && (
+                                <button 
+                                    onClick={() => onNavigate('estimation_create')}
+                                    className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm transition-all flex items-center justify-center"
+                                    title="Tambah Unit Baru / Buat Estimasi"
+                                >
+                                    <Plus size={16} />
+                                </button>
+                            )}
                         </div>
                         <div className="p-3 flex-grow overflow-y-auto space-y-4 scrollbar-hide">
                             {boardData[stage]?.map(job => {
                                 const aging = getAgingDays(job);
-                                const latestProdRequest = job.productionLogs?.filter(l => l.note?.startsWith('REQUEST TAMBAHAN:')).reverse()[0];
+                                const latestProdRequest = job.productionLogs?.filter(l => l.note?.startsWith('REQUEST TAMBAHAN: ', '')).reverse()[0];
                                 return (
                                     <div key={job.id} onClick={() => openModal('create_estimation', job)} className={`bg-white p-4 rounded-xl shadow-sm border transition-all hover:shadow-md cursor-pointer group relative overflow-hidden ${job.statusKendaraan === 'Booking Masuk' ? 'border-indigo-600 ring-1 ring-indigo-50' : 'border-gray-100 hover:border-indigo-200'}`}>
                                         {aging > 3 ? <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-500"></div> : aging >= 2 ? <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-400"></div> : null}
