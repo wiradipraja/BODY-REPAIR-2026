@@ -4,7 +4,7 @@ import { Job, Settings, UserPermissions, InventoryItem, Vehicle } from '../../ty
 import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers';
-import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2, Gavel } from 'lucide-react';
+import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2, Gavel, Timer } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface ClaimsControlViewProps {
@@ -75,21 +75,55 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
   const activeClaimJobs = useMemo(() => {
       const term = searchTerm.toUpperCase();
       const filtered = jobs.filter(j => !j.isClosed && !j.isDeleted && j.namaAsuransi !== 'Umum / Pribadi' && CLAIM_STAGES.includes(j.statusKendaraan) && (j.policeNumber.includes(term) || j.customerName.toUpperCase().includes(term)));
+      
       const stockMap: Record<string, number> = {};
       inventoryItems.forEach(i => { stockMap[i.id] = i.stock; });
+
       return filtered.map(job => {
           const parts = job.estimateData?.partItems || [];
           let readyCount = 0;
+          let orderedCount = 0;
+          let indentCount = 0;
           let allPartsReady = parts.length > 0;
-          if (parts.length > 0) {
+          let hasPartItems = parts.length > 0;
+
+          if (hasPartItems) {
               parts.forEach(p => {
-                  if (p.hasArrived) { readyCount++; return; }
+                  if (p.isOrdered) orderedCount++;
+                  if (p.isIndent) indentCount++;
+
+                  if (p.hasArrived) { 
+                      readyCount++; 
+                      return; 
+                  }
+                  
                   const reqQty = p.qty || 1;
-                  if (p.inventoryId && stockMap[p.inventoryId] >= reqQty) { stockMap[p.inventoryId] -= reqQty; readyCount++; }
-                  else allPartsReady = false;
+                  if (p.inventoryId && stockMap[p.inventoryId] >= reqQty) { 
+                      stockMap[p.inventoryId] -= reqQty; 
+                      readyCount++; 
+                  } else { 
+                      allPartsReady = false; 
+                  }
               });
-          } else allPartsReady = (job.estimateData?.jasaItems?.length || 0) > 0;
-          return { ...job, isReadyToCall: allPartsReady, logistik: { total: parts.length, ordered: parts.filter(p => p.isOrdered).length, ready: readyCount } };
+          } else {
+              // Jika tidak ada part (hanya jasa), dianggap ready
+              allPartsReady = (job.estimateData?.jasaItems?.length || 0) > 0;
+          }
+
+          // Determine Logistic Status Label
+          let logisticStatus = 'NEED ORDER';
+          if (!hasPartItems) logisticStatus = 'NO PART';
+          else if (allPartsReady) logisticStatus = 'READY';
+          else if (readyCount > 0) logisticStatus = 'PARTIAL';
+          else if (indentCount > 0) logisticStatus = 'INDENT';
+          else if (orderedCount === parts.length) logisticStatus = 'ON ORDER';
+
+          return { 
+              ...job, 
+              isReadyToCall: allPartsReady, 
+              logisticStatus, // New Field for Badge
+              logistik: { total: parts.length, ordered: orderedCount, ready: readyCount } 
+          };
       }).sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
   }, [jobs, inventoryItems, searchTerm]);
 
@@ -265,6 +299,18 @@ const ClaimsControlView: React.FC<ClaimsControlViewProps> = ({ jobs, inventoryIt
                                                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${aging > 3 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-green-50 text-green-600 border-green-200'}`}>{aging} {t('aging_unit')}</span>
                                             </div>
                                         </div>
+                                        
+                                        {/* LOGISTIC STATUS BADGES */}
+                                        {stage === 'Unit di Pemilik (Tunggu Part)' && (
+                                            <div className="mb-3">
+                                                {job.logisticStatus === 'READY' && <span className="w-full block text-center text-[10px] font-black bg-emerald-100 text-emerald-700 py-1 rounded border border-emerald-200">READY ALL PART</span>}
+                                                {job.logisticStatus === 'PARTIAL' && <span className="w-full block text-center text-[10px] font-black bg-blue-100 text-blue-700 py-1 rounded border border-blue-200">READY PARTIAL</span>}
+                                                {job.logisticStatus === 'INDENT' && <span className="w-full block text-center text-[10px] font-black bg-red-100 text-red-700 py-1 rounded border border-red-200">INDENT PART</span>}
+                                                {job.logisticStatus === 'ON ORDER' && <span className="w-full block text-center text-[10px] font-black bg-orange-100 text-orange-700 py-1 rounded border border-orange-200">ON ORDER (WAITING)</span>}
+                                                {job.logisticStatus === 'NEED ORDER' && <span className="w-full block text-center text-[10px] font-black bg-gray-100 text-gray-600 py-1 rounded border border-gray-300">NEED PO</span>}
+                                            </div>
+                                        )}
+
                                         {job.isReadyToCall && stage === 'Unit di Pemilik (Tunggu Part)' && (
                                             <div className="mb-4 py-1.5 px-2 bg-emerald-100/50 rounded-lg flex items-center gap-2 border border-emerald-200 animate-pulse"><Zap size={14} className="text-emerald-600 fill-emerald-600"/><span className="text-[10px] font-black text-emerald-700 uppercase tracking-tighter">{t('ready_badge')}</span></div>
                                         )}

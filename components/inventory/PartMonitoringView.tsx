@@ -56,10 +56,13 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
         const totalParts = parts.length;
         let readyCount = 0;
         let unOrderedCount = 0;
+        let hasIndent = false;
         
         const processedParts = parts.map(part => {
             let status: 'ARRIVED' | 'READY' | 'INDENT_MANUAL' | 'WAITING' = 'WAITING';
             const reqQty = part.qty || 1;
+
+            if (part.isIndent) hasIndent = true;
 
             // TRACKING HIERARCHY:
             // 1. Physically Arrived (flagged in Job via Receiving PO)
@@ -103,7 +106,8 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
             readyParts: readyCount,
             detailedParts: processedParts,
             hasOutstandingOrder: unOrderedCount > 0,
-            unOrderedCount
+            unOrderedCount,
+            hasIndentConfirmed: hasIndent
         };
     }).filter(job => {
         const matchesSearch = 
@@ -302,6 +306,9 @@ const PartMonitoringView: React.FC<PartMonitoringViewProps> = ({ jobs, inventory
                                                 <span className="text-[9px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200 uppercase">Sebagian</span>
                                             ) : (
                                                 <span className="text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200 uppercase">Belum Ada</span>
+                                            )}
+                                            {job.hasIndentConfirmed && (
+                                                <span className="text-[9px] font-black bg-red-600 text-white px-2 py-0.5 rounded border border-red-700 uppercase animate-pulse">INDENT CONFIRMED</span>
                                             )}
                                         </div>
                                     </td>
