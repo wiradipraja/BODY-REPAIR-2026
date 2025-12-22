@@ -6,7 +6,7 @@ import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatPoliceNumber, formatDateIndo } from '../../utils/helpers';
 import { 
     Hammer, Clock, AlertTriangle, CheckCircle, ArrowRight, User, 
-    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2, Crown, Timer, CalendarClock, CalendarDays
+    MoreVertical, Briefcase, Calendar, ChevronRight, XCircle, Search, Wrench, BarChart2, Layers, History, RefreshCcw, MessageSquare, Info, AlertCircle, FileSearch, PackageSearch, Calculator, CheckCircle2, Crown, Timer, CalendarClock, CalendarDays, Save, X
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -27,7 +27,7 @@ const STAGES = [
     "Poles",
     "Finishing",
     "Quality Control",
-    "Selesai (Tunggu Pengambilan)" // NEW FINAL STAGE
+    "Selesai (Tunggu Pengambilan)" 
 ];
 
 const ADMIN_HURDLE_STATUSES = [
@@ -88,9 +88,16 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   const [searchTerm, setSearchTerm] = useState('');
   const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
   const [showProductivityReport, setShowProductivityReport] = useState(false);
-  const [reportMonth, setReportMonth] = useState(new Date().getMonth());
-  const [reportYear, setReportYear] = useState(new Date().getFullYear());
   const [viewHistoryJob, setViewHistoryJob] = useState<Job | null>(null);
+
+  // --- MODAL STATE FOR DATES ---
+  const [scheduleModal, setScheduleModal] = useState<{
+      isOpen: boolean;
+      job: Job | null;
+      targetStage?: string; // If set, this is a transition triggers
+      startDate: string;
+      endDate: string;
+  }>({ isOpen: false, job: null, startDate: '', endDate: '' });
 
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
@@ -115,9 +122,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       STAGES.forEach(s => columns[s] = []);
       activeProductionJobs.forEach(job => {
           let status = ADMIN_HURDLE_STATUSES.includes(job.statusKendaraan) ? "Persiapan Kendaraan" : (STAGES.includes(job.statusPekerjaan) ? job.statusPekerjaan : 'Bongkar');
-          
           if (job.statusKendaraan === 'Selesai (Tunggu Pengambilan)') status = "Selesai (Tunggu Pengambilan)";
-          
           if (columns[status]) columns[status].push(job);
       });
       return columns;
@@ -133,14 +138,13 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       return workload;
   }, [activeProductionJobs, settings]);
 
+  // --- FIX NaN HARI LOGIC ---
   const getJobProgress = (job: Job) => {
-      // 1. Resolve Start Date (Safe Parsing)
       let start: Date;
       try {
           if (job.actualStartDate) {
               start = new Date(job.actualStartDate);
           } else if (job.createdAt) {
-              // Handle Firestore Timestamp or Standard Date
               start = (job.createdAt as any).toDate ? (job.createdAt as any).toDate() : new Date(job.createdAt as any);
               if ((job.createdAt as any).seconds) start = new Date((job.createdAt as any).seconds * 1000);
           } else {
@@ -150,14 +154,14 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           start = new Date();
       }
 
-      // Check if date is valid
       if (isNaN(start.getTime())) start = new Date();
 
       const now = new Date();
+      // Calculate difference in milliseconds
       const diffTime = now.getTime() - start.getTime();
+      // Convert to days (floor to get full days passed)
       const daysRunning = Math.floor(diffTime / (1000 * 60 * 60 * 24)); 
 
-      // 2. Resolve Remaining Date
       let daysRemaining = null;
       if (job.tanggalEstimasiSelesai) {
           const est = new Date(job.tanggalEstimasiSelesai);
@@ -180,30 +184,60 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
       showNotification(newStatus ? "Unit diset VVIP (Prioritas)" : "Status VVIP dihapus", "success");
   };
 
-  const handleSetDates = async (job: Job) => {
-      const currentStart = job.actualStartDate ? new Date(job.actualStartDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+  // --- NEW: OPEN MODAL HANDLER ---
+  const openScheduleModal = (job: Job, targetStage?: string) => {
+      const today = new Date().toISOString().split('T')[0];
+      const currentStart = job.actualStartDate ? new Date(job.actualStartDate).toISOString().split('T')[0] : today;
       const currentEnd = job.tanggalEstimasiSelesai ? new Date(job.tanggalEstimasiSelesai).toISOString().split('T')[0] : '';
+      
+      setScheduleModal({
+          isOpen: true,
+          job,
+          targetStage,
+          startDate: currentStart,
+          endDate: currentEnd
+      });
+  };
 
-      const newStart = window.prompt("Set Tanggal Mulai Perbaikan (YYYY-MM-DD):", currentStart);
-      if (newStart === null) return;
-
-      const newEnd = window.prompt("Set Estimasi Selesai (YYYY-MM-DD):", currentEnd);
-      if (newEnd === null) return;
-
-      if (!newStart || !newEnd) {
-          showNotification("Tanggal tidak valid.", "error");
+  // --- NEW: SAVE FROM MODAL ---
+  const handleSaveSchedule = async () => {
+      if (!scheduleModal.job || !scheduleModal.startDate || !scheduleModal.endDate) {
+          showNotification("Tanggal Mulai dan Estimasi Selesai wajib diisi.", "error");
           return;
       }
 
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), {
-              actualStartDate: new Date(newStart).toISOString(),
-              tanggalEstimasiSelesai: new Date(newEnd).toISOString(),
+          const updatePayload: any = {
+              actualStartDate: new Date(scheduleModal.startDate).toISOString(),
+              tanggalEstimasiSelesai: new Date(scheduleModal.endDate).toISOString(),
               updatedAt: serverTimestamp()
-          });
-          showNotification("Jadwal produksi diperbarui.", "success");
+          };
+
+          // If this was triggered by a stage move (e.g. to Bongkar)
+          if (scheduleModal.targetStage) {
+              updatePayload.statusPekerjaan = scheduleModal.targetStage;
+              updatePayload.productionLogs = arrayUnion({ 
+                  stage: scheduleModal.targetStage, 
+                  timestamp: new Date().toISOString(), 
+                  user: userPermissions.role, 
+                  type: 'progress' 
+              });
+              
+              if (scheduleModal.targetStage === 'Selesai (Tunggu Pengambilan)') {
+                  updatePayload.statusKendaraan = 'Selesai (Tunggu Pengambilan)';
+              } else {
+                  // Ensure it's WIP if moving to active stages
+                  updatePayload.statusKendaraan = 'Work In Progress';
+              }
+          }
+
+          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, scheduleModal.job.id), updatePayload);
+          
+          showNotification(scheduleModal.targetStage ? `Unit Masuk Produksi: ${scheduleModal.targetStage}` : "Jadwal Diperbarui", "success");
+          setScheduleModal({ isOpen: false, job: null, startDate: '', endDate: '' });
+
       } catch (e: any) {
-          showNotification("Gagal update jadwal: " + e.message, "error");
+          showNotification("Gagal update: " + e.message, "error");
       }
   };
 
@@ -229,31 +263,24 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
           const newStage = STAGES[newIndex];
           const isFinalStage = newStage === "Selesai (Tunggu Pengambilan)";
 
-          // --- TRIGGER LOGIC START ---
-          const updatePayload: any = { 
-              statusPekerjaan: newStage, 
-              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
-              productionLogs: arrayUnion({ stage: newStage, timestamp: new Date().toISOString(), user: userPermissions.role, type: 'progress' }), 
-              updatedAt: serverTimestamp() 
-          };
-
+          // --- TRIGGER MODAL IF MOVING TO BONGKAR (START PRODUCTION) ---
           if (newStage === 'Bongkar' && !job.actualStartDate) {
-              const estDate = window.prompt("Unit masuk Produksi (Bongkar). Masukkan Tanggal Estimasi Selesai (YYYY-MM-DD):", new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0]);
-              if (estDate) {
-                  updatePayload.actualStartDate = new Date().toISOString();
-                  updatePayload.tanggalEstimasiSelesai = estDate;
-                  showNotification("Timer Produksi Dimulai!", "success");
-              } else {
-                  if(!window.confirm("Tanpa estimasi selesai? Klik OK untuk lanjut tanpa tanggal.")) return;
-              }
+              openScheduleModal(job, newStage);
+              return; // Stop here, wait for modal save
           }
-          // --- TRIGGER LOGIC END ---
 
           const confirmMsg = isFinalStage 
             ? "Tandai perbaikan SELESAI? Unit akan diteruskan ke Tim CRC untuk memanggil pemilik." 
             : `Pindahkan unit ke stall ${newStage}?`;
 
           if(!window.confirm(confirmMsg)) return;
+
+          const updatePayload: any = { 
+              statusPekerjaan: newStage, 
+              statusKendaraan: isFinalStage ? 'Selesai (Tunggu Pengambilan)' : job.statusKendaraan,
+              productionLogs: arrayUnion({ stage: newStage, timestamp: new Date().toISOString(), user: userPermissions.role, type: 'progress' }), 
+              updatedAt: serverTimestamp() 
+          };
 
           await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), updatePayload);
           showNotification(isFinalStage ? "Unit Selesai & CRC Notified." : `Update: ${newStage}`, "success");
@@ -347,7 +374,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                                 <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
                                                 <div className="flex gap-1">
                                                     <button onClick={() => toggleVVIP(job)} className={`p-1 rounded transition-colors ${job.isVVIP ? 'text-yellow-500 bg-yellow-50' : 'text-gray-300 hover:text-yellow-500'}`} title="Set VVIP"><Crown size={14}/></button>
-                                                    <button onClick={() => handleSetDates(job)} className="p-1 hover:bg-gray-100 rounded transition-colors text-blue-600" title="Atur Jadwal"><CalendarDays size={14}/></button>
+                                                    <button onClick={() => openScheduleModal(job)} className="p-1 hover:bg-gray-100 rounded transition-colors text-blue-600" title="Atur Jadwal"><CalendarDays size={14}/></button>
                                                     <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors"><History size={14} className="text-gray-400"/></button>
                                                 </div>
                                             </div>
@@ -403,6 +430,71 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 })}
             </div>
         </div>
+
+        {/* MODAL SET TANGGAL */}
+        <Modal 
+            isOpen={scheduleModal.isOpen} 
+            onClose={() => setScheduleModal({ isOpen: false, job: null, startDate: '', endDate: '' })} 
+            title={scheduleModal.targetStage ? "Mulai Produksi (Start Timer)" : "Atur Jadwal Perbaikan"}
+            maxWidth="max-w-md"
+        >
+            <div className="space-y-6">
+                {scheduleModal.targetStage && (
+                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-start gap-3">
+                        <Info className="text-blue-600 shrink-0 mt-0.5" size={20}/>
+                        <div>
+                            <p className="text-sm font-bold text-blue-800">Unit Memasuki Tahap Produksi</p>
+                            <p className="text-xs text-blue-600 mt-1">Timer durasi pengerjaan akan dimulai dari tanggal ini.</p>
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-1">Mulai Perbaikan (Start Date)</label>
+                        <div className="relative">
+                            <input 
+                                type="date" 
+                                required
+                                value={scheduleModal.startDate} 
+                                onChange={e => setScheduleModal({...scheduleModal, startDate: e.target.value})}
+                                className="w-full p-3 border border-gray-300 rounded-xl font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                            <Calendar className="absolute right-3 top-3 text-gray-400 pointer-events-none" size={18}/>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-1">Estimasi Selesai (Target Date)</label>
+                        <div className="relative">
+                            <input 
+                                type="date" 
+                                required
+                                value={scheduleModal.endDate} 
+                                onChange={e => setScheduleModal({...scheduleModal, endDate: e.target.value})}
+                                className="w-full p-3 border border-gray-300 rounded-xl font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                            <CalendarClock className="absolute right-3 top-3 text-indigo-400 pointer-events-none" size={18}/>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                    <button 
+                        onClick={() => setScheduleModal({ isOpen: false, job: null, startDate: '', endDate: '' })} 
+                        className="flex-1 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition-colors"
+                    >
+                        Batal
+                    </button>
+                    <button 
+                        onClick={handleSaveSchedule} 
+                        className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all transform active:scale-95 flex items-center justify-center gap-2"
+                    >
+                        <Save size={18}/> {scheduleModal.targetStage ? "Mulai & Pindah" : "Simpan Jadwal"}
+                    </button>
+                </div>
+            </div>
+        </Modal>
     </div>
   );
 };
