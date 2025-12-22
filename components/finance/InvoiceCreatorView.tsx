@@ -169,6 +169,7 @@ const InvoiceCreatorView: React.FC<InvoiceCreatorViewProps> = ({ jobs, settings,
           // Generate Invoice Number if new using Centralized Generator (INV-YYMM-XXXXX)
           let invoiceNumber = selectedJob.invoiceNumber;
           if (!isAlreadyInvoiced) {
+              // CHANGE: Menggunakan generateSequenceNumber untuk INV
               invoiceNumber = await generateSequenceNumber('INV', SERVICE_JOBS_COLLECTION, 'invoiceNumber');
               updatePayload.invoiceNumber = invoiceNumber;
           }

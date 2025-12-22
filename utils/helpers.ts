@@ -29,15 +29,16 @@ export const formatWaNumber = (phone: string | undefined): string => {
     return cleanNumber;
 };
 
-// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXXXX
+// MASTER SEQUENCE GENERATOR: CODE-YYMM-XXXXX (5 Digit Sequence)
 export const generateSequenceNumber = async (prefix: string, collectionName: string, fieldName: string = 'transactionNumber'): Promise<string> => {
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2);
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const periodCode = `${prefix}-${year}${month}`; // Contoh: INV-2405
+    const periodCode = `${prefix}-${year}${month}`; // Contoh: BKK-2405
 
     try {
         // Query transaksi terakhir pada periode bulan ini dengan kode yang sama
+        // Filter: fieldName >= prefix-yymm AND fieldName <= prefix-yymm + char terakhir tinggi
         const q = query(
             collection(db, collectionName),
             where(fieldName, '>=', periodCode),
@@ -62,24 +63,25 @@ export const generateSequenceNumber = async (prefix: string, collectionName: str
             }
         }
 
-        // Return format: PREFIX-YYMM-00001 (5 Digit Sequence)
+        // Return format: PREFIX-YYMM-00001
         return `${periodCode}-${nextSequence.toString().padStart(5, '0')}`;
         
     } catch (error) {
         console.error(`Gagal generate sequence ID untuk ${prefix}:`, error);
-        // Fallback jika offline/error: Gunakan timestamp agar tetap unik
+        // Fallback jika offline/error: Gunakan timestamp agar tetap unik tapi format mirip
         const fallbackSeq = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
         return `${periodCode}-ERR${fallbackSeq}`;
     }
 };
 
-// Wrapper khusus untuk Kasir (BKM/BKK) - Backward Compatible Interface
+// Wrapper khusus untuk Kasir (BKM/BKK) - Menggunakan Sequence Generator
 export const generateTransactionId = async (type: 'IN' | 'OUT'): Promise<string> => {
     const prefix = type === 'IN' ? 'BKM' : 'BKK';
+    // Menggunakan fungsi generator sequence database
     return generateSequenceNumber(prefix, CASHIER_COLLECTION, 'transactionNumber');
 };
 
-// Backward compatibility wrapper (jika ada komponen lain yg butuh sync, tapi disarankan pakai yg async di atas)
+// Backward compatibility wrapper (Deprecated Warning)
 export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
     console.warn("Deprecation Warning: Gunakan generateTransactionId (async) untuk nomor urut yang akurat.");
     const now = new Date();
