@@ -195,50 +195,85 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const handlePartIssuance = async (estItem: EstimateItem, idx: number) => {
     if (!selectedJob) return;
 
+    // 1. IMPROVED LOOKUP LOGIC
+    // Try finding by ID first, then by Code (Case insensitive & Trimmed)
     const inv = inventoryItems.find(i => 
         (estItem.inventoryId && i.id === estItem.inventoryId) || 
-        (estItem.number && i.code && i.code.toUpperCase().trim() === estItem.number.toUpperCase().trim())
+        (i.code && estItem.number && i.code.trim().toUpperCase() === estItem.number.trim().toUpperCase())
     );
 
-    if (!inv) { showNotification("Part belum terhubung ke Master Stok.", "error"); return; }
+    if (!inv) { 
+        showNotification("Part tidak ditemukan di Master Stok. Pastikan Kode Part sesuai dengan database.", "error"); 
+        return; 
+    }
+    
     const reqQty = Number(estItem.qty || 1);
     
     setIsSubmitting(true);
     try {
-        const invSnap = await getDoc(doc(db, SPAREPART_COLLECTION, inv.id));
-        const stockNow = invSnap.exists() ? Number(invSnap.data().stock || 0) : 0;
+        // 2. REAL-TIME STOCK CHECK (Fetch fresh data to avoid race conditions)
+        const invRef = doc(db, SPAREPART_COLLECTION, inv.id);
+        const invSnap = await getDoc(invRef);
+        
+        if (!invSnap.exists()) throw new Error("Data stok master terhapus.");
+        
+        const currentStock = Number(invSnap.data().stock || 0);
+        const currentBuyPrice = Number(invSnap.data().buyPrice || 0); // Use latest buy price
 
-        if (stockNow < reqQty) throw new Error(`Stok ${inv.name} tidak cukup! (Sisa: ${stockNow})`);
+        if (currentStock < reqQty) {
+            throw new Error(`Stok Fisik ${inv.name} tidak cukup! (Gudang: ${currentStock}, Butuh: ${reqQty})`);
+        }
 
-        const cost = (Number(inv.buyPrice) || 0) * reqQty;
-        await updateDoc(doc(db, SPAREPART_COLLECTION, inv.id), { stock: increment(-reqQty), updatedAt: serverTimestamp() });
+        // 3. CALCULATE COGS (HPP)
+        const cost = currentBuyPrice * reqQty;
 
+        // 4. EXECUTE UPDATES
+        // A. Deduct Stock
+        await updateDoc(invRef, { 
+            stock: increment(-reqQty), 
+            updatedAt: serverTimestamp() 
+        });
+
+        // B. Update Work Order
+        // Create a copy of the parts array to update the specific index
         const currentPartItems = [...(selectedJob.estimateData?.partItems || [])];
-        currentPartItems[idx] = { ...currentPartItems[idx], hasArrived: true };
+        
+        // Update the specific item status and ensure Inventory ID is linked
+        currentPartItems[idx] = { 
+            ...currentPartItems[idx], 
+            hasArrived: true,
+            inventoryId: inv.id // Link it now if it wasn't before
+        };
 
         const log: UsageLogItem = cleanObject({
-            itemId: inv.id, itemName: inv.name, itemCode: inv.code || '-',
-            qty: reqQty, costPerUnit: Number(inv.buyPrice) || 0, totalCost: cost,
-            category: 'sparepart', notes: 'Sesuai Estimasi WO',
-            issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff',
+            itemId: inv.id, itemName: inv.name, itemCode: inv.code || estItem.number || '-',
+            qty: reqQty, inputQty: reqQty, inputUnit: inv.unit || 'Pcs',
+            costPerUnit: currentBuyPrice, totalCost: cost,
+            category: 'sparepart', notes: `Issued to WO ${selectedJob.woNumber}`,
+            issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Logistics',
             refPartIndex: idx 
         });
 
-        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), {
+        const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
+        await updateDoc(jobRef, {
             'estimateData.partItems': currentPartItems,
             'costData.hargaBeliPart': increment(cost),
-            usageLog: arrayUnion(log)
+            usageLog: arrayUnion(log),
+            updatedAt: serverTimestamp()
         });
 
-        showNotification("Part berhasil dikeluarkan.", "success");
+        showNotification(`Berhasil: ${inv.name} dikeluarkan (-${reqQty}).`, "success");
         onRefreshData();
-    } catch (err: any) { showNotification(err.message, "error"); } 
-    finally { setIsSubmitting(false); }
+    } catch (err: any) { 
+        showNotification(err.message, "error"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
   };
 
   const handleCancelIssuance = async (log: UsageLogItem) => {
     if (!selectedJob || !userPermissions.role.includes('Manager')) return;
-    if (!window.confirm("Batalkan pengeluaran barang ini?")) return;
+    if (!window.confirm("Batalkan pengeluaran barang ini? Stok akan dikembalikan.")) return;
 
     setIsSubmitting(true);
     try {
@@ -255,7 +290,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             }
         }
         await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), cleanObject(payload));
-        showNotification("Berhasil dibatalkan.", "success");
+        showNotification("Pengeluaran dibatalkan. Stok dikembalikan.", "success");
         onRefreshData();
     } catch (e: any) { showNotification(e.message, "error"); } 
     finally { setIsSubmitting(false); }
@@ -412,9 +447,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {(selectedJob.estimateData?.partItems || []).map((item, idx) => {
+                                // Match by ID or Code
                                 const inv = inventoryItems.find(i => 
                                     (item.inventoryId && i.id === item.inventoryId) || 
-                                    (item.number && i.code && i.code.toUpperCase().trim() === item.number.toUpperCase().trim())
+                                    (i.code && item.number && i.code.trim().toUpperCase() === item.number.trim().toUpperCase())
                                 );
                                 const isIssued = !!item.hasArrived;
                                 const readyStock = Number(inv?.stock || 0);
@@ -434,7 +470,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 <div className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold ${readyStock >= reqQty ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
                                                     {readyStock.toFixed(2)} {inv.unit}
                                                 </div>
-                                            ) : <span className="text-gray-400 text-xs italic">Link Lost</span>}
+                                            ) : <span className="text-gray-400 text-xs italic bg-gray-100 px-2 py-1 rounded">Cek Master Stok</span>}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {isIssued ? (
@@ -444,8 +480,12 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                             ) : (
                                                 <button 
                                                     onClick={() => handlePartIssuance(item, idx)}
-                                                    disabled={isSubmitting || !inv || readyStock < reqQty}
-                                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-2"
+                                                    disabled={isSubmitting || (inv ? readyStock < reqQty : false)} // Allow click if inv not found to show alert
+                                                    className={`px-4 py-2 rounded-lg font-bold text-xs shadow-sm transition-colors inline-flex items-center gap-2 ${
+                                                        !inv ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' :
+                                                        readyStock < reqQty ? 'bg-red-100 text-red-500 cursor-not-allowed' :
+                                                        'bg-indigo-600 text-white hover:bg-indigo-700'
+                                                    }`}
                                                 >
                                                     {isSubmitting ? '...' : <><Save size={14}/> Keluar Part</>}
                                                 </button>
