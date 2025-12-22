@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, CashierTransaction, UserPermissions, Settings } from '../../types';
-import { collection, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
-import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
+import { collection, addDoc, getDocs, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, generateTransactionNumber } from '../../utils/helpers';
 import { generateGatePassPDF, generateReceiptPDF, generateInvoicePDF } from '../../utils/pdfGenerator';
 import { Banknote, Search, FileText, Printer, Save, History, ArrowUpCircle, ArrowDownCircle, Ticket, CheckCircle, Wallet, Building2, Settings as SettingsIcon, AlertCircle, Calculator, ShieldCheck, Percent, Info } from 'lucide-react';
@@ -207,7 +207,7 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
       }
   };
 
-  const handlePrintGatePass = () => {
+  const handlePrintGatePass = async () => {
       if (!selectedJob) {
           showNotification("Pilih unit/WO terlebih dahulu.", "error");
           return;
@@ -224,8 +224,40 @@ const CashierView: React.FC<CashierViewProps> = ({ jobs, transactions, userPermi
           }
       }
       
+      // 1. Generate PDF
       generateGatePassPDF(selectedJob, settings, userPermissions.role || 'Staff');
-      showNotification("Gate Pass berhasil didownload.", "success");
+
+      // 2. TRIGGER JOB CONTROL & CRC UPDATE
+      // Logic: Unit sudah GatePass = Unit Keluar Bengkel
+      // - Remove from Active Job Control (Change statusKendaraan & posisiKendaraan)
+      // - Add to CRC Queue (Set crcFollowUpStatus: 'Pending')
+      try {
+          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
+          await updateDoc(jobRef, {
+              statusKendaraan: 'Sudah Diambil Pemilik', // Status changed from 'Selesai (Tunggu Pengambilan)'
+              posisiKendaraan: 'Di Pemilik', // Position changed from 'Di Bengkel'
+              crcFollowUpStatus: 'Pending', // NEW: Trigger entry to CRC Dashboard
+              updatedAt: serverTimestamp(),
+              productionLogs: arrayUnion({
+                  stage: 'Gate Pass',
+                  timestamp: new Date().toISOString(),
+                  user: userPermissions.role || 'Cashier',
+                  type: 'progress',
+                  note: 'Unit Keluar (Gate Pass Printed) -> Masuk Antrian CRC'
+              })
+          });
+          
+          showNotification("Gate Pass didownload. Unit dipindah ke 'Sudah Diambil' & 'Antrian CRC'.", "success");
+          
+          // Clear Selection
+          setSelectedJob(null);
+          setWoSearch('');
+          setPaymentSummary({ totalBill: 0, totalPaid: 0, remaining: 0 });
+
+      } catch (e: any) {
+          console.error("Error updating job status after Gatepass:", e);
+          showNotification("PDF dicetak, namun gagal update status unit di sistem.", "warning");
+      }
   };
 
   const handlePrintInvoice = () => {

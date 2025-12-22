@@ -115,7 +115,12 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
           const isClosed = j.isClosed || j.statusKendaraan === 'Sudah Diambil Pemilik';
           const isPending = !j.crcFollowUpStatus || j.crcFollowUpStatus === 'Pending';
           return isClosed && isPending && (j.policeNumber.toLowerCase().includes(term) || j.customerName.toLowerCase().includes(term));
-      }).sort((a,b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0));
+      }).sort((a,b) => {
+          // Priority sort: Latest Closing OR Latest Update (GatePass)
+          const timeA = a.closedAt?.seconds || a.updatedAt?.seconds || 0;
+          const timeB = b.closedAt?.seconds || b.updatedAt?.seconds || 0;
+          return timeB - timeA;
+      });
   }, [jobs, searchTerm]);
 
   const historyJobs = useMemo(() => {
@@ -388,7 +393,9 @@ const CrcDashboardView: React.FC<CrcDashboardViewProps> = ({ jobs, inventoryItem
                                 <tbody className="divide-y divide-gray-100">
                                     {followUpJobs.map(job => (
                                         <tr key={job.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-6 py-4 text-gray-600 font-bold">{formatDateIndo(job.closedAt)}</td>
+                                            <td className="px-6 py-4 text-gray-600 font-bold">
+                                                {job.closedAt ? formatDateIndo(job.closedAt) : (job.updatedAt ? formatDateIndo(job.updatedAt) : '-')}
+                                            </td>
                                             <td className="px-6 py-4"><div className="font-bold text-gray-900">{job.customerName}</div><div className="text-xs text-gray-500">{job.customerPhone}</div></td>
                                             <td className="px-6 py-4"><div className="font-medium text-gray-800">{job.policeNumber}</div><div className="text-xs text-gray-500">{job.carModel}</div></td>
                                             <td className="px-6 py-4 text-center">
