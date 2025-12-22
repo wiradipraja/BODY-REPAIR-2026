@@ -225,6 +225,8 @@ export interface Vehicle {
   nomorMesin?: string;
   tahunPembuatan?: string;
   namaAsuransi: string;
+  nomorPolis?: string;
+  asuransiExpiryDate?: string;
   isDeleted?: boolean;
   createdAt?: any;
 }
