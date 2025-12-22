@@ -100,15 +100,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   }, [job.warnaMobil, settings.specialColorRates]);
 
   useEffect(() => {
-      if (!job.estimateData && job.namaAsuransi) {
-          const ins = insuranceOptions.find(i => i.name === job.namaAsuransi);
-          if (ins) {
+      // FIX: Cek master asuransi dan terapkan default jika diskon saat ini masih 0
+      const ins = insuranceOptions.find(i => i.name === job.namaAsuransi);
+      
+      if (ins) {
+          // Hanya override jika nilai saat ini 0 (indikasi data baru/draft)
+          if (discountJasa === 0 && discountPart === 0) {
               setDiscountJasa(ins.jasa);
               setDiscountPart(ins.part);
           }
       }
       loadServices();
-  }, [job.namaAsuransi, insuranceOptions, job.estimateData]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.namaAsuransi, insuranceOptions]); 
 
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
