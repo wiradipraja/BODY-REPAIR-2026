@@ -81,7 +81,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
              }
         }
 
-        const isManager = role === 'Manager';
+        // Logic Akses Finance: Manager atau Admin Bengkel
+        const hasFinanceAccess = role === 'Manager' || role === 'Admin Bengkel';
 
         // Set User Data
         setUserData({
@@ -94,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setUserPermissions({
             role: role,
-            hasFinanceAccess: isManager // Only Manager has finance access
+            hasFinanceAccess: hasFinanceAccess 
         });
       } else {
         setUserData({ uid: '', email: '', displayName: '' });
