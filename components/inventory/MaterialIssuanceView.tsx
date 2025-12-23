@@ -4,7 +4,8 @@ import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Suppli
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
-import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, RefreshCw } from 'lucide-react';
+import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick } from 'lucide-react';
+import Modal from '../ui/Modal';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -23,10 +24,16 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [filterWo, setFilterWo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Material Form States
   const [materialSearchTerm, setMaterialSearchTerm] = useState(''); 
   const [inputQty, setInputQty] = useState<number | ''>(''); 
   const [notes, setNotes] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<string>(''); 
+
+  // Part Linking Modal States
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<{ estItem: EstimateItem, idx: number } | null>(null);
+  const [partSearchTerm, setPartSearchTerm] = useState('');
 
   const recommendations = useMemo(() => {
     const stockMap: Record<string, number> = {};
@@ -102,6 +109,16 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       return inventoryItems.filter(i => i.category === 'material');
   }, [inventoryItems]);
 
+  // Filtered Parts for Linking Modal
+  const linkingCandidates = useMemo(() => {
+      if (!partSearchTerm) return [];
+      const term = partSearchTerm.toLowerCase();
+      return inventoryItems.filter(i => 
+          i.category === 'sparepart' &&
+          (i.name.toLowerCase().includes(term) || (i.code && i.code.toLowerCase().includes(term)))
+      ).slice(0, 10);
+  }, [inventoryItems, partSearchTerm]);
+
   useEffect(() => {
       setMaterialSearchTerm('');
       setInputQty('');
@@ -120,7 +137,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   const currentItem = findItem(materialSearchTerm);
   
-  // Update selected unit when current item is detected
   useEffect(() => {
     if (currentItem) {
       setSelectedUnit(currentItem.unit);
@@ -129,14 +145,11 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   const unitOptions = useMemo(() => {
       const base = currentItem?.unit || 'Pcs';
-      // Specific conversions for workshop materials
       if (base === 'Liter' || base === 'ML') return ['Liter', 'ML', 'Gram'];
       if (base === 'Kg' || base === 'Gram') return ['Kg', 'Gram', 'ML'];
       if (base === 'Kaleng') return ['Kaleng', 'Liter', 'ML', 'Gram'];
       if (base === 'Pcs') return ['Pcs', 'Set', 'Lembar', 'Roll'];
-      
-      const opts = [base];
-      return opts;
+      return [base];
   }, [currentItem]);
 
   const handleMaterialIssuance = async (e: React.FormEvent) => {
@@ -155,7 +168,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         return;
     }
 
-    // CONVERSION LOGIC: All sub-units (ML, Gram) are assumed 1/1000th of base (Liter, Kg, Kaleng)
     let finalDeductQty = qty;
     if ((item.unit === 'Liter' || item.unit === 'Kg' || item.unit === 'Kaleng') && 
         (selectedUnit === 'ML' || selectedUnit === 'Gram')) {
@@ -166,22 +178,31 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     try {
         const itemSnap = await getDoc(doc(db, SPAREPART_COLLECTION, item.id));
         const currentStock = itemSnap.exists() ? Number(itemSnap.data().stock || 0) : 0;
+        const currentBuyPrice = itemSnap.exists() ? Number(itemSnap.data().buyPrice || 0) : 0; // Use latest buy price
 
         if (item.isStockManaged !== false && currentStock < finalDeductQty) {
             throw new Error(`Stok tidak cukup! Tersedia: ${currentStock.toFixed(3)} ${item.unit}`);
         }
 
-        const cost = (Number(item.buyPrice) || 0) * finalDeductQty;
+        // COGS CALCULATION: Based on Master Buy Price
+        const cost = currentBuyPrice * finalDeductQty;
+        
         const logEntry: UsageLogItem = cleanObject({
             itemId: item.id, itemName: item.name, itemCode: item.code || '-',
             qty: finalDeductQty, inputQty: qty, inputUnit: selectedUnit || item.unit || 'Unit',
-            costPerUnit: Number(item.buyPrice) || 0, totalCost: cost,
+            costPerUnit: currentBuyPrice, totalCost: cost,
             category: 'material', notes: notes || 'Pemakaian Bahan',
             issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Staff'
         });
 
+        // Decrement Stock
         await updateDoc(doc(db, SPAREPART_COLLECTION, item.id), { stock: increment(-finalDeductQty), updatedAt: serverTimestamp() });
-        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), { 'costData.hargaModalBahan': increment(cost), usageLog: arrayUnion(logEntry) });
+        
+        // Update Job Costs (Material Bucket)
+        await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id), { 
+            'costData.hargaModalBahan': increment(cost), 
+            usageLog: arrayUnion(logEntry) 
+        });
 
         showNotification("Bahan berhasil dibebankan.", "success");
         setMaterialSearchTerm('');
@@ -192,82 +213,84 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     } finally { setIsSubmitting(false); }
   };
 
-  const handlePartIssuance = async (estItem: EstimateItem, idx: number) => {
-    if (!selectedJob) return;
+  const executePartIssuance = async (estItem: EstimateItem, idx: number, inventoryItem: InventoryItem) => {
+      if (!selectedJob) return;
+      const reqQty = Number(estItem.qty || 1);
 
-    // 1. IMPROVED LOOKUP LOGIC
-    // Try finding by ID first, then by Code (Case insensitive & Trimmed)
+      setIsSubmitting(true);
+      try {
+          const invRef = doc(db, SPAREPART_COLLECTION, inventoryItem.id);
+          const invSnap = await getDoc(invRef);
+          
+          if (!invSnap.exists()) throw new Error("Data stok master terhapus.");
+          
+          const currentStock = Number(invSnap.data().stock || 0);
+          const currentBuyPrice = Number(invSnap.data().buyPrice || 0); // Strict: Use Master Buy Price (COGS)
+
+          if (currentStock < reqQty) {
+              throw new Error(`Stok Fisik ${inventoryItem.name} tidak cukup! (Gudang: ${currentStock}, Butuh: ${reqQty})`);
+          }
+
+          // COGS CALCULATION
+          const cost = currentBuyPrice * reqQty;
+
+          // Decrement Stock
+          await updateDoc(invRef, { 
+              stock: increment(-reqQty), 
+              updatedAt: serverTimestamp() 
+          });
+
+          const currentPartItems = [...(selectedJob.estimateData?.partItems || [])];
+          currentPartItems[idx] = { 
+              ...currentPartItems[idx], 
+              hasArrived: true,
+              inventoryId: inventoryItem.id // Force Link
+          };
+
+          const log: UsageLogItem = cleanObject({
+              itemId: inventoryItem.id, itemName: inventoryItem.name, itemCode: inventoryItem.code || estItem.number || '-',
+              qty: reqQty, inputQty: reqQty, inputUnit: inventoryItem.unit || 'Pcs',
+              costPerUnit: currentBuyPrice, totalCost: cost,
+              category: 'sparepart', notes: `Issued to WO ${selectedJob.woNumber}`,
+              issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Logistics',
+              refPartIndex: idx 
+          });
+
+          const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
+          // Update Job Costs (Sparepart Bucket)
+          await updateDoc(jobRef, {
+              'estimateData.partItems': currentPartItems,
+              'costData.hargaBeliPart': increment(cost), 
+              usageLog: arrayUnion(log),
+              updatedAt: serverTimestamp()
+          });
+
+          showNotification(`Berhasil: ${inventoryItem.name} dikeluarkan. Cost tercatat Rp ${formatCurrency(cost)}.`, "success");
+          onRefreshData();
+          setIsLinkModalOpen(false);
+          setLinkTarget(null);
+      } catch (err: any) { 
+          showNotification(err.message, "error"); 
+      } finally { 
+          setIsSubmitting(false); 
+      }
+  };
+
+  const handlePartAction = (estItem: EstimateItem, idx: number) => {
+    // 1. Try Automatic Match
     const inv = inventoryItems.find(i => 
         (estItem.inventoryId && i.id === estItem.inventoryId) || 
         (i.code && estItem.number && i.code.trim().toUpperCase() === estItem.number.trim().toUpperCase())
     );
 
-    if (!inv) { 
-        showNotification("Part tidak ditemukan di Master Stok. Pastikan Kode Part sesuai dengan database.", "error"); 
-        return; 
-    }
-    
-    const reqQty = Number(estItem.qty || 1);
-    
-    setIsSubmitting(true);
-    try {
-        // 2. REAL-TIME STOCK CHECK (Fetch fresh data to avoid race conditions)
-        const invRef = doc(db, SPAREPART_COLLECTION, inv.id);
-        const invSnap = await getDoc(invRef);
-        
-        if (!invSnap.exists()) throw new Error("Data stok master terhapus.");
-        
-        const currentStock = Number(invSnap.data().stock || 0);
-        const currentBuyPrice = Number(invSnap.data().buyPrice || 0); // Use latest buy price
-
-        if (currentStock < reqQty) {
-            throw new Error(`Stok Fisik ${inv.name} tidak cukup! (Gudang: ${currentStock}, Butuh: ${reqQty})`);
-        }
-
-        // 3. CALCULATE COGS (HPP)
-        const cost = currentBuyPrice * reqQty;
-
-        // 4. EXECUTE UPDATES
-        // A. Deduct Stock
-        await updateDoc(invRef, { 
-            stock: increment(-reqQty), 
-            updatedAt: serverTimestamp() 
-        });
-
-        // B. Update Work Order
-        // Create a copy of the parts array to update the specific index
-        const currentPartItems = [...(selectedJob.estimateData?.partItems || [])];
-        
-        // Update the specific item status and ensure Inventory ID is linked
-        currentPartItems[idx] = { 
-            ...currentPartItems[idx], 
-            hasArrived: true,
-            inventoryId: inv.id // Link it now if it wasn't before
-        };
-
-        const log: UsageLogItem = cleanObject({
-            itemId: inv.id, itemName: inv.name, itemCode: inv.code || estItem.number || '-',
-            qty: reqQty, inputQty: reqQty, inputUnit: inv.unit || 'Pcs',
-            costPerUnit: currentBuyPrice, totalCost: cost,
-            category: 'sparepart', notes: `Issued to WO ${selectedJob.woNumber}`,
-            issuedAt: new Date().toISOString(), issuedBy: userPermissions.role || 'Logistics',
-            refPartIndex: idx 
-        });
-
-        const jobRef = doc(db, SERVICE_JOBS_COLLECTION, selectedJob.id);
-        await updateDoc(jobRef, {
-            'estimateData.partItems': currentPartItems,
-            'costData.hargaBeliPart': increment(cost),
-            usageLog: arrayUnion(log),
-            updatedAt: serverTimestamp()
-        });
-
-        showNotification(`Berhasil: ${inv.name} dikeluarkan (-${reqQty}).`, "success");
-        onRefreshData();
-    } catch (err: any) { 
-        showNotification(err.message, "error"); 
-    } finally { 
-        setIsSubmitting(false); 
+    if (inv) {
+        // Found! Execute directly
+        executePartIssuance(estItem, idx, inv);
+    } else {
+        // Not Found! Open Manual Link Modal
+        setLinkTarget({ estItem, idx });
+        setPartSearchTerm(estItem.number || estItem.name || '');
+        setIsLinkModalOpen(true);
     }
   };
 
@@ -279,6 +302,8 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     try {
         await updateDoc(doc(db, SPAREPART_COLLECTION, log.itemId), { stock: increment(log.qty) });
         const newLog = (selectedJob.usageLog || []).filter(l => !(l.itemId === log.itemId && l.issuedAt === log.issuedAt));
+        
+        // Correctly revert cost bucket
         const field = log.category === 'material' ? 'costData.hargaModalBahan' : 'costData.hargaBeliPart';
         const payload: any = { usageLog: newLog, [field]: increment(-log.totalCost) };
         
@@ -298,7 +323,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   const themeColor = issuanceType === 'sparepart' ? 'indigo' : 'orange';
   const themeBg = issuanceType === 'sparepart' ? 'bg-indigo-600' : 'bg-orange-600';
-  const themeLightBg = issuanceType === 'sparepart' ? 'bg-indigo-50' : 'bg-orange-50';
   const themeText = issuanceType === 'sparepart' ? 'text-indigo-700' : 'text-orange-700';
 
   return (
@@ -313,7 +337,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         {issuanceType === 'sparepart' ? 'Logistics / Keluar Part' : 'Supply / Pakai Bahan'}
                     </h1>
                     <p className="text-sm text-gray-500 font-medium">
-                        Manajemen Alokasi Stok Gudang & Bahan Produksi
+                        Manajemen Alokasi Stok Gudang & Pembebanan Biaya (COGS)
                     </p>
                 </div>
             </div>
@@ -323,6 +347,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             </div>
         </div>
 
+        {/* SEARCH WORK ORDER */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -383,52 +408,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-                    <Zap size={16} className="text-indigo-500"/>
-                    <h3 className="text-sm font-bold text-gray-700 uppercase">Rekomendasi Ready (FIFO)</h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-                    {recommendations.readyForPart.length > 0 ? recommendations.readyForPart.map(job => (
-                        <button 
-                            key={job.id} 
-                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
-                            className="shrink-0 bg-indigo-50 border border-indigo-100 p-3 rounded-lg hover:bg-indigo-100 transition-colors text-left min-w-[160px]"
-                        >
-                            <span className="block text-[10px] font-bold text-indigo-400 mb-1">UNIT PRIORITAS</span>
-                            <span className="block font-bold text-gray-900">{job.policeNumber}</span>
-                            <span className="block text-xs text-gray-500">{job.woNumber}</span>
-                        </button>
-                    )) : (
-                        <div className="py-4 text-center w-full text-xs text-gray-400 italic">Belum ada unit 100% ready</div>
-                    )}
-                </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm h-full">
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-                    <Target size={16} className="text-orange-500"/>
-                    <h3 className="text-sm font-bold text-gray-700 uppercase">Belum Ada Record Bahan</h3>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-                    {recommendations.missingMaterial.length > 0 ? recommendations.missingMaterial.map(job => (
-                        <button 
-                            key={job.id} 
-                            onClick={() => { setSelectedJobId(job.id); setFilterWo(job.woNumber || ''); }}
-                            className="shrink-0 bg-orange-50 border border-orange-100 p-3 rounded-lg hover:bg-orange-100 transition-colors text-left min-w-[160px]"
-                        >
-                            <span className="block text-[10px] font-bold text-orange-400 mb-1">INPUT DIBUTUHKAN</span>
-                            <span className="block font-bold text-gray-900">{job.policeNumber}</span>
-                            <span className="block text-xs text-gray-500">{job.woNumber}</span>
-                        </button>
-                    )) : (
-                        <div className="py-4 text-center w-full text-xs text-gray-400 italic">Semua unit sudah memiliki log bahan</div>
-                    )}
-                </div>
-            </div>
-        </div>
-
         {issuanceType === 'sparepart' && selectedJob && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fade-in">
                 <div className="p-4 bg-gray-50 border-b flex items-center gap-3">
@@ -447,7 +426,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {(selectedJob.estimateData?.partItems || []).map((item, idx) => {
-                                // Match by ID or Code
+                                // Match Logic: ID first, then Code
                                 const inv = inventoryItems.find(i => 
                                     (item.inventoryId && i.id === item.inventoryId) || 
                                     (i.code && item.number && i.code.trim().toUpperCase() === item.number.trim().toUpperCase())
@@ -470,7 +449,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 <div className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold ${readyStock >= reqQty ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
                                                     {readyStock.toFixed(2)} {inv.unit}
                                                 </div>
-                                            ) : <span className="text-gray-400 text-xs italic bg-gray-100 px-2 py-1 rounded">Cek Master Stok</span>}
+                                            ) : <span className="text-orange-500 text-xs italic bg-orange-50 px-2 py-1 rounded border border-orange-100 font-bold">Perlu Link Manual</span>}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {isIssued ? (
@@ -479,15 +458,15 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                                 </span>
                                             ) : (
                                                 <button 
-                                                    onClick={() => handlePartIssuance(item, idx)}
-                                                    disabled={isSubmitting || (inv ? readyStock < reqQty : false)} // Allow click if inv not found to show alert
+                                                    onClick={() => handlePartAction(item, idx)}
+                                                    disabled={isSubmitting || (inv && readyStock < reqQty)} 
                                                     className={`px-4 py-2 rounded-lg font-bold text-xs shadow-sm transition-colors inline-flex items-center gap-2 ${
-                                                        !inv ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' :
+                                                        !inv ? 'bg-orange-500 text-white hover:bg-orange-600' : // Not found -> Manual Link
                                                         readyStock < reqQty ? 'bg-red-100 text-red-500 cursor-not-allowed' :
                                                         'bg-indigo-600 text-white hover:bg-indigo-700'
                                                     }`}
                                                 >
-                                                    {isSubmitting ? '...' : <><Save size={14}/> Keluar Part</>}
+                                                    {isSubmitting ? '...' : !inv ? <><Link size={14}/> Link & Keluar</> : <><Save size={14}/> Keluar Part</>}
                                                 </button>
                                             )}
                                         </td>
@@ -499,6 +478,71 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                 </div>
             </div>
         )}
+
+        {/* MANUAL LINKING MODAL */}
+        <Modal 
+            isOpen={isLinkModalOpen} 
+            onClose={() => setIsLinkModalOpen(false)} 
+            title="Manual Part Linking & Issuance"
+            maxWidth="max-w-3xl"
+        >
+            <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
+                    <AlertTriangle className="text-amber-600 mt-1" size={20}/>
+                    <div className="text-xs text-amber-800">
+                        <strong>Perhatian:</strong> Sistem tidak dapat menemukan part yang cocok secara otomatis. 
+                        Silakan cari dan pilih part yang benar dari Master Gudang untuk dikeluarkan. 
+                        Aksi ini akan mencatat Harga Modal (HPP) ke WO ini.
+                    </div>
+                </div>
+
+                <div className="bg-gray-100 p-4 rounded-xl mb-4">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Item Estimasi (Permintaan SA)</p>
+                    <p className="text-lg font-black text-gray-900">{linkTarget?.estItem.name}</p>
+                    <p className="text-sm font-mono text-gray-600">Kode: {linkTarget?.estItem.number || '-'} | Qty: {linkTarget?.estItem.qty || 1}</p>
+                </div>
+
+                <div className="relative">
+                    <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
+                    <input 
+                        type="text" 
+                        autoFocus
+                        placeholder="Cari di Master Stok (Nama / Kode)..." 
+                        value={partSearchTerm}
+                        onChange={e => setPartSearchTerm(e.target.value)}
+                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-bold"
+                    />
+                </div>
+
+                <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                    {linkingCandidates.map(item => (
+                        <div key={item.id} className="p-3 hover:bg-gray-50 flex justify-between items-center group">
+                            <div>
+                                <div className="font-bold text-gray-800">{item.name}</div>
+                                <div className="text-xs text-gray-500 font-mono">{item.code} | Stok: {item.stock} {item.unit}</div>
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    if(linkTarget && linkTarget.idx !== undefined) {
+                                        if(item.stock < (linkTarget.estItem.qty || 1)) {
+                                            if(!window.confirm("Stok gudang kurang dari permintaan. Tetap lanjutkan (Stok jadi minus)?")) return;
+                                        }
+                                        executePartIssuance(linkTarget.estItem, linkTarget.idx, item);
+                                    }
+                                }}
+                                disabled={isSubmitting}
+                                className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-2"
+                            >
+                                <MousePointerClick size={14}/> Pilih & Keluarkan
+                            </button>
+                        </div>
+                    ))}
+                    {linkingCandidates.length === 0 && (
+                        <div className="p-4 text-center text-gray-400 text-xs italic">Part tidak ditemukan di Master Stok.</div>
+                    )}
+                </div>
+            </div>
+        </Modal>
 
         {issuanceType === 'material' && selectedJob && (
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-fade-in">

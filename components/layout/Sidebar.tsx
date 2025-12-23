@@ -17,10 +17,10 @@ interface SidebarProps {
 const DICTIONARY: Record<string, Record<string, string>> = {
     id: {
         overview_root: 'Ikhtisar / Overview',
-        dashboard: 'Dashboard Utama',
-        bi: 'Analisis Bisnis',
-        kpi: 'Performa Staff (KPI)',
-        ai: 'AI Strategic Insight',
+        dash_main: 'Dashboard Utama',
+        dash_biz: 'Analisis Bisnis',
+        dash_kpi: 'Performa Staff (KPI)',
+        dash_ai: 'AI Strategic Insight',
         input_data: 'Input Unit Baru',
         estimation_root: 'Estimasi & WO',
         est_create: 'Buat Estimasi',
@@ -49,10 +49,10 @@ const DICTIONARY: Record<string, Record<string, string>> = {
     },
     en: {
         overview_root: 'Overview',
-        dashboard: 'Main Dashboard',
-        bi: 'Business Analysis',
-        kpi: 'Staff Performance',
-        ai: 'AI Strategic Insight',
+        dash_main: 'Main Dashboard',
+        dash_biz: 'Business Intelligence',
+        dash_kpi: 'Staff KPI',
+        dash_ai: 'AI Strategic Insight',
         input_data: 'Vehicle Intake',
         estimation_root: 'Estimates & WO',
         est_create: 'Create Estimate',
@@ -90,15 +90,15 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = useMemo(() => {
     const items = [
-      { 
-          id: 'overview_root', 
-          label: t('overview_root'), 
+      {
+          id: 'overview_root',
+          label: t('overview_root'),
           icon: LayoutDashboard,
           children: [
-              { id: 'overview', label: t('dashboard'), icon: LayoutDashboard },
-              { id: 'business_intelligence', label: t('bi'), icon: TrendingUp },
-              { id: 'kpi_performance', label: t('kpi'), icon: Trophy },
-              { id: 'ai_insight', label: t('ai'), icon: Sparkles },
+              { id: 'overview_main', label: t('dash_main'), icon: LayoutDashboard },
+              { id: 'overview_business', label: t('dash_biz'), icon: TrendingUp },
+              { id: 'overview_kpi', label: t('dash_kpi'), icon: Trophy },
+              { id: 'overview_ai', label: t('dash_ai'), icon: Sparkles },
           ]
       },
       { id: 'input_data', label: t('input_data'), icon: PlusCircle },

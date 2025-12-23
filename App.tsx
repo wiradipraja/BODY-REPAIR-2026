@@ -8,11 +8,11 @@ import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
 
 // Components
-import MainDashboard from './components/dashboard/MainDashboard';
 import OverviewDashboard from './components/dashboard/OverviewDashboard';
-import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView'; 
+import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView';
 import KPIPerformanceView from './components/dashboard/KPIPerformanceView';
-import AIAssistantView from './components/dashboard/AIAssistantView'; 
+import AIAssistantView from './components/dashboard/AIAssistantView';
+import MainDashboard from './components/dashboard/MainDashboard';
 import LoginView from './components/auth/LoginView';
 import Sidebar from './components/layout/Sidebar';
 import Modal from './components/ui/Modal';
@@ -39,7 +39,7 @@ import ReportCenterView from './components/reports/ReportCenterView';
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
   
-  const [currentView, setCurrentView] = useState('overview');
+  const [currentView, setCurrentView] = useState('overview_main'); // Set default to Overview
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   
@@ -375,16 +375,24 @@ const AppContent: React.FC = () => {
         {/* Increased Z-Index to 100 to ensure notification appears above Modals */}
         {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-[100] animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
 
-        {currentView === 'overview' && ( <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} /> )}
-        {currentView === 'business_intelligence' && ( <BusinessIntelligenceView jobs={jobs} settings={appSettings} /> )}
-        {currentView === 'kpi_performance' && ( <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} /> )}
-        {currentView === 'ai_insight' && ( <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={inventoryItems} /> )}
-        
+        {currentView === 'overview_main' && (
+            <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} />
+        )}
+        {currentView === 'overview_business' && (
+            <BusinessIntelligenceView jobs={jobs} settings={appSettings} />
+        )}
+        {currentView === 'overview_kpi' && (
+            <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} />
+        )}
+        {currentView === 'overview_ai' && (
+            <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={inventoryItems} />
+        )}
+
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
                  <h1 className="text-3xl font-bold text-gray-900">Input Data Unit Baru</h1>
                  <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
-                    <JobForm settings={appSettings} onSave={handleSaveVehicle} onCancel={() => setCurrentView('overview')} />
+                    <JobForm settings={appSettings} onSave={handleSaveVehicle} onCancel={() => setCurrentView('entry_data')} />
                  </div>
              </div>
         )}

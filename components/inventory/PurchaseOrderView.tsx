@@ -72,21 +72,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Update selectedPO data when realTimePOs change, BUT ONLY if we are looking at the same ID.
   useEffect(() => {
       if (selectedPO) {
           const updated = realTimePOs.find(p => p.id === selectedPO.id);
           if (updated) setSelectedPO(updated);
       }
-  }, [realTimePOs]); // Removed selectedPO to avoid loop, we check inside
+  }, [realTimePOs]);
 
-  // Initialize Receiving Map only when switching to a different PO or viewing detail for first time
   useEffect(() => {
       if (selectedPO && (selectedPO.status === 'Ordered' || selectedPO.status === 'Partial')) {
-          // Reset selections
           setSelectedItemsToReceive([]);
-          
-          // Pre-fill quantities with remaining amount
           const initialQtyMap: Record<number, number> = {};
           selectedPO.items.forEach((item, idx) => {
               const remaining = item.qty - (item.qtyReceived || 0);
@@ -94,7 +89,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           });
           setReceiveQtyMap(initialQtyMap);
       }
-  }, [selectedPO?.id, viewMode]); // Only trigger on ID change or view mode change to prevent input reset while typing
+  }, [selectedPO?.id, viewMode]);
 
   const toggleItemSelection = (idx: number) => {
     setSelectedItemsToReceive(prev => 
@@ -442,7 +437,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
-  // --- REVISED HANDLE PROCESS RECEIVING ---
+  // --- REVISED HANDLE PROCESS RECEIVING (AUTOMATIC MASTER STOCK UPDATE) ---
   const handleProcessReceiving = async () => {
       if (!selectedPO) return;
       if (selectedItemsToReceive.length === 0) { 
@@ -472,7 +467,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           const updatedItems = [...selectedPO.items];
           const itemsReceivedForReport: {item: PurchaseOrderItem, qtyReceivedNow: number}[] = [];
           
-          // Cache for Job Updates to avoid duplicate reads/writes
+          // Cache for Job Updates
           const jobUpdateMap: Record<string, { parts: EstimateItem[], changed: boolean }> = {};
 
           for (const idx of selectedItemsToReceive) {
@@ -483,17 +478,29 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               // 1. Resolve Inventory ID (Find or Create)
               let targetInventoryId = item.inventoryId;
               
-              // Check if inventory ID is valid (exists in current inventoryItems)
-              // If not linked or not found, try to find by CODE or create NEW
+              // Check existing link
               const isLinkedToExisting = targetInventoryId && inventoryItems.some(i => i.id === targetInventoryId);
 
               if (!isLinkedToExisting) {
-                  // Try finding by code in existing list
+                  // Try matching by Code
                   const existingItem = inventoryItems.find(i => i.code === itemCodeUpper);
                   if (existingItem) {
                       targetInventoryId = existingItem.id;
+                      // Update Existing Master: Increment Stock, Update Buy Price & Adjust Sell Price
+                      const newBuyPrice = item.price;
+                      // Logic: Ensure Sell Price reflects new cost + margin (1.3x) IF current sell price is too low, or just update buy price
+                      // We'll update sell price to maintain 30% margin if the new cost squeezes it, or update always to follow market.
+                      // Let's implement auto-adjust to new BuyPrice * 1.3
+                      const newSellPrice = Math.round(newBuyPrice * 1.3);
+
+                      batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
+                          stock: increment(qtyNow), 
+                          buyPrice: newBuyPrice, 
+                          sellPrice: newSellPrice, // Auto-adjust Sell Price
+                          updatedAt: serverTimestamp() 
+                      });
                   } else {
-                      // Create New Inventory Item
+                      // Create NEW Master Item
                       const newInvRef = doc(collection(db, SPAREPART_COLLECTION));
                       targetInventoryId = newInvRef.id;
                       
@@ -505,19 +512,23 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                           stock: qtyNow, // Initial stock
                           unit: item.unit, 
                           minStock: 2, 
-                          buyPrice: item.price, // Set initial buy price from PO
-                          sellPrice: Math.round(item.price * 1.3), // Default margin 30%
+                          buyPrice: item.price, 
+                          sellPrice: Math.round(item.price * 1.3), // Set default Sell Price (Margin 30%)
                           isStockManaged: item.isStockManaged ?? true,
                           createdAt: serverTimestamp(), 
                           updatedAt: serverTimestamp()
                       });
                   }
               } else {
-                  // If item existed (linked), update stock and price
+                  // If linked, update stock and price
                   if (targetInventoryId) {
+                       const newBuyPrice = item.price;
+                       const newSellPrice = Math.round(newBuyPrice * 1.3); // Auto-adjust Sell Price
+
                        batch.update(doc(db, SPAREPART_COLLECTION, targetInventoryId), { 
                           stock: increment(qtyNow), 
-                          buyPrice: item.price, // Update to latest purchase price
+                          buyPrice: newBuyPrice, 
+                          sellPrice: newSellPrice,
                           updatedAt: serverTimestamp() 
                       });
                   }
@@ -528,7 +539,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               updatedItems[idx] = { 
                   ...item, 
                   qtyReceived: newQtyReceived, 
-                  inventoryId: targetInventoryId // Ensure PO item remembers the linked Inventory ID
+                  inventoryId: targetInventoryId // Link PO Item to Master
               };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
 
@@ -536,7 +547,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               if (item.refJobId && item.refPartIndex !== undefined) {
                   const jobId = item.refJobId;
                   
-                  // Fetch job data if not already in cache
                   if (!jobUpdateMap[jobId]) {
                       const jobRef = doc(db, SERVICE_JOBS_COLLECTION, jobId);
                       const jobSnap = await getDoc(jobRef);
@@ -548,13 +558,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       }
                   }
 
-                  // Update the specific part in the job
                   if (jobUpdateMap[jobId] && jobUpdateMap[jobId].parts[item.refPartIndex]) {
-                      // Update Inventory Link in WO
+                      // Link WO Part to Master Inventory
                       jobUpdateMap[jobId].parts[item.refPartIndex].inventoryId = targetInventoryId;
                       jobUpdateMap[jobId].changed = true;
 
-                      // Mark as Arrived ONLY if Cumulative Received >= Ordered Qty
+                      // Mark as Arrived if fully received
                       if (newQtyReceived >= item.qty) {
                           jobUpdateMap[jobId].parts[item.refPartIndex].hasArrived = true;
                       }
@@ -583,9 +592,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
           await batch.commit();
 
-          // 6. Generate Report & Finish
+          // 6. Generate Report
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
-          showNotification(`Penerimaan berhasil. Status PO: ${isFull ? 'Received' : 'Partial'}`, "success");
+          showNotification(`Penerimaan berhasil. Stok Master & Harga Update Otomatis.`, "success");
           setViewMode('list');
           setSelectedPO(null);
 
