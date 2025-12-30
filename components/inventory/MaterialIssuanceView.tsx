@@ -138,6 +138,39 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   // --- MANUAL CHECKLIST ISSUANCE HANDLER ---
   const handleBulkPartIssuance = async () => {
       if (!selectedJob || selectedPartIndices.length === 0) return;
+
+      // --- VALIDATION BLOCK: CEK SELISIH HARGA ---
+      const priceMismatchErrors: string[] = [];
+      const currentPartsForCheck = selectedJob.estimateData?.partItems || [];
+
+      selectedPartIndices.forEach(idx => {
+          const estItem = currentPartsForCheck[idx];
+          // Find Inventory
+          const invItem = inventoryItems.find(i => 
+              (estItem.inventoryId && i.id === estItem.inventoryId) || 
+              (i.code && estItem.number && i.code.trim().toUpperCase() === estItem.number.trim().toUpperCase())
+          );
+
+          if (invItem) {
+              // Rule: Jika Harga WO < Harga Master Sell Price -> BLOCK
+              if (estItem.price < invItem.sellPrice) {
+                  priceMismatchErrors.push(
+                      `- ${estItem.name}\n  (Harga WO: ${formatCurrency(estItem.price)} < Master: ${formatCurrency(invItem.sellPrice)})`
+                  );
+              }
+          }
+      });
+
+      if (priceMismatchErrors.length > 0) {
+          alert(
+              `⛔ PROSES DIBLOKIR: SELISIH HARGA JUAL\n\n` +
+              `Sistem mendeteksi item berikut memiliki harga jual di WO lebih rendah dari Master Stok:\n\n` +
+              `${priceMismatchErrors.join('\n')}\n\n` +
+              `SOLUSI: Mohon informasikan ke SA untuk menyesuaikan harga di menu Estimasi terlebih dahulu sebelum dikeluarkan.`
+          );
+          return; // STOP EXECUTION
+      }
+      // --- END VALIDATION BLOCK ---
       
       if (!window.confirm(`Konfirmasi mengeluarkan ${selectedPartIndices.length} item part dari gudang? Stok akan berkurang.`)) return;
 
@@ -154,8 +187,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           let totalCogsToAdd = 0;
           const usageLogsToAdd: UsageLogItem[] = [];
           
-          const mismatchItems: string[] = [];
-
           // Process Checklisted Items
           for (const idx of selectedPartIndices) {
               const estItem = currentParts[idx];
@@ -172,39 +203,30 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
               const reqQty = Number(estItem.qty || 1);
               
-              // 2. Strict Stock Validation (Real-time check recommended, but using prop for UI speed)
+              // 2. Strict Stock Validation
               if (invItem.stock < reqQty) {
                   throw new Error(`Gagal Issued: Stok Fisik ${invItem.name} tidak cukup! (Gudang: ${invItem.stock}, Butuh: ${reqQty}). Harap update stok via PO/Opname.`);
               }
 
-              // 3. Price Mismatch Check (Alert Logic)
-              // Logic: WO Price (Estimation) vs Master Sell Price (Latest)
-              if (estItem.price < invItem.sellPrice) {
-                  mismatchItems.push(`${estItem.name} (WO: ${formatCurrency(estItem.price)} < Master: ${formatCurrency(invItem.sellPrice)})`);
-                  // Flagging on WO Item
-                  currentParts[idx].isPriceMismatch = true;
-                  currentParts[idx].mismatchSuggestedPrice = invItem.sellPrice;
-              }
-
-              // 4. COGS Calculation
+              // 3. COGS Calculation
               const cost = invItem.buyPrice * reqQty;
               totalCogsToAdd += cost;
 
-              // 5. Update Inventory (Deduct Stock)
+              // 4. Update Inventory (Deduct Stock)
               batch.update(doc(db, SPAREPART_COLLECTION, invItem.id), {
                   stock: increment(-reqQty),
                   updatedAt: serverTimestamp()
               });
 
-              // 6. Update WO Item Status -> MARK AS ISSUED
+              // 5. Update WO Item Status -> MARK AS ISSUED
               currentParts[idx] = {
                   ...currentParts[idx],
                   hasArrived: true, // FLAG ISSUED
                   inventoryId: invItem.id,
-                  // Keep mismatch flags if set
+                  isPriceMismatch: false // Clear flag if it was set before, assuming passed validation now
               };
 
-              // 7. Create Usage Log
+              // 6. Create Usage Log
               usageLogsToAdd.push({
                   itemId: invItem.id, 
                   itemName: invItem.name, 
@@ -232,14 +254,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
           await batch.commit();
 
-          // NOTIFICATION LOGIC
-          if (mismatchItems.length > 0) {
-              const itemList = mismatchItems.join(', ');
-              showNotification(`Warning: Part [${itemList}] di WO [${selectedJob.woNumber}] underprice. Flag alert telah dipasang untuk SA.`, "error");
-          } else {
-              showNotification("Sukses: Part berhasil dikeluarkan (Issued). Stok Gudang berkurang.", "success");
-          }
-
+          showNotification("Sukses: Part berhasil dikeluarkan (Issued). Stok Gudang berkurang.", "success");
           onRefreshData();
           setSelectedPartIndices([]);
 
