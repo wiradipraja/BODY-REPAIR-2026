@@ -418,7 +418,7 @@ const AppContent: React.FC = () => {
         {currentView === 'job_control' && ( <JobControlView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
         {currentView === 'general_affairs' && ( <AssetManagementView assets={assets} userPermissions={userPermissions} showNotification={showNotification} /> )}
         {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} /> )}
-        {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} />}
+        {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} realTimeItems={inventoryItems} suppliers={suppliers} />}
         {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} realTimePOs={purchaseOrders} />}
         {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}

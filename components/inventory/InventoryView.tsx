@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { collection, doc, deleteDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, SPAREPART_COLLECTION } from '../../services/firebase';
-import { InventoryItem, UserPermissions } from '../../types';
+import { InventoryItem, UserPermissions, Supplier } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import InventoryForm from './InventoryForm';
 import Modal from '../ui/Modal';
@@ -12,9 +12,10 @@ interface InventoryViewProps {
   userPermissions: UserPermissions;
   showNotification: (msg: string, type: string) => void;
   realTimeItems?: InventoryItem[]; // Data from App.tsx
+  suppliers?: Supplier[]; // Added suppliers prop
 }
 
-const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNotification, realTimeItems = [] }) => {
+const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNotification, realTimeItems = [], suppliers = [] }) => {
   const [activeTab, setActiveTab] = useState<'sparepart' | 'material'>('sparepart');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -151,6 +152,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
                                               {activeTab === 'sparepart' ? <Tag size={12}/> : <PaintBucket size={12}/>}
                                               {item.code || '-'}
                                           </div>
+                                          {item.supplierName && (
+                                              <div className="text-[10px] text-indigo-600 mt-1 font-medium bg-indigo-50 px-1.5 rounded inline-block border border-indigo-100">
+                                                  Vendor: {item.supplierName}
+                                              </div>
+                                          )}
                                       </td>
                                       <td className="px-6 py-4">
                                           <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-medium border border-gray-200">
@@ -205,6 +211,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ userPermissions, showNoti
           <InventoryForm 
             initialData={editingItem || { category: activeTab }} 
             activeCategory={activeTab}
+            suppliers={suppliers}
             onSave={handleSave} 
             onCancel={() => setIsModalOpen(false)} 
           />

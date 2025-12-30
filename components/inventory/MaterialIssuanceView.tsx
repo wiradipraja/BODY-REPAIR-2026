@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Supplier } from '../../types';
-import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc, writeBatch } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
+import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc, writeBatch, addDoc, collection } from 'firebase/firestore';
+import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
+import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
 import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square } from 'lucide-react';
 import Modal from '../ui/Modal';
 
@@ -364,8 +364,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
     setIsSubmitting(true);
     try {
         const itemSnap = await getDoc(doc(db, SPAREPART_COLLECTION, item.id));
-        const currentStock = itemSnap.exists() ? Number(itemSnap.data().stock || 0) : 0;
-        const currentBuyPrice = itemSnap.exists() ? Number(itemSnap.data().buyPrice || 0) : 0;
+        const currentData = itemSnap.data() as InventoryItem;
+        const currentStock = Number(currentData?.stock || 0);
+        const currentBuyPrice = Number(currentData?.buyPrice || 0);
 
         if (item.isStockManaged !== false && currentStock < finalDeductQty) {
             throw new Error(`Stok tidak cukup! Tersedia: ${currentStock.toFixed(3)} ${item.unit}`);
@@ -387,6 +388,41 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             'costData.hargaModalBahan': increment(cost), 
             usageLog: arrayUnion(logEntry) 
         });
+
+        // --- VENDOR MANAGED LOGIC (AUTO-BILLING) ---
+        // If item has a supplier linked, automatically generate a Payable (Received PO)
+        if (currentData.supplierId) {
+            const poNumber = generateRandomId('BILL');
+            const poPayload = {
+                poNumber: `AUTO-${poNumber}`,
+                supplierId: currentData.supplierId,
+                supplierName: currentData.supplierName || 'Unknown Vendor',
+                status: 'Received', // Automatically received because consumed
+                items: [{
+                    code: item.code,
+                    name: item.name,
+                    qty: finalDeductQty,
+                    unit: item.unit,
+                    price: currentBuyPrice,
+                    total: cost,
+                    inventoryId: item.id,
+                    refJobId: selectedJob.id,
+                    refWoNumber: selectedJob.woNumber
+                }],
+                notes: `Auto-Bill: Pemakaian Material ${item.name} di WO ${selectedJob.woNumber}`,
+                hasPpn: false,
+                subtotal: cost,
+                ppnAmount: 0,
+                totalAmount: cost,
+                receivedBy: 'System (Usage)',
+                receivedAt: serverTimestamp(),
+                createdBy: 'System',
+                createdAt: serverTimestamp()
+            };
+            
+            await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(poPayload));
+            showNotification(`Tagihan Vendor otomatis dibuat untuk ${currentData.supplierName}.`, "info");
+        }
 
         showNotification("Bahan berhasil dibebankan.", "success");
         setMaterialSearchTerm('');

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { InventoryItem } from '../../types';
+import { InventoryItem, Supplier } from '../../types';
 import { Save, Loader2, Package, Info } from 'lucide-react';
 
 interface InventoryFormProps {
@@ -8,9 +8,10 @@ interface InventoryFormProps {
   activeCategory: 'sparepart' | 'material';
   onSave: (data: Partial<InventoryItem>) => Promise<void>;
   onCancel: () => void;
+  suppliers?: Supplier[];
 }
 
-const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCategory, onSave, onCancel }) => {
+const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCategory, onSave, onCancel, suppliers = [] }) => {
   const [formData, setFormData] = useState<Partial<InventoryItem>>({
       code: '',
       name: '',
@@ -22,6 +23,8 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
       sellPrice: 0,
       location: '',
       isStockManaged: true, // Default true
+      supplierId: '',
+      supplierName: '',
       ...initialData
   });
   
@@ -52,8 +55,14 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
       setFormData(prev => ({ ...prev, [field]: raw ? parseInt(raw, 10) : 0 }));
   };
 
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      setFormData(prev => ({ ...prev, isStockManaged: e.target.checked }));
+  const handleSupplierChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const id = e.target.value;
+      const supplier = suppliers.find(s => s.id === id);
+      setFormData(prev => ({
+          ...prev,
+          supplierId: id,
+          supplierName: supplier ? supplier.name : ''
+      }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,25 +114,42 @@ const InventoryForm: React.FC<InventoryFormProps> = ({ initialData, activeCatego
         </div>
 
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-            <h4 className="text-sm font-bold text-gray-800 mb-3 border-b pb-2">Informasi Stok</h4>
+            <h4 className="text-sm font-bold text-gray-800 mb-3 border-b pb-2">Informasi Stok & Vendor</h4>
             
             {/* VENDOR MANAGED STOCK TOGGLE */}
             {activeCategory === 'material' && (
-                <div className="mb-4 bg-white p-3 rounded border border-blue-200 flex items-start gap-3">
-                    <input 
-                        type="checkbox" 
-                        id="isStockManaged"
-                        checked={!formData.isStockManaged} // Logic flip: checked means NOT managed
-                        onChange={(e) => setFormData(prev => ({...prev, isStockManaged: !e.target.checked}))}
-                        className="mt-1 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                    />
+                <div className="mb-4 space-y-3">
+                    <div className="bg-white p-3 rounded border border-blue-200 flex items-start gap-3">
+                        <input 
+                            type="checkbox" 
+                            id="isStockManaged"
+                            checked={!formData.isStockManaged} // Logic flip: checked means NOT managed
+                            onChange={(e) => setFormData(prev => ({...prev, isStockManaged: !e.target.checked}))}
+                            className="mt-1 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                        />
+                        <div>
+                            <label htmlFor="isStockManaged" className="block text-sm font-bold text-gray-800 cursor-pointer">
+                                Stok Dikelola Vendor (Ready Use / Tagihan Bulanan)
+                            </label>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Jika dicentang, sistem tidak akan membatasi stok (bisa minus). Tagihan akan muncul di Hutang Supplier saat bahan dipakai.
+                            </p>
+                        </div>
+                    </div>
+                    
                     <div>
-                        <label htmlFor="isStockManaged" className="block text-sm font-bold text-gray-800 cursor-pointer">
-                            Stok Dikelola Vendor (Ready Use / Tagihan Bulanan)
-                        </label>
-                        <p className="text-xs text-gray-500 mt-1">
-                            Jika dicentang, sistem tidak akan membatasi stok (bisa minus). Cocok untuk cat/bahan yang ditagihkan vendor di akhir bulan berdasarkan pemakaian.
-                        </p>
+                        <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Vendor / Supplier Pengelola</label>
+                        <select 
+                            value={formData.supplierId} 
+                            onChange={handleSupplierChange}
+                            className="w-full p-2.5 border rounded-lg bg-white focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="">-- Pilih Supplier (Opsional) --</option>
+                            {suppliers.map(s => (
+                                <option key={s.id} value={s.id}>{s.name} - {s.category}</option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">Wajib diisi jika stok dikelola vendor agar tagihan otomatis muncul.</p>
                     </div>
                 </div>
             )}

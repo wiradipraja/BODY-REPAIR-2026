@@ -265,6 +265,10 @@ export interface InventoryItem {
   sellPrice: number;
   location?: string;
   isStockManaged?: boolean; 
+  // VENDOR MANAGED INVENTORY LINKS
+  supplierId?: string;
+  supplierName?: string;
+  
   createdAt?: any;
   updatedAt?: any;
 }
