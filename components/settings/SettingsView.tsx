@@ -619,6 +619,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       ))}
                     </div>
                   </section>
+                  <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Palette size={16} className="text-purple-500"/> Katalog Warna Kendaraan</h4>
+                      <button onClick={() => addItem('carColors', '')} className="text-[10px] bg-purple-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-purple-700 transition-all">
+                        <Plus size={14}/> Tambah Warna
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {(localSettings.carColors || []).map((color, idx) => (
+                        <div key={idx} className="flex gap-1 group">
+                          <input type="text" className="w-full p-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 focus:ring-2 focus:ring-purple-500" value={color} onChange={e => handleArrayChange('carColors', idx, e.target.value)} />
+                          <button onClick={() => removeItem('carColors', idx)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={16}/>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
               </div>
           )}
 

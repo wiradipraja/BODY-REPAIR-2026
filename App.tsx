@@ -35,6 +35,7 @@ import CrcDashboardView from './components/crc/CrcDashboardView';
 import JobControlView from './components/production/JobControlView';
 import ClaimsControlView from './components/admin/ClaimsControlView'; 
 import ReportCenterView from './components/reports/ReportCenterView';
+import InternalChatWidget from './components/layout/InternalChatWidget'; // Imported Chat Widget
 
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
@@ -393,7 +394,7 @@ const AppContent: React.FC = () => {
   if (!user) return <LoginView />;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 relative">
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} settings={appSettings} />
 
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
@@ -464,6 +465,9 @@ const AppContent: React.FC = () => {
             {actualModalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={actualModalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>
+
+      {/* Global Internal Chat Widget */}
+      {userData.uid && <InternalChatWidget currentUser={userData} />}
     </div>
   );
 };

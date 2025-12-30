@@ -9,6 +9,15 @@ export interface ProductionLog {
   type: 'progress' | 'rework';
 }
 
+export interface ChatMessage {
+  id: string;
+  text: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  createdAt: any;
+}
+
 export interface MechanicAssignment {
   name: string;
   stage: string;
