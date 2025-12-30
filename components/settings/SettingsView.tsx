@@ -5,7 +5,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound } from 'lucide-react';
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound, Star } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
@@ -41,6 +41,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
+  const [newCsiInput, setNewCsiInput] = useState('');
 
   useEffect(() => {
     setLocalSettings(currentSettings);
@@ -108,6 +110,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
     const arr = [...currentArray];
     arr.splice(index, 1);
     setLocalSettings(prev => ({ ...prev, [field]: arr }));
+  };
+
+  const handleAddCsiItem = () => {
+      if (!newCsiInput.trim()) return;
+      addItem('csiIndicators', newCsiInput);
+      setNewCsiInput('');
   };
 
   const saveSettings = async () => {
@@ -525,6 +533,55 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           </div>
                       </div>
                   </div>
+
+                  {/* SECTION: TEMPLATE PENILAIAN (CSI INDICATORS) */}
+                  <section className="bg-yellow-50/50 p-6 rounded-2xl border border-yellow-100 mt-8">
+                      <h3 className="text-lg font-bold text-yellow-900 mb-4 flex items-center gap-2">
+                          <Star className="text-yellow-600" size={20}/> Template Penilaian Pelanggan (CSI Survey)
+                      </h3>
+                      <div className="flex flex-col md:flex-row gap-6">
+                          <div className="flex-1 space-y-4">
+                              <p className="text-xs text-yellow-800 leading-relaxed">
+                                  Tambahkan kriteria penilaian yang akan muncul saat tim CRC melakukan input survey kepuasan pelanggan. 
+                                  Contoh: "Kualitas Perbaikan", "Kecepatan", "Keramahan Staff".
+                              </p>
+                              <div className="flex gap-2">
+                                  <input 
+                                      type="text" 
+                                      className="flex-grow p-3 border border-yellow-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400"
+                                      placeholder="Ketik kriteria baru..."
+                                      value={newCsiInput}
+                                      onChange={(e) => setNewCsiInput(e.target.value)}
+                                      onKeyDown={(e) => e.key === 'Enter' && handleAddCsiItem()}
+                                  />
+                                  <button 
+                                      onClick={handleAddCsiItem}
+                                      className="bg-yellow-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-yellow-700 transition-colors shadow-sm"
+                                  >
+                                      <Plus size={18}/>
+                                  </button>
+                              </div>
+                          </div>
+                          <div className="flex-1 bg-white p-4 rounded-xl border border-yellow-200 max-h-60 overflow-y-auto">
+                              <div className="flex flex-wrap gap-2">
+                                  {(localSettings.csiIndicators || []).map((item, idx) => (
+                                      <div key={idx} className="bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border border-yellow-200 group">
+                                          {item}
+                                          <button 
+                                              onClick={() => removeItem('csiIndicators', idx)}
+                                              className="bg-white rounded-full p-0.5 text-yellow-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                          >
+                                              <Trash2 size={12}/>
+                                          </button>
+                                      </div>
+                                  ))}
+                                  {(localSettings.csiIndicators || []).length === 0 && (
+                                      <span className="text-gray-400 text-xs italic">Belum ada kriteria penilaian.</span>
+                                  )}
+                              </div>
+                          </div>
+                      </div>
+                  </section>
               </div>
           )}
 

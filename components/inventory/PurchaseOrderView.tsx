@@ -446,7 +446,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const calculateFinancials = () => {
       const subtotal = poForm.items?.reduce((acc: number, item: any) => acc + item.total, 0) || 0;
-      const ppnAmount = poForm.hasPpn ? subtotal * 0.11 : 0;
+      const ppnPercentage = settings?.ppnPercentage || 11;
+      const ppnRate = ppnPercentage / 100;
+      const ppnAmount = poForm.hasPpn ? Math.round(subtotal * ppnRate) : 0;
       const totalAmount = subtotal + ppnAmount;
       return { subtotal, ppnAmount, totalAmount };
   };
@@ -727,7 +729,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   <div className="flex flex-col items-end">
                       <div className="w-full max-w-xs space-y-1">
                           <div className="flex justify-between text-sm"><span>Subtotal</span><span className="font-bold">{formatCurrency(subtotal)}</span></div>
-                          <div className="flex justify-between items-center text-sm"><label className="flex items-center gap-2 cursor-pointer"><div onClick={() => setPoForm((prev: any) => ({...prev, hasPpn: !prev.hasPpn}))} className={`w-4 h-4 rounded border flex items-center justify-center ${poForm.hasPpn ? 'bg-indigo-600' : 'bg-white'}`}>{poForm.hasPpn && <CheckSquare size={12} className="text-white"/>}</div><span>PPN 11%</span></label><span>{formatCurrency(ppnAmount)}</span></div>
+                          <div className="flex justify-between items-center text-sm">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                  <div onClick={() => setPoForm((prev: any) => ({...prev, hasPpn: !prev.hasPpn}))} className={`w-4 h-4 rounded border flex items-center justify-center ${poForm.hasPpn ? 'bg-indigo-600' : 'bg-white'}`}>{poForm.hasPpn && <CheckSquare size={12} className="text-white"/>}</div>
+                                  <span>PPN {settings.ppnPercentage}%</span>
+                              </label>
+                              <span>{formatCurrency(ppnAmount)}</span>
+                          </div>
                           <div className="flex justify-between text-xl font-black text-indigo-900 border-t pt-2"><span>Total</span><span>{formatCurrency(totalAmount)}</span></div>
                       </div>
                       <div className="flex gap-3 mt-6 justify-end w-full">
@@ -741,6 +749,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   }
 
   if (viewMode === 'detail' && selectedPO) {
+      // ... (Existing detail view logic - no changes needed as it uses stored totals) ...
       const isReceivable = selectedPO.status === 'Ordered' || selectedPO.status === 'Partial';
       const showApprovalActions = selectedPO.status === 'Pending Approval' && isManager;
 

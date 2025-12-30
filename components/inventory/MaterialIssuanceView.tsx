@@ -1,10 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Supplier } from '../../types';
+import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Supplier, Settings } from '../../types';
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc, writeBatch, addDoc, collection } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
-import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square, Box, Archive } from 'lucide-react';
+import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square, Box, Archive, Receipt } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface MaterialIssuanceViewProps {
@@ -15,10 +15,11 @@ interface MaterialIssuanceViewProps {
   showNotification: (msg: string, type: string) => void;
   onRefreshData: () => void;
   issuanceType: 'sparepart' | 'material';
+  settings?: Settings; // Make optional but expect it to be passed
 }
 
 const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({ 
-  activeJobs, inventoryItems, userPermissions, showNotification, onRefreshData, issuanceType
+  activeJobs, inventoryItems, userPermissions, showNotification, onRefreshData, issuanceType, settings, suppliers
 }) => {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [filterWo, setFilterWo] = useState('');
@@ -32,11 +33,15 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [inputQty, setInputQty] = useState<number | ''>(''); 
   const [notes, setNotes] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<string>(''); 
+  const [vendorHasPpn, setVendorHasPpn] = useState(false); // State untuk opsi PPN Vendor
 
   // Part Linking Modal States
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState<{ estItem: EstimateItem, idx: number } | null>(null);
   const [partSearchTerm, setPartSearchTerm] = useState('');
+
+  // Default PPN to 11% if settings not loaded yet, otherwise use settings.ppnPercentage
+  const currentPpnRate = settings ? settings.ppnPercentage / 100 : 0.11;
 
   const selectedJob = useMemo(() => activeJobs.find(j => j.id === selectedJobId), [activeJobs, selectedJobId]);
   
@@ -78,6 +83,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       setInputQty('');
       setNotes('');
       setSelectedUnit('');
+      setVendorHasPpn(false); // Reset PPN toggle
       setSelectedPartIndices([]); // Reset selection on job change
   }, [selectedJobId, issuanceType]);
 
@@ -358,6 +364,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
         });
 
         if (currentData.supplierId) {
+            // DYNAMIC PPN CALCULATION FROM SETTINGS
+            const ppnValue = vendorHasPpn ? Math.round(cost * currentPpnRate) : 0;
+            const totalBill = cost + ppnValue;
+
             const poNumber = generateRandomId('BILL');
             const poPayload = {
                 poNumber: `AUTO-${poNumber}`,
@@ -376,10 +386,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                     refWoNumber: selectedJob.woNumber
                 }],
                 notes: `Auto-Bill: Pemakaian Material ${item.name} di WO ${selectedJob.woNumber}`,
-                hasPpn: false,
+                hasPpn: vendorHasPpn,
                 subtotal: cost,
-                ppnAmount: 0,
-                totalAmount: cost,
+                ppnAmount: ppnValue,
+                totalAmount: totalBill,
                 receivedBy: 'System (Usage)',
                 receivedAt: serverTimestamp(),
                 createdBy: 'System',
@@ -387,12 +397,13 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
             };
             
             await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(poPayload));
-            showNotification(`Tagihan Vendor otomatis dibuat untuk ${currentData.supplierName}.`, "info");
+            showNotification(`Tagihan Vendor otomatis dibuat untuk ${currentData.supplierName} (Total: ${formatCurrency(totalBill)}).`, "info");
         }
 
         showNotification("Bahan berhasil dibebankan.", "success");
         setMaterialSearchTerm('');
         setInputQty('');
+        setVendorHasPpn(false);
         onRefreshData();
     } catch (err: any) {
         showNotification(err.message, "error");
@@ -707,6 +718,28 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                 <div className="mt-2 text-xs flex justify-between items-center text-gray-600 bg-gray-50 p-2 rounded border border-gray-200">
                                     <span className="font-bold">{currentItem.name}</span>
                                     <span>Stok: <strong className={currentItem.stock > 0 ? 'text-green-600' : 'text-red-600'}>{currentItem.stock.toFixed(3)} {currentItem.unit}</strong></span>
+                                </div>
+                            )}
+                            
+                            {/* NEW: VENDOR PPN TOGGLE */}
+                            {currentItem?.supplierId && (
+                                <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <Receipt size={16} className="text-indigo-600"/>
+                                        <div>
+                                            <p className="text-[10px] font-bold text-indigo-800 uppercase">Vendor Managed Item</p>
+                                            <p className="text-[10px] text-indigo-600">{currentItem.supplierName}</p>
+                                        </div>
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={vendorHasPpn}
+                                            onChange={e => setVendorHasPpn(e.target.checked)}
+                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                                        />
+                                        <span className="text-xs font-bold text-gray-700">+ PPN {Math.round(currentPpnRate * 100)}% di Tagihan?</span>
+                                    </label>
                                 </div>
                             )}
                         </div>

@@ -74,7 +74,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
               card4: "Revenue (Terfaktur)",
               card4_sub: "Total bill periode ini",
               card_forecast: "Forecast Gross Profit",
-              card_forecast_sub: "Potensi Laba (WIP)",
+              card_forecast_sub: "Potensi Laba (WO Belum Faktur)",
               card_forecast_info: "Asumsi: Bahan 15%, Part 80%",
               row1: "Unit Terfaktur",
               row2: "Total Produksi Panel",
@@ -93,7 +93,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
               card4: "Revenue (Invoiced)",
               card4_sub: "Total bill this period",
               card_forecast: "Forecast Gross Profit",
-              card_forecast_sub: "Potential Profit (WIP)",
+              card_forecast_sub: "Potential Profit (Non-Invoiced)",
               card_forecast_info: "Assumed: Mat 15%, Part 80%",
               row1: "Invoiced Units",
               row2: "Production Panels",
@@ -118,10 +118,17 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
     ).length;
 
     // --- FORECAST LOGIC (ESTIMASI LABA DARI WIP) ---
+    // UPDATED: Only calculate jobs that have WO but DO NOT have invoice yet
+    const forecastJobsList = allJobs.filter(j => 
+        j.woNumber &&       // Sudah jadi WO
+        !j.hasInvoice &&    // Belum jadi Faktur (Uang belum masuk/piutang belum tercatat real)
+        !j.isDeleted
+    );
+
     let potentialRevJasa = 0;
     let potentialRevPart = 0;
 
-    activeJobsList.forEach(j => {
+    forecastJobsList.forEach(j => {
         const est = j.estimateData;
         if (est) {
             potentialRevJasa += (est.subtotalJasa || 0);
@@ -187,7 +194,8 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
         totalInvoicedUnits, 
         totalPanels, 
         grossProfit, // Corrected Realized GP
-        forecastGP 
+        forecastGP,
+        forecastCount: forecastJobsList.length
     };
   }, [allJobs, selectedMonth, selectedYear]);
 
@@ -251,7 +259,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
             value={formatCurrency(stats.forecastGP)} 
             icon={Sparkles} 
             color="bg-purple-600" 
-            subValue={t('card_forecast_sub')} 
+            subValue={`${stats.forecastCount} Unit WO Belum Faktur`} 
             info={t('card_forecast_info')}
         />
         <StatCard title={t('card2')} value={stats.activeJobsCount} icon={Wrench} color="bg-indigo-600" subValue={t('card2_sub')} />
