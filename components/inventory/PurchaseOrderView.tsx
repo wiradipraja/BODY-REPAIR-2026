@@ -3,9 +3,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, getDocs, doc, addDoc, updateDoc, serverTimestamp, increment, query, orderBy, limit, getDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, SETTINGS_COLLECTION, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
 import { InventoryItem, Supplier, PurchaseOrder, PurchaseOrderItem, UserPermissions, Settings, Job, EstimateItem } from '../../types';
-import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
+import { formatCurrency, formatDateIndo, cleanObject, generateRandomId, toYyyyMmDd } from '../../utils/helpers';
 import { generatePurchaseOrderPDF, generateReceivingReportPDF } from '../../utils/pdfGenerator';
-import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock, Calendar, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Download, CheckCircle, XCircle, ArrowLeft, Trash2, Package, AlertCircle, CheckSquare, Square, Printer, Save, FileText, Send, Ban, Check, RefreshCw, Layers, Car, Loader2, X, ChevronRight, Hash, Clock, Calendar, AlertTriangle, Edit } from 'lucide-react';
 import { initialSettingsState } from '../../utils/constants';
 
 interface PurchaseOrderViewProps {
@@ -33,6 +33,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const [poCreationMode, setPoCreationMode] = useState<'manual' | 'wo'>('manual');
   const [poForm, setPoForm] = useState<any>({
+      id: null, // Add ID to track edit mode
+      poNumber: '', // Track PO Number for edit
       supplierId: '',
       items: [],
       notes: '',
@@ -50,6 +52,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   const isManager = useMemo(() => {
     return userPermissions && userPermissions.role && userPermissions.role.includes('Manager');
+  }, [userPermissions]);
+
+  const isPartman = useMemo(() => {
+    return userPermissions && (userPermissions.role === 'Partman' || userPermissions.role === 'Sparepart' || userPermissions.role === 'Manager');
   }, [userPermissions]);
 
   useEffect(() => {
@@ -127,9 +133,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             lastModified: serverTimestamp()
         });
 
-        // Update Job Status if all parts ordered (optional logic kept simple)
-        // ... (removed complex check to keep it fast)
-
         showNotification(`PO ${selectedPO.poNumber} disetujui.`, "success");
         setViewMode('list');
         setSelectedPO(null);
@@ -168,8 +171,16 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
   };
 
   const handleCancelPO = async (po: PurchaseOrder) => {
-    if (!isManager) return;
-    if (!window.confirm(`Yakin ingin membatalkan PO ${po.poNumber}? Link pemesanan part ke WO akan dilepas.`)) return;
+    // Allow Manager OR Partman IF Pending/Draft
+    const isPending = po.status === 'Pending Approval' || po.status === 'Draft';
+    const canCancel = isManager || (isPartman && isPending);
+
+    if (!canCancel) {
+        showNotification("Hanya Manager yang bisa membatalkan PO yang sudah diproses.", "error");
+        return;
+    }
+
+    if (!window.confirm(`Yakin ingin membatalkan/menghapus PO ${po.poNumber}?`)) return;
 
     setIsProcessing(true);
     try {
@@ -178,6 +189,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
             lastModified: serverTimestamp()
         });
 
+        // Release job items order status
         for (const item of po.items) {
             if (item.refJobId && item.refPartIndex !== undefined) {
                 const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
@@ -203,9 +215,23 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
     }
   };
 
-  // --- REVISED RECEIVING PROCESS: ONLY STOCK UP ---
-  // CORRECTION: DO NOT SET hasArrived = true on Job.
-  // Only update Master Stock. The user must manually issue part in "Keluar Part" menu.
+  // Populate Form for Edit Mode
+  const handleEditPO = (po: PurchaseOrder) => {
+      setPoForm({
+          id: po.id,
+          poNumber: po.poNumber,
+          supplierId: po.supplierId,
+          items: po.items || [],
+          notes: po.notes || '',
+          hasPpn: po.hasPpn || false,
+          date: po.date ? toYyyyMmDd(po.date) : new Date().toISOString().split('T')[0]
+      });
+      // Set Mode to Manual (easiest for editing mixed items) or WO if all items have ref
+      const hasRef = po.items.some(i => i.refJobId);
+      setPoCreationMode(hasRef ? 'wo' : 'manual');
+      setViewMode('create');
+  };
+
   const handleProcessReceiving = async () => {
       if (!selectedPO) return;
       if (selectedItemsToReceive.length === 0) { 
@@ -242,11 +268,8 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               const qtyNow = receiveQtyMap[idx] || 0;
               const itemCodeUpper = item.code.toUpperCase().trim();
               
-              // 1. Resolve Inventory ID (Find or Create)
               let targetInventoryId = item.inventoryId;
-              
               const newBuyPrice = item.price;
-              // Sell Price Update Logic (keep margin or existing)
               const newSellPrice = Math.round(newBuyPrice * 1.3);
 
               const isLinkedToExisting = targetInventoryId && inventoryItems.some(i => i.id === targetInventoryId);
@@ -288,7 +311,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   }
               }
 
-              // 2. Update PO Item in memory
               const newQtyReceived = (item.qtyReceived || 0) + qtyNow;
               updatedItems[idx] = { 
                   ...item, 
@@ -297,7 +319,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               };
               itemsReceivedForReport.push({item: updatedItems[idx], qtyReceivedNow: qtyNow});
 
-              // 3. Link Inventory ID to Job (But DO NOT ISSUE yet)
               if (item.refJobId && item.refPartIndex !== undefined) {
                   const jobId = item.refJobId;
                   if (!jobUpdateMap[jobId]) {
@@ -313,15 +334,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
                   if (jobUpdateMap[jobId] && jobUpdateMap[jobId].parts[item.refPartIndex]) {
                       const jobPart = jobUpdateMap[jobId].parts[item.refPartIndex];
-                      
-                      // CRITICAL: We only link the inventory ID so we know we have stock for this specific line item
-                      // We DO NOT set 'hasArrived = true' here. That must be done in "Keluar Part" menu.
                       jobPart.inventoryId = targetInventoryId;
                       jobUpdateMap[jobId].changed = true;
 
-                      // Price Mismatch Check (Alert only)
                       if (inventoryItems.find(i => i.id === targetInventoryId)) {
-                          // Check against current master sell price or calculated margin
                           if (jobPart.price < newSellPrice) {
                               jobPart.isPriceMismatch = true;
                               jobPart.mismatchSuggestedPrice = newSellPrice;
@@ -332,7 +348,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
           }
 
-          // 4. Commit Job Updates
           Object.entries(jobUpdateMap).forEach(([jobId, data]) => {
               if (data.changed) {
                   batch.update(doc(db, SERVICE_JOBS_COLLECTION, jobId), {
@@ -342,7 +357,6 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               }
           });
 
-          // 5. Update PO Status
           const isFull = updatedItems.every(i => (i.qtyReceived || 0) >= i.qty);
           batch.update(doc(db, PURCHASE_ORDERS_COLLECTION, selectedPO.id), { 
               items: updatedItems, 
@@ -352,12 +366,10 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
           });
 
           await batch.commit();
-
-          // 6. Generate Report
           generateReceivingReportPDF(selectedPO, itemsReceivedForReport, settings, userPermissions.role);
           
           if (mismatchCount > 0) {
-              showNotification(`Barang Diterima & Stok Gudang Bertambah. Warning: ${mismatchCount} item mismatch harga.`, "info");
+              showNotification(`Barang Diterima. Warning: ${mismatchCount} item mismatch harga.`, "info");
           } else {
               showNotification(`Penerimaan Berhasil. Stok Gudang Bertambah.`, "success");
           }
@@ -373,146 +385,64 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
       }
   };
 
+  // ... (Other functions like handleSearchWO, handleSelectJobFromPicker, handleToggleWoPart, handleImportPartsToPO, handleAddItem, handleUpdateItem, handleRemoveItem remain same) ...
   const handleSearchWO = () => {
       if (!woSearchTerm) return;
       const termUpper = woSearchTerm.toUpperCase().replace(/\s/g, '');
-      
-      const matches = jobs.filter(j => 
-          !j.isClosed && !j.isDeleted &&
-          ((j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) || 
-          (j.policeNumber && j.policeNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) ||
-          (j.customerName && j.customerName.toUpperCase().includes(termUpper)))
-      );
-
+      const matches = jobs.filter(j => !j.isClosed && !j.isDeleted && ((j.woNumber && j.woNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) || (j.policeNumber && j.policeNumber.toUpperCase().replace(/\s/g, '').includes(termUpper)) || (j.customerName && j.customerName.toUpperCase().includes(termUpper))));
       if (matches.length > 0) {
-          matches.sort((a, b) => {
-              const getTime = (val: any) => val?.seconds || 0;
-              return getTime(b.createdAt) - getTime(a.createdAt);
-          });
-          
-          setWoMatches(matches);
-          setIsWoPickerOpen(true);
-      } else {
-          showNotification("No. Polisi atau WO aktif tidak ditemukan.", "error");
-          setWoMatches([]);
-          setIsWoPickerOpen(false);
-          setFoundJob(null);
-      }
+          matches.sort((a, b) => { const getTime = (val: any) => val?.seconds || 0; return getTime(b.createdAt) - getTime(a.createdAt); });
+          setWoMatches(matches); setIsWoPickerOpen(true);
+      } else { showNotification("No. Polisi atau WO aktif tidak ditemukan.", "error"); setWoMatches([]); setIsWoPickerOpen(false); setFoundJob(null); }
   };
 
   const handleSelectJobFromPicker = (job: Job) => {
-      if (!job.estimateData?.partItems || job.estimateData.partItems.length === 0) {
-          showNotification(`Pekerjaan ${job.policeNumber} tidak memiliki estimasi suku cadang.`, "error");
-          return;
-      }
-
-      setFoundJob(job);
-      setIsWoPickerOpen(false);
+      if (!job.estimateData?.partItems || job.estimateData.partItems.length === 0) { showNotification(`Pekerjaan ${job.policeNumber} tidak memiliki estimasi suku cadang.`, "error"); return; }
+      setFoundJob(job); setIsWoPickerOpen(false);
       const initialSelection: any = {};
-      job.estimateData.partItems.forEach((p, idx) => {
-          if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false };
-      });
+      job.estimateData.partItems.forEach((p, idx) => { if (!p.isOrdered) initialSelection[idx] = { selected: true, isIndent: p.isIndent || false }; });
       setSelectedPartsFromWo(initialSelection);
       showNotification(`Work Order ${job.woNumber || job.policeNumber} dipilih.`, "success");
   };
 
   const handleToggleWoPart = (idx: number, field: 'selected' | 'isIndent') => {
-      setSelectedPartsFromWo(prev => {
-          const current = prev[idx] || { selected: false, isIndent: false };
-          return { ...prev, [idx]: { ...current, [field]: !current[field] } };
-      });
+      setSelectedPartsFromWo(prev => { const current = prev[idx] || { selected: false, isIndent: false }; return { ...prev, [idx]: { ...current, [field]: !current[field] } }; });
   };
 
   const handleImportPartsToPO = () => {
       if (!foundJob || !foundJob.estimateData) return;
       const itemsToAdd: PurchaseOrderItem[] = [];
       const parts = foundJob.estimateData.partItems || [];
-      
       parts.forEach((estItem, idx) => {
           const selection = selectedPartsFromWo[idx];
           if (selection && selection.selected) {
               const partCodeUpper = estItem.number?.toUpperCase().trim() || "";
-              const invItem = inventoryItems.find(i => 
-                  (estItem.inventoryId && i.id === estItem.inventoryId) || 
-                  (partCodeUpper && i.code?.toUpperCase() === partCodeUpper)
-              );
-
+              const invItem = inventoryItems.find(i => (estItem.inventoryId && i.id === estItem.inventoryId) || (partCodeUpper && i.code?.toUpperCase() === partCodeUpper));
               itemsToAdd.push({
-                  code: partCodeUpper || estItem.number || 'NON-PART-NO',
-                  name: estItem.name || 'Tanpa Nama',
-                  brand: invItem?.brand || foundJob.carBrand || 'Genuine',
-                  category: 'sparepart', 
-                  qty: estItem.qty || 1,
-                  qtyReceived: 0,
-                  unit: invItem?.unit || 'Pcs',
-                  price: invItem?.buyPrice || 0,
-                  total: (estItem.qty || 1) * (invItem?.buyPrice || 0),
-                  inventoryId: estItem.inventoryId || invItem?.id || null,
-                  refJobId: foundJob.id,
-                  refWoNumber: foundJob.woNumber,
-                  refPartIndex: idx,
-                  isIndent: selection.isIndent,
-                  isStockManaged: true
+                  code: partCodeUpper || estItem.number || 'NON-PART-NO', name: estItem.name || 'Tanpa Nama', brand: invItem?.brand || foundJob.carBrand || 'Genuine', category: 'sparepart', qty: estItem.qty || 1, qtyReceived: 0, unit: invItem?.unit || 'Pcs', price: invItem?.buyPrice || 0, total: (estItem.qty || 1) * (invItem?.buyPrice || 0), inventoryId: estItem.inventoryId || invItem?.id || null, refJobId: foundJob.id, refWoNumber: foundJob.woNumber, refPartIndex: idx, isIndent: selection.isIndent, isStockManaged: true
               });
           }
       });
-
-      if (itemsToAdd.length === 0) {
-          showNotification("Pilih minimal satu part.", "error");
-          return;
-      }
-
-      setPoForm((prev: any) => ({
-          ...prev,
-          items: [...(prev.items || []), ...itemsToAdd]
-      }));
+      if (itemsToAdd.length === 0) { showNotification("Pilih minimal satu part.", "error"); return; }
+      setPoForm((prev: any) => ({ ...prev, items: [...(prev.items || []), ...itemsToAdd] }));
       if (!poForm.notes) setPoForm((prev: any) => ({ ...prev, notes: `PO WO: ${foundJob.woNumber || foundJob.policeNumber}` }));
-
-      showNotification(`${itemsToAdd.length} item masuk ke Draft PO.`, "success");
-      setFoundJob(null);
-      setWoSearchTerm('');
+      showNotification(`${itemsToAdd.length} item masuk ke Draft PO.`, "success"); setFoundJob(null); setWoSearchTerm('');
   };
 
-  const handleAddItem = () => {
-      setPoForm((prev: any) => ({
-          ...prev,
-          items: [...(prev.items || []), { 
-              code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0, isStockManaged: true
-          }]
-      }));
-  };
+  const handleAddItem = () => { setPoForm((prev: any) => ({ ...prev, items: [...(prev.items || []), { code: '', name: '', brand: '', category: 'sparepart', qty: 1, price: 0, total: 0, unit: 'Pcs', inventoryId: null, qtyReceived: 0, isStockManaged: true }] })); };
 
   const handleUpdateItem = (index: number, field: keyof PurchaseOrderItem, value: any) => {
       const newItems = [...(poForm.items || [])];
       if (field === 'code') {
           const codeUpper = String(value).toUpperCase().trim();
           const match = inventoryItems.find(i => i.code?.toUpperCase() === codeUpper);
-          if (match) {
-              newItems[index] = { 
-                  ...newItems[index], 
-                  inventoryId: match.id, 
-                  name: match.name, 
-                  brand: match.brand || '',
-                  category: match.category, 
-                  unit: match.unit, 
-                  price: match.buyPrice, 
-                  code: match.code,
-                  isStockManaged: match.isStockManaged ?? true
-              };
-          } else {
-             newItems[index] = { ...newItems[index], inventoryId: null, code: codeUpper };
-          }
-      } else {
-          newItems[index] = { ...newItems[index], [field]: value };
-      }
+          if (match) { newItems[index] = { ...newItems[index], inventoryId: match.id, name: match.name, brand: match.brand || '', category: match.category, unit: match.unit, price: match.buyPrice, code: match.code, isStockManaged: match.isStockManaged ?? true }; } else { newItems[index] = { ...newItems[index], inventoryId: null, code: codeUpper }; }
+      } else { newItems[index] = { ...newItems[index], [field]: value }; }
       newItems[index].total = (newItems[index].qty || 0) * (newItems[index].price || 0);
       setPoForm((prev: any) => ({ ...prev, items: newItems }));
   };
 
-  const handleRemoveItem = (index: number) => {
-      const newItems = poForm.items?.filter((_: any, i: number) => i !== index);
-      setPoForm((prev: any) => ({ ...prev, items: newItems }));
-  };
+  const handleRemoveItem = (index: number) => { const newItems = poForm.items?.filter((_: any, i: number) => i !== index); setPoForm((prev: any) => ({ ...prev, items: newItems })); };
 
   const calculateFinancials = () => {
       const subtotal = poForm.items?.reduce((acc: number, item: any) => acc + item.total, 0) || 0;
@@ -540,25 +470,38 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
       setLoading(true);
       try {
-          const poNumber = generateRandomId('PO');
-
           const payload: any = {
               supplierId: poForm.supplierId,
               items: sanitizedItems,
               notes: poForm.notes || '',
               hasPpn: poForm.hasPpn || false,
               date: poForm.date, 
-              poNumber,
               supplierName: supplier.name,
               status,
               subtotal,
               ppnAmount,
               totalAmount,
-              createdAt: serverTimestamp(),
               createdBy: userPermissions.role
           };
 
-          await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
+          if (poForm.id) {
+              // UPDATE EXISTING PO
+              payload.poNumber = poForm.poNumber; // Keep existing number
+              payload.lastModified = serverTimestamp();
+              
+              await updateDoc(doc(db, PURCHASE_ORDERS_COLLECTION, poForm.id), cleanObject(payload));
+              showNotification(`PO ${poForm.poNumber} berhasil diperbarui.`, "success");
+          } else {
+              // CREATE NEW PO
+              const poNumber = generateRandomId('PO');
+              payload.poNumber = poNumber;
+              payload.createdAt = serverTimestamp();
+              
+              await addDoc(collection(db, PURCHASE_ORDERS_COLLECTION), cleanObject(payload));
+              showNotification(`PO ${poNumber} Berhasil Diterbitkan!`, "success");
+          }
+
+          // Update Job Link status regardless of create or update
           for (const item of sanitizedItems) {
               if (item.refJobId && item.refPartIndex !== null) {
                   const jobRef = doc(db, SERVICE_JOBS_COLLECTION, item.refJobId);
@@ -572,9 +515,9 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                   }
               }
           }
-          showNotification(`PO ${poNumber} Berhasil Diterbitkan!`, "success");
+          
           setViewMode('list');
-          setPoForm({ supplierId: '', items: [], notes: '', hasPpn: false, date: new Date().toISOString().split('T')[0] });
+          setPoForm({ id: null, poNumber: '', supplierId: '', items: [], notes: '', hasPpn: false, date: new Date().toISOString().split('T')[0] });
           setPoCreationMode('manual');
       } catch (e: any) {
           showNotification("Gagal menyimpan PO.", "error");
@@ -598,11 +541,13 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
 
   if (viewMode === 'create') {
       const { subtotal, ppnAmount, totalAmount } = calculateFinancials();
+      const isEditing = !!poForm.id;
+
       return (
           <div className="animate-fade-in bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex items-center gap-4 mb-6 border-b pb-4">
-                  <button onClick={() => { setViewMode('list'); setPoForm({supplierId: '', items: [], hasPpn: false, date: new Date().toISOString().split('T')[0]}); }} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="text-2xl font-bold text-gray-800">Buat Purchase Order Baru</h2>
+                  <button onClick={() => { setViewMode('list'); setPoForm({id: null, poNumber: '', supplierId: '', items: [], hasPpn: false, date: new Date().toISOString().split('T')[0]}); }} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="text-2xl font-bold text-gray-800">{isEditing ? `Edit PO ${poForm.poNumber}` : 'Buat Purchase Order Baru'}</h2>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                   <div>
@@ -715,7 +660,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
               )}
 
               <div className="mb-6">
-                  <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><ShoppingCart size={18}/> Item Pesanan (Draft)</h3>
+                  <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><ShoppingCart size={18}/> Item Pesanan {isEditing ? '(Mode Edit)' : '(Draft)'}</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left border border-gray-200 rounded overflow-hidden">
                         <thead className="bg-gray-100 font-bold">
@@ -787,7 +732,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                       </div>
                       <div className="flex gap-3 mt-6 justify-end w-full">
                         <button onClick={() => handleSubmitPO('Draft')} disabled={loading} className="px-6 py-2 border rounded font-bold text-gray-600 hover:bg-gray-100">Simpan Draft</button>
-                        <button onClick={() => handleSubmitPO('Pending Approval')} disabled={loading} className="px-8 py-2 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 shadow-lg">Ajukan Approval</button>
+                        <button onClick={() => handleSubmitPO('Pending Approval')} disabled={loading} className="px-8 py-2 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 shadow-lg">{isEditing ? 'Simpan Perubahan' : 'Ajukan Approval'}</button>
                       </div>
                   </div>
               </div>
@@ -896,7 +841,12 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50 font-bold"><tr><th className="px-6 py-4 text-xs uppercase text-gray-500">No. PO</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Supplier</th><th className="px-6 py-4 text-xs uppercase text-gray-500">Status</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-right">Total</th><th className="px-6 py-4 text-xs uppercase text-gray-500 text-center">Aksi</th></tr></thead>
                         <tbody className="divide-y">
-                            {realTimePOs.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => (
+                            {realTimePOs.filter(o => o.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) || o.supplierName.toLowerCase().includes(searchTerm.toLowerCase())).map(order => {
+                                // Enable edit/cancel for Partman IF status is Pending or Draft
+                                const isPendingOrDraft = order.status === 'Pending Approval' || order.status === 'Draft';
+                                const canModify = isManager || (isPartman && isPendingOrDraft);
+
+                                return (
                                 <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 font-mono font-bold text-indigo-700">{order.poNumber}</td>
                                     <td className="px-6 py-4 font-bold text-gray-800">{order.supplierName}</td>
@@ -905,8 +855,20 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex justify-center gap-2">
                                             <button onClick={() => { setSelectedPO(order); setViewMode('detail'); }} className="text-indigo-500 hover:text-indigo-700 bg-indigo-50 p-2 rounded-full transition-colors" title="Lihat Detail"><Eye size={18}/></button>
+                                            
+                                            {canModify && (
+                                                <button 
+                                                    onClick={() => handleEditPO(order)} 
+                                                    className="text-orange-500 hover:text-orange-700 bg-orange-50 p-2 rounded-full transition-colors"
+                                                    title="Edit PO"
+                                                >
+                                                    <Edit size={18}/>
+                                                </button>
+                                            )}
+
                                             {['Ordered', 'Partial', 'Received'].includes(order.status) && <button onClick={() => handlePrintPO(order)} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-2 rounded-full transition-colors" title="Print PO"><Printer size={18}/></button>}
-                                            {isManager && order.status !== 'Cancelled' && order.status !== 'Received' && (
+                                            
+                                            {canModify && order.status !== 'Received' && (
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); handleCancelPO(order); }} 
                                                     className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full transition-colors"
@@ -918,7 +880,7 @@ const PurchaseOrderView: React.FC<PurchaseOrderViewProps> = ({
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                         </tbody>
                     </table>
                 </div>
