@@ -68,6 +68,11 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
+    // Rules untuk Internal Team Chat
+    match /bengkel-internal-chats/{chatId} {
+      allow read, write: if isAuthenticated();
+    }
+
     // Backward Compatibility (Deprecated Collection)
     match /shared-bengkel-jobs/{jobId} {
       allow read, write: if isAuthenticated();

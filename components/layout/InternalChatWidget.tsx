@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db, INTERNAL_CHATS_COLLECTION } from '../../services/firebase';
 import { ChatMessage, UserProfile } from '../../types';
-import { MessageCircle, Send, X, Minimize2, User, Loader2 } from 'lucide-react';
+import { MessageCircle, Send, X, Minimize2, User, Loader2, AlertCircle } from 'lucide-react';
 
 interface InternalChatWidgetProps {
   currentUser: UserProfile;
@@ -14,6 +14,7 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -22,22 +23,34 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
 
   useEffect(() => {
     if (isOpen) {
-        // Only load messages when chat is open
+        setLoading(true);
+        setError(null);
+        
+        // Correct Query: Get 50 newest messages (desc), then reverse them for display
         const q = query(
             collection(db, INTERNAL_CHATS_COLLECTION),
-            orderBy('createdAt', 'asc'),
-            limit(50) // Load last 50 messages
+            orderBy('createdAt', 'desc'),
+            limit(50)
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as ChatMessage));
-            setMessages(msgs);
-            setLoading(false);
-            setTimeout(scrollToBottom, 100);
-        });
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => {
+                const msgs = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                } as ChatMessage));
+                
+                // Reverse to display oldest -> newest (bottom)
+                setMessages(msgs.reverse());
+                setLoading(false);
+                setTimeout(scrollToBottom, 100);
+            },
+            (err) => {
+                console.error("Chat Error:", err);
+                setError("Gagal memuat chat. Periksa koneksi/izin.");
+                setLoading(false);
+            }
+        );
 
         return () => unsubscribe();
     }
@@ -56,6 +69,8 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
               createdAt: serverTimestamp()
           });
           setNewMessage('');
+          // Optimistic scroll
+          setTimeout(scrollToBottom, 50);
       } catch (error) {
           console.error("Error sending message:", error);
       }
@@ -65,7 +80,7 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
         {/* Chat Window */}
         {isOpen && (
-            <div className="mb-4 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[500px] animate-pop-in ring-1 ring-black/5">
+            <div className="mb-4 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[500px] max-h-[80vh] animate-pop-in ring-1 ring-black/5">
                 {/* Header */}
                 <div className="bg-indigo-600 p-4 flex justify-between items-center text-white shrink-0">
                     <div>
@@ -85,8 +100,16 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
                         <div className="flex justify-center items-center h-full text-gray-400">
                             <Loader2 className="animate-spin" size={24}/>
                         </div>
+                    ) : error ? (
+                        <div className="flex flex-col justify-center items-center h-full text-red-400 text-xs text-center p-4">
+                            <AlertCircle size={24} className="mb-2"/>
+                            {error}
+                        </div>
                     ) : messages.length === 0 ? (
-                        <div className="text-center text-gray-400 text-xs mt-10">Belum ada pesan. Mulai percakapan!</div>
+                        <div className="text-center text-gray-400 text-xs mt-10">
+                            <p>Belum ada pesan.</p>
+                            <p className="text-[10px] mt-1">Mulai percakapan dengan tim!</p>
+                        </div>
                     ) : (
                         messages.map(msg => {
                             const isMe = msg.senderId === currentUser.uid;
@@ -98,7 +121,7 @@ const InternalChatWidget: React.FC<InternalChatWidgetProps> = ({ currentUser }) 
                                                 {msg.senderName} <span className="text-gray-400 font-normal">• {msg.senderRole}</span>
                                             </p>
                                         )}
-                                        <p className="leading-relaxed">{msg.text}</p>
+                                        <p className="leading-relaxed break-words">{msg.text}</p>
                                     </div>
                                     <span className="text-[9px] text-gray-400 mt-1 px-1">
                                         {msg.createdAt?.seconds ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Sending...'}
