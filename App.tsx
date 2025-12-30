@@ -303,6 +303,21 @@ const AppContent: React.FC = () => {
               }
           }
 
+          // --- KPI LOGIC: CHECK BOOKING SUCCESS (ONLY ON SAVE) ---
+          // This ensures KPI is calculated only when the user commits the change
+          if (selectedPosisi === 'Di Bengkel' && currentJob?.isBookingContacted && !currentJob?.bookingSuccess) {
+              const today = new Date().toISOString().split('T')[0];
+              const bookingDate = currentJob.tanggalBooking;
+              
+              if (bookingDate === today) {
+                  basePayload.bookingSuccess = true;
+                  basePayload.bookingEntryDate = today;
+                  showNotification("✅ KPI CRC: Booking Tepat Waktu (Success)", "success");
+              } else if (bookingDate) {
+                  showNotification("⚠️ KPI CRC: Booking Meleset/Tidak Sesuai Tanggal", "info");
+              }
+          }
+
           // DATABASE OPERATION
           if (isNewJob) {
               await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));

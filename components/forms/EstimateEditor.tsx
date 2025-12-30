@@ -132,47 +132,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       } catch (e) { console.error(e); }
   };
 
-  const handleUpdateCheckIn = async (field: 'statusKendaraan' | 'posisiKendaraan', value: string) => {
+  // REPLACED: handleUpdateCheckIn with sync state setter
+  const handlePositionChange = (value: string) => {
       if (job.isClosed) return;
-      try {
-          if (field === 'statusKendaraan') setCurrentStatus(value);
-          if (field === 'posisiKendaraan') setCurrentPosisi(value);
-
-          const updates: any = { 
-              [field]: value, 
-              updatedAt: serverTimestamp() 
-          };
-
-          // --- BOOKING KPI LOGIC ---
-          // Jika status fisik berubah jadi Di Bengkel (Inap) dan unit ini pernah di-WA Booking oleh CRC
-          if (field === 'posisiKendaraan' && value === 'Di Bengkel' && job.isBookingContacted) {
-              const today = new Date().toISOString().split('T')[0];
-              const bookingDate = job.tanggalBooking; // YYYY-MM-DD
-              
-              // Cek kesesuaian tanggal
-              const isSuccess = bookingDate === today;
-              
-              updates.bookingSuccess = isSuccess;
-              updates.bookingEntryDate = today;
-              
-              if (isSuccess) {
-                  showNotification("✅ KPI CRC: Booking Tepat Waktu (Success)", "success");
-              } else {
-                  showNotification("⚠️ KPI CRC: Booking Meleset/Tidak Sesuai Tanggal", "info");
-              }
-          }
-
-          // Update real-time hanya untuk visual di form, final update saat Save WO
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), updates);
-          
-          if (field === 'statusKendaraan') {
-              showNotification('Update Berhasil. Posisi di Papan Kontrol berubah.', "success");
-          } else {
-              showNotification('Update Berhasil.', "success");
-          }
-      } catch (e) {
-          showNotification("Gagal update status", "error");
-      }
+      setCurrentPosisi(value);
+      // Removed immediate updateDoc call. 
+      // The value 'currentPosisi' will be passed via 'prepareEstimateData' when clicking Save.
   };
 
   const calculateFinalServicePrice = (basePrice: number, panelValue: number) => {
@@ -364,8 +329,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   <div className="space-y-1.5">
                       <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><MapPin size={10}/> {lang === 'id' ? 'Posisi Fisik Unit' : 'Vehicle Physical Position'}</label>
                       <div className="flex bg-gray-100 p-1 rounded-xl">
-                          <button type="button" onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Bengkel')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'INAP' : 'IN-SHOP'}</button>
-                          <button type="button" onClick={() => handleUpdateCheckIn('posisiKendaraan', 'Di Pemilik')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'BAWA PULANG' : 'WITH OWNER'}</button>
+                          <button type="button" onClick={() => handlePositionChange('Di Bengkel')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'INAP' : 'IN-SHOP'}</button>
+                          <button type="button" onClick={() => handlePositionChange('Di Pemilik')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'BAWA PULANG' : 'WITH OWNER'}</button>
                       </div>
                   </div>
               </div>
