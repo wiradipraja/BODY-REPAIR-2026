@@ -4,7 +4,7 @@ import { Job, InventoryItem, UserPermissions, EstimateItem, UsageLogItem, Suppli
 import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc, writeBatch, addDoc, collection } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
-import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square, Box } from 'lucide-react';
+import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square, Box, Archive } from 'lucide-react';
 import Modal from '../ui/Modal';
 
 interface MaterialIssuanceViewProps {
@@ -85,6 +85,28 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       setSelectedPartIndices(prev => 
           prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
       );
+  };
+
+  const toggleAllAvailable = () => {
+      if (!selectedJob) return;
+      const parts = selectedJob.estimateData?.partItems || [];
+      const newIndices: number[] = [];
+      
+      parts.forEach((item, idx) => {
+          if (item.hasArrived) return; // Skip already issued
+          
+          // Match Logic
+          const inv = inventoryItems.find(i => 
+              (item.inventoryId && i.id === item.inventoryId) || 
+              (i.code && item.number && i.code.trim().toUpperCase() === item.number.trim().toUpperCase())
+          );
+          
+          if (inv && inv.stock >= (item.qty || 1)) {
+              newIndices.push(idx);
+          }
+      });
+      
+      setSelectedPartIndices(newIndices);
   };
 
   const findItem = (term: string) => {
@@ -174,10 +196,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                   updatedAt: serverTimestamp()
               });
 
-              // 6. Update WO Item Status
+              // 6. Update WO Item Status -> MARK AS ISSUED
               currentParts[idx] = {
                   ...currentParts[idx],
-                  hasArrived: true, // MARK AS ISSUED
+                  hasArrived: true, // FLAG ISSUED
                   inventoryId: invItem.id,
                   // Keep mismatch flags if set
               };
@@ -404,7 +426,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         {issuanceType === 'sparepart' ? 'Logistics / Keluar Part' : 'Supply / Pakai Bahan'}
                     </h1>
                     <p className="text-sm text-gray-500 font-medium">
-                        Pembebanan Material ke WO & Pengurangan Stok Gudang
+                        Pembebanan Material ke WO & Pengurangan Stok Gudang (Manual)
                     </p>
                 </div>
             </div>
@@ -482,13 +504,20 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                         <Truck size={20} className="text-gray-500"/>
                         <h3 className="font-bold text-gray-800">Daftar Part (Checklist Manual untuk Keluar Barang)</h3>
                     </div>
-                    {selectedPartIndices.length > 0 && (
+                    {selectedPartIndices.length > 0 ? (
                         <button 
                             onClick={handleBulkPartIssuance}
                             disabled={isSubmitting}
                             className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-indigo-700 transition-all flex items-center gap-2 animate-pulse"
                         >
                             <Save size={16}/> Konfirmasi Keluar ({selectedPartIndices.length} Item)
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={toggleAllAvailable}
+                            className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1.5 rounded transition-colors"
+                        >
+                            Pilih Semua Yang Ready
                         </button>
                     )}
                 </div>
@@ -526,7 +555,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                             {!isIssued && inv ? (
                                                 <button 
                                                     onClick={() => togglePartSelection(idx)} 
-                                                    className="text-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                    className={`transition-colors ${!isSufficient ? 'opacity-30 cursor-not-allowed' : 'text-indigo-600'}`}
                                                     disabled={!isSufficient} // Disable checkbox if stock low
                                                 >
                                                     {isSelected ? <CheckSquare size={20} className="fill-indigo-100"/> : <Square size={20}/>}
@@ -544,7 +573,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                         <td className="px-6 py-4 text-center">
                                             {inv ? (
                                                 <div className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold ${isSufficient ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                                    {readyStock} {inv.unit}
+                                                    <Archive size={12} className="mr-1"/> {readyStock} {inv.unit}
                                                 </div>
                                             ) : <span className="text-gray-400 text-xs italic">Tidak Terhubung</span>}
                                         </td>
@@ -563,7 +592,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                             ) : !isSufficient ? (
                                                 <span className="text-xs font-bold text-red-500 flex items-center justify-end gap-1"><XCircle size={14}/> Stok Kurang</span>
                                             ) : (
-                                                <span className="text-xs text-indigo-600 font-medium cursor-pointer" onClick={() => togglePartSelection(idx)}>Siap Checklist</span>
+                                                <span className="text-xs text-indigo-600 font-medium cursor-pointer flex items-center justify-end gap-1" onClick={() => togglePartSelection(idx)}>
+                                                    <MousePointerClick size={12}/> Siap Checklist
+                                                </span>
                                             )}
                                         </td>
                                     </tr>
