@@ -15,6 +15,7 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   senderRole: string;
+  recipientId?: string | null; // Added: If null/undefined = Global, otherwise = Private UID
   createdAt: any;
 }
 
