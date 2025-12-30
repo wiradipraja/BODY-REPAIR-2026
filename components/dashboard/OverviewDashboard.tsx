@@ -117,8 +117,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
         (j.statusKendaraan === 'Selesai (Tunggu Pengambilan)' || j.statusPekerjaan?.includes('Selesai'))
     ).length;
 
-    // --- FORECAST LOGIC ---
-    // Hitung potensi revenue dari unit WIP (belum closed)
+    // --- FORECAST LOGIC (ESTIMASI LABA DARI WIP) ---
     let potentialRevJasa = 0;
     let potentialRevPart = 0;
 
@@ -130,35 +129,48 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
         }
     });
 
-    // Hitung asumsi biaya
+    // Hitung asumsi biaya untuk Forecast
     const assumedMatCost = potentialRevJasa * 0.15; // 15% dari Jasa untuk Bahan
     const assumedPartCost = potentialRevPart * 0.80; // 80% dari Part (margin 20%) untuk HPP Part
-    
-    // Forecast GP = (Rev Jasa + Rev Part) - (Biaya Bahan + Biaya Part)
     const forecastGP = (potentialRevJasa + potentialRevPart) - (assumedMatCost + assumedPartCost);
 
-    // 2. Filtered Stats (Realized)
+    // 2. Filtered Stats (REALIZED - BASED ON INVOICE / CLOSING DATE)
     const periodJobs = allJobs.filter(j => {
         if (j.isDeleted) return false;
-        // Prioritaskan tanggal closing untuk laporan realized, fallback ke createdAt
+        // Gunakan closedAt jika ada (prioritas untuk laporan keuangan), jika tidak gunakan createdAt
         const refDate = j.closedAt || j.createdAt; 
         const dateObj = parseDate(refDate);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
 
+    // HANYA MENGHITUNG YANG SUDAH TERFAKTUR (HasInvoice = true)
     const invoicedJobs = periodJobs.filter(j => j.hasInvoice);
     const totalInvoicedUnits = invoicedJobs.length;
+    
+    // REVENUE: Total Bill (Termasuk PPN) untuk ditampilkan sebagai Omzet Kotor
     const revenue = invoicedJobs.reduce((acc, j) => acc + (j.estimateData?.grandTotal || 0), 0);
+    
     const totalPanels = invoicedJobs.reduce((acc, j) => {
         const panels = j.estimateData?.jasaItems?.reduce((pAcc, item) => pAcc + (item.panelCount || 0), 0) || 0;
         return acc + panels;
     }, 0);
 
+    // --- REALIZED GROSS PROFIT CALCULATION ---
+    // Rumus: (Jasa + Part) - (Modal Bahan + Beli Part + Jasa Luar)
+    // Note: Tidak menyertakan PPN dalam perhitungan Profit Bengkel
     const grossProfit = invoicedJobs.reduce((acc, j) => {
-        const revTotal = (j.hargaJasa || 0) + (j.hargaPart || 0);
-        // Perhitungan Cost Real (HPP) dari database
-        const costTotal = (j.costData?.hargaModalBahan || 0) + (j.costData?.hargaBeliPart || 0) + (j.costData?.jasaExternal || 0);
-        return acc + (revTotal - costTotal);
+        // Revenue Components (Net without PPN)
+        const revJasa = j.hargaJasa || 0;
+        const revPart = j.hargaPart || 0;
+        const totalNetRevenue = revJasa + revPart;
+
+        // Cost Components (Real Recorded Costs)
+        const costBahan = j.costData?.hargaModalBahan || 0;
+        const costPart = j.costData?.hargaBeliPart || 0;
+        const costSublet = j.costData?.jasaExternal || 0;
+        const totalCOGS = costBahan + costPart + costSublet;
+
+        return acc + (totalNetRevenue - totalCOGS);
     }, 0);
 
     const statusCounts: Record<string, number> = {};
@@ -174,8 +186,8 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
         statusCounts, 
         totalInvoicedUnits, 
         totalPanels, 
-        grossProfit,
-        forecastGP // New Stat
+        grossProfit, // Corrected Realized GP
+        forecastGP 
     };
   }, [allJobs, selectedMonth, selectedYear]);
 
@@ -233,7 +245,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Forecast GP Card (Replaces the old DB card) */}
+        {/* Forecast GP Card */}
         <StatCard 
             title={t('card_forecast')} 
             value={formatCurrency(stats.forecastGP)} 

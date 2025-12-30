@@ -34,23 +34,29 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
 
     // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation (Realized Profit)
-    // Menggunakan data jobs yang dilempar dari App.tsx (sumber Firestore)
+    // Filter unit yang sudah Closing / Has Invoice
     const invoicedPeriodJobs = jobs.filter(j => {
-        if (j.isDeleted || !j.hasInvoice || !j.closedAt) return false;
-        const dateObj = parseDate(j.closedAt);
+        if (j.isDeleted || !j.hasInvoice) return false;
+        // Gunakan closedAt (Tanggal Invoice/Closing) sebagai acuan
+        const refDate = j.closedAt || j.updatedAt;
+        const dateObj = parseDate(refDate);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
 
-    // 2. Gross Profit Calculation Logic (Revenue - HPP Real)
+    // 2. Gross Profit Calculation Logic (Revenue Net - HPP Real)
+    // Rumus: (Harga Jasa + Harga Part) - (HPP Bahan + HPP Beli Part + HPP Jasa Luar)
     const calculateGP = (job: Job) => {
-        const revenue = (job.hargaJasa || 0) + (job.hargaPart || 0);
-        // Cost Data integrity check from Production/Inventory modules
-        const materialCost = job.costData?.hargaModalBahan || 0;
-        const partCost = job.costData?.hargaBeliPart || 0;
-        const subletCost = job.costData?.jasaExternal || 0;
+        const revJasa = job.hargaJasa || 0;
+        const revPart = job.hargaPart || 0;
+        const totalRevenue = revJasa + revPart; // Exclude PPN
+
+        const costBahan = job.costData?.hargaModalBahan || 0;
+        const costPart = job.costData?.hargaBeliPart || 0;
+        const costSublet = job.costData?.jasaExternal || 0;
         
-        const costs = materialCost + partCost + subletCost;
-        return revenue - costs;
+        const totalCosts = costBahan + costPart + costSublet;
+        
+        return totalRevenue - totalCosts;
     };
 
     // 3. KPI SERVICE ADVISOR (Based on Closing/Invoice)
@@ -66,8 +72,8 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         }
         
         saMap[saName].woCount++;
-        saMap[saName].revenue += (j.estimateData?.grandTotal || 0);
-        saMap[saName].gpContribution += gpValue;
+        saMap[saName].revenue += (j.estimateData?.grandTotal || 0); // This is bill amount (gross)
+        saMap[saName].gpContribution += gpValue; // This is Profit
         totalGPRealizedMonth += gpValue;
     });
 
@@ -83,8 +89,8 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const adjustedWeeklyTarget = remainingMonthlyTarget / remainingWeeks;
 
     const weeklyInvoicedJobs = invoicedPeriodJobs.filter(j => {
-        if (!j.closedAt) return false;
-        const d = parseDate(j.closedAt);
+        const refDate = j.closedAt || j.updatedAt;
+        const d = parseDate(refDate);
         const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
         // Jika bulan aktif, hitung 7 hari terakhir. Jika bulan lalu, hitung rata-rata.
         return isCurrentMonth ? (diffDays <= 7) : true; 
@@ -96,8 +102,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         : totalGPRealizedMonth / 4; 
 
     // 5. KPI ADMIN & CRC (BOOKING, PICKUP, FOLLOW-UP CONVERSION)
-    
-    // A. Booking Stage (Created Date)
+    // A. Booking Stage
     const bookingJobs = jobs.filter(j => {
         if (j.isDeleted) return false;
         const d = parseDate(j.createdAt);
@@ -106,16 +111,17 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const bookingCont = bookingJobs.filter(j => j.isBookingContacted).length;
     const bookingSucc = bookingJobs.filter(j => j.bookingSuccess).length;
 
-    // B. Service Follow-up Stage (Closed Date)
+    // B. Service Follow-up Stage
     const closedInPeriod = jobs.filter(j => {
-        if (!j.isClosed || !j.closedAt || j.isDeleted) return false;
-        const d = parseDate(j.closedAt);
+        if (!j.isClosed || j.isDeleted) return false;
+        const refDate = j.closedAt || j.updatedAt;
+        const d = parseDate(refDate);
         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const serviceCont = closedInPeriod.filter(j => j.isServiceContacted).length;
     const serviceSucc = closedInPeriod.filter(j => j.crcFollowUpStatus === 'Contacted').length;
 
-    // C. Pickup Stage (Ready or Closed)
+    // C. Pickup Stage
     const pickupCandidates = jobs.filter(j => {
          const isReady = j.statusKendaraan === 'Selesai (Tunggu Pengambilan)';
          const isClosedThisMonth = j.isClosed && j.closedAt && parseDate(j.closedAt).getMonth() === selectedMonth;
@@ -130,7 +136,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const successRatio = totalContacted > 0 ? (totalSuccess / totalContacted) * 100 : 0;
     
     // 6. KPI FINANCE (AR AGING - Piutang)
-    // Menggunakan real-time transactions dari props
     const arItems = jobs.filter(j => j.woNumber && !j.isDeleted && !j.isClosed).map(job => {
         const totalBill = job.estimateData?.grandTotal || 0;
         const paid = transactions
@@ -138,30 +143,25 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             .reduce((acc, t) => acc + (t.amount || 0), 0);
         
         const remaining = totalBill - paid;
-        
-        // Use CreatedAt for Active Jobs to determine Aging
         const dateRef = parseDate(job.createdAt);
         const ageDays = Math.floor((Date.now() - dateRef.getTime()) / (1000 * 3600 * 24));
         
         return { remaining, ageDays };
-    }).filter(i => i.remaining > 1000); // Filter lunas
+    }).filter(i => i.remaining > 1000); 
 
     const agingProfile = {
         current: arItems.filter(i => i.ageDays <= 7).reduce((acc, i) => acc + i.remaining, 0),
         warning: arItems.filter(i => i.ageDays > 7 && i.ageDays <= 14).reduce((acc, i) => acc + i.remaining, 0),
         critical: arItems.filter(i => i.ageDays > 14).reduce((acc, i) => acc + i.remaining, 0)
     };
-    
     const totalAR = agingProfile.current + agingProfile.warning + agingProfile.critical;
 
     // 7. KPI PRODUKSI (MEKANIK)
     const mechMap: Record<string, any> = {};
-    // Pre-fill dari settings agar mekanik yang belum ada job tetap muncul (nilai 0)
     (settings.mechanicNames || []).forEach(name => {
         mechMap[name] = { panels: 0, reworks: 0, units: 0 };
     });
 
-    // Hitung produktivitas berdasarkan Unit Closed di periode ini
     closedInPeriod.forEach(j => {
         const panels = j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
         const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
@@ -172,7 +172,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             mechMap[m].units += 1;
         });
 
-        // Hitung Rework berdasarkan Production Logs (type: 'rework')
         j.productionLogs?.forEach(log => {
             if (log.type === 'rework') {
                 const picAtStage = j.assignedMechanics?.find(a => a.stage === log.stage)?.name;
@@ -184,7 +183,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         });
     });
 
-    // Hitung Estimasi yang dibuat SA (Ratio Closing)
+    // SA Estimates Count
     jobs.filter(j => {
         if (j.isDeleted) return false;
         const d = parseDate(j.createdAt);
@@ -327,12 +326,11 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
-            {/* MEKANIK TABLE - WITH SCROLL BAR FIX */}
+            {/* MEKANIK TABLE */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col h-full max-h-[500px]">
                 <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center shrink-0">
                     <h3 className="font-black text-blue-900 flex items-center gap-2 uppercase tracking-widest text-xs"><Hammer size={18}/> Produksi & Kualitas (Closed WOs)</h3>
                 </div>
-                {/* Scrollable Container */}
                 <div className="p-0 overflow-hidden flex flex-col h-full">
                     <div className="overflow-y-auto scrollbar-thin h-full p-6">
                         <table className="w-full text-left text-sm relative">
