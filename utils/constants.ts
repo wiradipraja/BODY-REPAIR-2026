@@ -16,6 +16,7 @@ export const initialSettingsState: Settings = {
     ppnPercentage: 11,
     monthlyTarget: 600000000,
     weeklyTarget: 150000000,
+    mechanicPanelRate: 40000, // Default Wage Rate
     afterServiceFollowUpDays: 3,
     nationalHolidays: [],
     mechanicNames: ["Mekanik A", "Mekanik B", "Mekanik C", "Mekanik D"].sort(),

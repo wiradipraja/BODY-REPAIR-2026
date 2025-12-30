@@ -226,6 +226,13 @@ const AppContent: React.FC = () => {
           const currentJob = jobs.find(j => j.id === jobId) || actualModalState.data;
           const isNewJob = jobId.startsWith('TEMP_');
           
+          // --- STRICT LOCKING: PREVENT EDIT IF INVOICE EXISTS ---
+          // Ini mencegah SA mengedit Estimasi/WO setelah Faktur diterbitkan oleh Kasir
+          if (!isNewJob && currentJob?.hasInvoice) {
+              showNotification("AKSES DITOLAK: WO ini sudah memiliki Faktur/Invoice. Harap hubungi Kasir/Finance untuk membatalkan faktur jika ingin melakukan revisi.", "error");
+              throw new Error("Invoice Exists. WO Locked.");
+          }
+
           let estimationNumber = estimateData.estimationNumber;
           let woNumber = currentJob?.woNumber;
           
@@ -337,7 +344,10 @@ const AppContent: React.FC = () => {
           return saveType === 'wo' ? woNumber! : estimationNumber!;
       } catch (e) { 
           console.error(e); 
-          showNotification("Gagal menyimpan transaksi.", "error"); 
+          // Do not show notification again if it was the Invoice Lock error (already shown)
+          if (e.message !== "Invoice Exists. WO Locked.") {
+              showNotification("Gagal menyimpan transaksi.", "error"); 
+          }
           throw e; 
       }
   };

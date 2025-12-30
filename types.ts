@@ -13,6 +13,7 @@ export interface MechanicAssignment {
   name: string;
   stage: string;
   assignedAt: string;
+  panelCount?: number; // Added specific panel count per mechanic
 }
 
 export interface Settings {
@@ -23,6 +24,7 @@ export interface Settings {
   ppnPercentage: number;
   monthlyTarget: number;
   weeklyTarget: number;
+  mechanicPanelRate: number; // Added wage rate per panel
   afterServiceFollowUpDays: number;
   nationalHolidays: string[];
   mechanicNames: string[];

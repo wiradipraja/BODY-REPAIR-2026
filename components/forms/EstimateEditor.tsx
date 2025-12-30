@@ -95,6 +95,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   const [currentStatus, setCurrentStatus] = useState(job.statusKendaraan);
   const [currentPosisi, setCurrentPosisi] = useState(job.posisiKendaraan || 'Di Bengkel');
 
+  // LOCKING LOGIC: WO Locked if Closed OR Invoiced
+  const isLocked = job.isClosed || job.hasInvoice;
+
   const specialColorRate = useMemo(() => {
       return (settings.specialColorRates || []).find(r => r.colorName === job.warnaMobil);
   }, [job.warnaMobil, settings.specialColorRates]);
@@ -134,7 +137,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
   // REPLACED: handleUpdateCheckIn with sync state setter
   const handlePositionChange = (value: string) => {
-      if (job.isClosed) return;
+      if (isLocked) return;
       setCurrentPosisi(value);
       // Removed immediate updateDoc call. 
       // The value 'currentPosisi' will be passed via 'prepareEstimateData' when clicking Save.
@@ -147,7 +150,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   };
 
   const addItem = (type: 'jasa' | 'part') => {
-    if (job.isClosed) return;
+    if (isLocked) return;
     const newItem: EstimateItem = type === 'jasa' ? { name: '', price: 0, workType: 'KC' } : { name: '', price: 0, qty: 1, number: '' };
     if (type === 'jasa') setJasaItems([...jasaItems, newItem]);
     else setPartItems([...partItems, newItem]);
@@ -214,14 +217,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
   };
 
   const updateItemRaw = (type: 'jasa' | 'part', index: number, field: keyof EstimateItem, value: any) => {
-    if (job.isClosed) return;
+    if (isLocked) return;
     const items = type === 'jasa' ? [...jasaItems] : [...partItems];
     items[index] = { ...items[index], [field]: value };
     type === 'jasa' ? setJasaItems(items) : setPartItems(items);
   };
 
   const removeItem = (type: 'jasa' | 'part', index: number) => {
-    if (job.isClosed) return;
+    if (isLocked) return;
     type === 'jasa' ? setJasaItems(jasaItems.filter((_, i) => i !== index)) : setPartItems(partItems.filter((_, i) => i !== index));
   };
 
@@ -313,6 +316,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* LOCKED NOTIFICATION */}
+      {isLocked && (
+          <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 shadow-sm animate-pulse">
+              <Lock className="text-red-600" size={24}/>
+              <div>
+                  <h4 className="font-bold text-red-800 text-sm uppercase">Dokumen Terkunci / Locked</h4>
+                  <p className="text-xs text-red-700">
+                      {job.hasInvoice 
+                          ? "Work Order sudah memiliki Faktur. Edit tidak diizinkan untuk menjaga konsistensi data keuangan."
+                          : "Status WO sudah Closed."
+                      }
+                  </p>
+              </div>
+          </div>
+      )}
+
       {/* ... (Existing Layout: Header, Status Bar) ... */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-white border border-indigo-100 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row gap-6 items-center">
@@ -329,8 +348,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   <div className="space-y-1.5">
                       <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><MapPin size={10}/> {lang === 'id' ? 'Posisi Fisik Unit' : 'Vehicle Physical Position'}</label>
                       <div className="flex bg-gray-100 p-1 rounded-xl">
-                          <button type="button" onClick={() => handlePositionChange('Di Bengkel')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'INAP' : 'IN-SHOP'}</button>
-                          <button type="button" onClick={() => handlePositionChange('Di Pemilik')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{lang === 'id' ? 'BAWA PULANG' : 'WITH OWNER'}</button>
+                          <button type="button" disabled={isLocked} onClick={() => handlePositionChange('Di Bengkel')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Bengkel' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600 disabled:opacity-50'}`}>{lang === 'id' ? 'INAP' : 'IN-SHOP'}</button>
+                          <button type="button" disabled={isLocked} onClick={() => handlePositionChange('Di Pemilik')} className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${currentPosisi === 'Di Pemilik' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600 disabled:opacity-50'}`}>{lang === 'id' ? 'BAWA PULANG' : 'WITH OWNER'}</button>
                       </div>
                   </div>
               </div>
@@ -357,13 +376,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           </div>
       </div>
 
-      {job.isClosed && (<div className="bg-red-50 p-3 rounded flex items-center gap-2 text-red-700 font-bold"><Lock size={18}/> {lang === 'id' ? 'WO ini terkunci (Closed).' : 'This WO is Locked (Closed).'}</div>)}
-
       {/* JASA SECTION */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
               <h4 className="font-black text-gray-800 tracking-tight">{t('sec_jasa')}</h4>
-              <button onClick={() => addItem('jasa')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> {t('btn_add_jasa')}</button>
+              <button onClick={() => addItem('jasa')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"><Plus size={16}/> {t('btn_add_jasa')}</button>
           </div>
           {/* ... Jasa Table Code ... */}
           <div className="relative">
@@ -384,14 +401,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                           <tr key={i} className="group hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
                               <td className="px-4 py-3 border-y border-gray-100">
-                                  <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
+                                  <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-indigo-500 transition-all disabled:opacity-60" placeholder="CARI..." disabled={isLocked} />
                               </td>
                               <td className="px-4 py-3 text-center border-y border-gray-100">
                                   <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-black border ${item.workType === 'KC' ? 'bg-orange-50 text-orange-700 border-orange-200' : item.workType === 'GTC' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>{item.workType || '-'}</span>
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
-                                      <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all" placeholder="SEARCH..." disabled={job.isClosed} />
+                                      <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all disabled:opacity-60" placeholder="SEARCH..." disabled={isLocked} />
                                       {activeSearch?.type === 'jasa' && activeSearch.index === i && (
                                           <div ref={searchRef} className={`absolute left-0 ${i > jasaItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-indigo-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
                                               {/* ... (Search List for Jasa) ... */}
@@ -416,13 +433,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   </div>
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 text-center">
-                                  <input type="number" step="0.1" value={item.panelCount || 0} onChange={e => updateItemRaw('jasa', i, 'panelCount', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs" disabled={job.isClosed} />
+                                  <input type="number" step="0.1" value={item.panelCount || 0} onChange={e => updateItemRaw('jasa', i, 'panelCount', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs disabled:opacity-60" disabled={isLocked} />
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 text-right">
-                                  <input type="number" value={item.price} onChange={e => updateItemRaw('jasa', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800" disabled={job.isClosed} />
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('jasa', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800 disabled:opacity-60" disabled={isLocked} />
                               </td>
                               <td className="px-4 py-3 border-y border-r border-gray-100 bg-gray-50/50 rounded-r-xl text-center">
-                                  <button onClick={() => removeItem('jasa', i)} className="text-red-300 hover:text-red-500 transition-colors" disabled={job.isClosed}><Trash2 size={16}/></button>
+                                  <button onClick={() => removeItem('jasa', i)} className="text-red-300 hover:text-red-500 transition-colors disabled:opacity-20" disabled={isLocked}><Trash2 size={16}/></button>
                               </td>
                           </tr>
                       ))}
@@ -435,7 +452,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
               <h4 className="font-black text-gray-800 tracking-tight">{t('sec_part')}</h4>
-              <button onClick={() => addItem('part')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-4 py-1.5 rounded-xl font-black hover:bg-orange-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> {t('btn_add_part')}</button>
+              <button onClick={() => addItem('part')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-orange-50 text-orange-700 px-4 py-1.5 rounded-xl font-black hover:bg-orange-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"><Plus size={16}/> {t('btn_add_part')}</button>
           </div>
           <div className="relative">
               <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[700px]">
@@ -455,11 +472,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                           <tr key={i} className={`group transition-colors ${item.isPriceMismatch ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-gray-50'}`}>
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
                               <td className="px-4 py-3 border-y border-gray-100">
-                                  <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
+                                  <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all disabled:opacity-60" placeholder="CARI..." disabled={isLocked} />
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
-                                      <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" placeholder="SEARCH..." disabled={job.isClosed} />
+                                      <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all disabled:opacity-60" placeholder="SEARCH..." disabled={isLocked} />
                                       
                                       {item.isPriceMismatch && (
                                           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-red-600 animate-pulse bg-red-100 px-2 py-0.5 rounded text-[9px] font-black uppercase">
@@ -490,10 +507,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   </div>
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 text-center">
-                                  <input type="number" value={item.qty || 1} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs" disabled={job.isClosed} />
+                                  <input type="number" value={item.qty || 1} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs disabled:opacity-60" disabled={isLocked} />
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 text-right relative group-input">
-                                  <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className={`w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800 ${item.isPriceMismatch ? 'ring-2 ring-red-300' : ''}`} disabled={job.isClosed} />
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className={`w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800 ${item.isPriceMismatch ? 'ring-2 ring-red-300' : ''} disabled:opacity-60`} disabled={isLocked} />
                                   
                                   {item.isPriceMismatch && item.mismatchSuggestedPrice && (
                                        <button 
@@ -505,7 +522,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                        </button>
                                   )}
 
-                                  {!item.isPriceMismatch && item.inventoryId && (
+                                  {!item.isPriceMismatch && item.inventoryId && !isLocked && (
                                       <button onClick={() => syncPartPrice(i)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-input-hover:opacity-100 p-1 bg-white shadow rounded-full text-indigo-600 hover:scale-110 transition-all" title="Reset ke Harga Master"><RefreshCw size={12}/></button>
                                   )}
                               </td>
@@ -513,7 +530,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   {formatCurrency((item.price || 0) * (item.qty || 1))}
                               </td>
                               <td className="px-4 py-3 border-y border-r border-gray-100 bg-gray-50/50 rounded-r-xl text-center">
-                                  <button onClick={() => removeItem('part', i)} className="text-red-300 hover:text-red-500 transition-colors" disabled={job.isClosed}><Trash2 size={16}/></button>
+                                  <button onClick={() => removeItem('part', i)} className="text-red-300 hover:text-red-500 transition-colors disabled:opacity-20" disabled={isLocked}><Trash2 size={16}/></button>
                               </td>
                           </tr>
                       ))}
@@ -533,7 +550,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-gray-400 w-24">Diskon Jasa %</span>
-                      <input type="number" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-indigo-500" disabled={job.isClosed} />
+                      <input type="number" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-indigo-500 disabled:opacity-50" disabled={isLocked} />
                       <span className="text-xs font-mono text-red-400">- {formatCurrency(totals.discountJasaAmount)}</span>
                   </div>
                   
@@ -545,7 +562,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-gray-400 w-24">Diskon Part %</span>
-                      <input type="number" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-orange-500" disabled={job.isClosed} />
+                      <input type="number" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} className="bg-white/10 border-none rounded-lg w-20 text-center font-bold text-sm focus:ring-2 ring-orange-500 disabled:opacity-50" disabled={isLocked} />
                       <span className="text-xs font-mono text-red-400">- {formatCurrency(totals.discountPartAmount)}</span>
                   </div>
               </div>
@@ -568,10 +585,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   <button onClick={() => handlePrint('estimate')} disabled={isSubmitting} className="px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 bg-white/5 hover:bg-white/20 transition-all text-indigo-200"><Printer size={16}/> {t('btn_print_est')}</button>
                   <button onClick={() => handlePrint('wo')} disabled={isSubmitting} className="px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 bg-white/5 hover:bg-white/20 transition-all text-emerald-200"><Printer size={16}/> {t('btn_print_wo')}</button>
               </div>
-              <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting || job.isClosed} className="px-6 py-3 bg-white text-indigo-900 rounded-xl font-black shadow-lg hover:bg-indigo-50 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50">
+              <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting || isLocked} className="px-6 py-3 bg-white text-indigo-900 rounded-xl font-black shadow-lg hover:bg-indigo-50 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
                   {isSubmitting ? 'Menyimpan...' : <><Save size={18}/> {t('btn_save_est')}</>}
               </button>
-              <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting || job.isClosed} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-xl hover:bg-indigo-500 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50 border border-indigo-400">
+              <button onClick={() => handleSaveAction('wo')} disabled={isSubmitting || isLocked} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-xl hover:bg-indigo-500 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-400">
                   {isSubmitting ? 'Memproses...' : <><FileText size={18}/> {job.woNumber ? t('btn_update_wo') : t('btn_save_wo')}</>}
               </button>
           </div>

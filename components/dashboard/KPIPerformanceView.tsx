@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import React, { useState, useMemo } from 'react';
 import { Job, CashierTransaction, Settings } from '../../types';
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
@@ -30,36 +31,27 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
   };
 
   const stats = useMemo(() => {
+    // ... (Existing SA and Financial KPI logic remains unchanged) ...
     const now = new Date();
     const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
 
-    // 1. Period Filter - STRICT: Only Invoiced Units for GP calculation (Realized Profit)
-    // Filter unit yang sudah Closing / Has Invoice
     const invoicedPeriodJobs = jobs.filter(j => {
         if (j.isDeleted || !j.hasInvoice) return false;
-        // Gunakan closedAt (Tanggal Invoice/Closing) sebagai acuan
         const refDate = j.closedAt || j.updatedAt;
         const dateObj = parseDate(refDate);
         return dateObj.getMonth() === selectedMonth && dateObj.getFullYear() === selectedYear;
     });
 
-    // 2. Gross Profit Calculation Logic (Revenue Net - HPP Real)
-    // Rumus: (Harga Jasa + Harga Part) - (HPP Bahan + HPP Beli Part + HPP Jasa Luar)
     const calculateGP = (job: Job) => {
         const revJasa = job.hargaJasa || 0;
         const revPart = job.hargaPart || 0;
-        const totalRevenue = revJasa + revPart; // Exclude PPN
-
+        const totalRevenue = revJasa + revPart; 
         const costBahan = job.costData?.hargaModalBahan || 0;
         const costPart = job.costData?.hargaBeliPart || 0;
         const costSublet = job.costData?.jasaExternal || 0;
-        
-        const totalCosts = costBahan + costPart + costSublet;
-        
-        return totalRevenue - totalCosts;
+        return totalRevenue - (costBahan + costPart + costSublet);
     };
 
-    // 3. KPI SERVICE ADVISOR (Based on Closing/Invoice)
     const saMap: Record<string, any> = {};
     let totalGPRealizedMonth = 0;
     
@@ -72,12 +64,11 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         }
         
         saMap[saName].woCount++;
-        saMap[saName].revenue += (j.estimateData?.grandTotal || 0); // This is bill amount (gross)
-        saMap[saName].gpContribution += gpValue; // This is Profit
+        saMap[saName].revenue += (j.estimateData?.grandTotal || 0); 
+        saMap[saName].gpContribution += gpValue; 
         totalGPRealizedMonth += gpValue;
     });
 
-    // 4. ACCUMULATIVE WEEKLY TARGET LOGIC
     const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
     const totalWeeksInMonth = Math.ceil(daysInMonth / 7);
     const currentDay = isCurrentMonth ? now.getDate() : daysInMonth;
@@ -92,17 +83,14 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
         const refDate = j.closedAt || j.updatedAt;
         const d = parseDate(refDate);
         const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
-        // Jika bulan aktif, hitung 7 hari terakhir. Jika bulan lalu, hitung rata-rata.
         return isCurrentMonth ? (diffDays <= 7) : true; 
     });
     
-    // Jika bulan lalu, current achieved weekly hanyalah rata-rata untuk display
     const currentAchievedWeeklyGP = isCurrentMonth 
         ? weeklyInvoicedJobs.reduce((acc, j) => acc + calculateGP(j), 0)
         : totalGPRealizedMonth / 4; 
 
-    // 5. KPI ADMIN & CRC (BOOKING, PICKUP, FOLLOW-UP CONVERSION)
-    // A. Booking Stage
+    // KPI ADMIN & CRC
     const bookingJobs = jobs.filter(j => {
         if (j.isDeleted) return false;
         const d = parseDate(j.createdAt);
@@ -111,7 +99,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const bookingCont = bookingJobs.filter(j => j.isBookingContacted).length;
     const bookingSucc = bookingJobs.filter(j => j.bookingSuccess).length;
 
-    // B. Service Follow-up Stage
     const closedInPeriod = jobs.filter(j => {
         if (!j.isClosed || j.isDeleted) return false;
         const refDate = j.closedAt || j.updatedAt;
@@ -121,7 +108,6 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const serviceCont = closedInPeriod.filter(j => j.isServiceContacted).length;
     const serviceSucc = closedInPeriod.filter(j => j.crcFollowUpStatus === 'Contacted').length;
 
-    // C. Pickup Stage
     const pickupCandidates = jobs.filter(j => {
          const isReady = j.statusKendaraan === 'Selesai (Tunggu Pengambilan)';
          const isClosedThisMonth = j.isClosed && j.closedAt && parseDate(j.closedAt).getMonth() === selectedMonth;
@@ -130,12 +116,11 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     const pickupCont = pickupCandidates.filter(j => j.isPickupContacted).length;
     const pickupSucc = pickupCandidates.filter(j => j.pickupSuccess).length; 
 
-    // Aggregate Totals
     const totalContacted = bookingCont + serviceCont + pickupCont;
     const totalSuccess = bookingSucc + serviceSucc + pickupSucc;
     const successRatio = totalContacted > 0 ? (totalSuccess / totalContacted) * 100 : 0;
     
-    // 6. KPI FINANCE (AR AGING - Piutang)
+    // KPI FINANCE (AR AGING)
     const arItems = jobs.filter(j => j.woNumber && !j.isDeleted && !j.isClosed).map(job => {
         const totalBill = job.estimateData?.grandTotal || 0;
         const paid = transactions
@@ -156,21 +141,37 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
     };
     const totalAR = agingProfile.current + agingProfile.warning + agingProfile.critical;
 
-    // 7. KPI PRODUKSI (MEKANIK)
+    // 7. KPI PRODUKSI (MEKANIK) - UPDATED LOGIC FOR SPECIFIC PANELS
     const mechMap: Record<string, any> = {};
     (settings.mechanicNames || []).forEach(name => {
         mechMap[name] = { panels: 0, reworks: 0, units: 0 };
     });
 
     closedInPeriod.forEach(j => {
-        const panels = j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
+        // Fallback total panels if individual assignment missing
+        const totalJobPanels = j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0;
         const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
         
-        involvedMechs.forEach((m: any) => {
-            if (!mechMap[m]) mechMap[m] = { panels: 0, reworks: 0, units: 0 };
-            mechMap[m].panels += panels;
-            mechMap[m].units += 1;
-        });
+        // If mechanics are assigned, use their specific counts. 
+        // If specific count is undefined (old data), split equally or assign total (here we assign total for compatibility if multiple mechanics not common on old data)
+        
+        if (involvedMechs.length > 0) {
+             involvedMechs.forEach((m: any) => {
+                if (!mechMap[m]) mechMap[m] = { panels: 0, reworks: 0, units: 0 };
+                
+                // Find specific assignment for this mechanic
+                const specificAssignment = j.assignedMechanics?.find(a => a.name === m);
+                const assignedPanels = specificAssignment?.panelCount;
+
+                if (assignedPanels !== undefined) {
+                    mechMap[m].panels += assignedPanels;
+                } else {
+                    // Fallback for old data: Full panels
+                    mechMap[m].panels += totalJobPanels;
+                }
+                mechMap[m].units += 1;
+            });
+        }
 
         j.productionLogs?.forEach(log => {
             if (log.type === 'rework') {
@@ -231,9 +232,11 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
             </div>
         </div>
 
-        {/* TARGET CARDS */}
+        {/* ... (Keep Target Cards & SA Table as is) ... */}
+        
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            {/* Monthly Card */}
+            {/* Monthly Card & Weekly Card Code Omitted for brevity - they remain unchanged */}
+             {/* Monthly Card */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><Flag size={120}/></div>
                 <div className="flex justify-between items-start mb-6">
@@ -371,6 +374,7 @@ const KPIPerformanceView: React.FC<KPIProps> = ({ jobs, transactions, settings }
                 </div>
             </div>
 
+            {/* CRC & Finance Cards Omitted for brevity but assumed present */}
             {/* CRC CARD */}
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center"><h3 className="font-black text-emerald-900 flex items-center gap-2 uppercase tracking-widest text-xs"><MessageSquare size={18}/> CRM & Customer Care</h3></div>

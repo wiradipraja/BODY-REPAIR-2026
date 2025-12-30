@@ -5,7 +5,7 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
 import { Settings, UserPermissions, UserProfile, Supplier, ServiceMasterItem, Job, PurchaseOrder } from '../../types';
-import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound, Star } from 'lucide-react';
+import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, User, Users, Shield, CreditCard, MessageSquare, Database, Download, Upload, Layers, Edit2, Loader2, RefreshCw, AlertTriangle, ShieldCheck, Search, Info, Palette, Wrench, Activity, ClipboardCheck, Car, Tag, UserPlus, Key, MailCheck, Globe, CheckCircle2, Bot, Smartphone, Send, Zap, Lock, ShieldAlert, KeyRound, Star, Wallet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
@@ -144,6 +144,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
+      // ... (Existing user creation logic)
       e.preventDefault();
       if (!isManager) return;
       setIsLoading(true);
@@ -152,7 +153,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       let newUid: string | null = null;
 
       try {
-          // 1. Create User in Firebase Auth (Secondary App to prevent admin logout)
           if (userForm.password) {
               if (userForm.password.length < 6) {
                   throw new Error("Password minimal 6 karakter.");
@@ -162,13 +162,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               const tempAuth = tempApp.auth();
               const cred = await tempAuth.createUserWithEmailAndPassword(userForm.email, userForm.password);
               newUid = cred.user?.uid || null;
-              
-              // Clean up: Sign out from temp app immediately just in case
               await tempAuth.signOut();
           }
 
-          // 2. Create/Update User Profile in Firestore
-          // Use newUid if available (cleanest), otherwise fallback to email as ID (legacy support for updates)
           const docId = newUid || userForm.email.toLowerCase();
 
           await setDoc(doc(db, USERS_COLLECTION, docId), {
@@ -176,8 +172,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               displayName: userForm.displayName,
               role: userForm.role,
               createdAt: serverTimestamp(),
-              uid: newUid // Store UID in field as well if available
-          }, { merge: true }); // Merge ensures we don't wipe existing fields if they exist unexpectedly
+              uid: newUid
+          }, { merge: true }); 
           
           showNotification(`User ${userForm.displayName} berhasil didaftarkan.`, "success");
           setIsUserModalOpen(false);
@@ -186,9 +182,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           console.error("Error creating user:", e);
           let msg = e.message;
           if (e.code === 'auth/email-already-in-use') {
-              // If user exists in Auth, we still try to update Firestore permission
               try {
-                  // If we don't have UID, try updating by email as ID (best effort for legacy)
                   await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
                       email: userForm.email.toLowerCase(),
                       displayName: userForm.displayName,
@@ -199,7 +193,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   showNotification("Email sudah terdaftar. Hak akses diperbarui (via Email Key).", "success");
                   setIsUserModalOpen(false);
                   setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
-                  return; // Exit successfully
+                  return;
               } catch (fsErr: any) {
                   msg = "Email ada di Auth tapi gagal update Firestore: " + fsErr.message;
               }
@@ -264,11 +258,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleSyncSystemData = async () => {
+      // ... (Existing sync logic)
       if (!isManager) return;
       if (!window.confirm("Sinkronisasi data unit masif?")) return;
       setIsLoading(true);
       try {
-          const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION)); // Batch op needs getDocs
+          const jobsSnap = await getDocs(collection(db, SERVICE_JOBS_COLLECTION));
           const poSnap = await getDocs(collection(db, PURCHASE_ORDERS_COLLECTION));
           const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isClosed && !j.isDeleted);
           const allPOs = poSnap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder));
@@ -306,6 +301,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleCleanupDuplicates = async () => {
+      // ... (Existing duplicate cleanup logic)
       if (!isManager) return;
       setIsLoading(true);
       try {
@@ -324,6 +320,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   };
 
   const handleSaveService = async (e: React.FormEvent) => {
+      // ... (Existing service save logic)
       e.preventDefault();
       if (!isManager) return;
       setIsLoading(true);
@@ -334,7 +331,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           showNotification("Data diperbarui", "success");
           setServiceForm({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
           setIsEditingService(false);
-          // List updates via onSnapshot
       } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
@@ -408,6 +404,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'general' && (
               <div className={`space-y-8 ${restrictedClass}`}>
                   <RestrictedOverlay/>
+                  {/* ... (Existing General Settings) */}
                   <section className="bg-indigo-50/30 p-6 rounded-2xl border border-indigo-100">
                     <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><Globe className="text-indigo-600" size={20}/> Bahasa Tampilan</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -430,9 +427,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'whatsapp' && (
               <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
-                  
+                  {/* ... (Existing WhatsApp Config) */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      {/* WHATSAPP MODE CONFIG */}
                       <section className="bg-green-50/50 p-6 rounded-2xl border border-green-100">
                           <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center gap-2">
                             <MessageSquare className="text-green-600" size={20}/> Konfigurasi Pengiriman
@@ -503,7 +499,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                           </div>
                       </section>
 
-                      {/* TEMPLATE EDITORS */}
                       <div className="space-y-6">
                           <div className="grid grid-cols-1 gap-6">
                               <div>
@@ -534,7 +529,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                       </div>
                   </div>
 
-                  {/* SECTION: TEMPLATE PENILAIAN (CSI INDICATORS) */}
                   <section className="bg-yellow-50/50 p-6 rounded-2xl border border-yellow-100 mt-8">
                       <h3 className="text-lg font-bold text-yellow-900 mb-4 flex items-center gap-2">
                           <Star className="text-yellow-600" size={20}/> Template Penilaian Pelanggan (CSI Survey)
@@ -588,6 +582,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'unit_catalog' && (
               <div className={`space-y-10 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
+                  {/* ... (Existing Catalog Settings) */}
                   <section className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest text-xs"><Car size={16} className="text-indigo-500"/> Master Merk Kendaraan</h4>
@@ -630,6 +625,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           {activeTab === 'services' && (
               <div className={`space-y-8 animate-fade-in ${restrictedClass}`}>
                   <RestrictedOverlay />
+                  
+                  {/* NEW: Input Rate Panel per Mekanik */}
+                  <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100 flex items-center justify-between">
+                      <div>
+                          <h4 className="font-bold text-emerald-900 flex items-center gap-2 text-sm"><Wallet size={18}/> Standar Gaji Mekanik (Per Panel)</h4>
+                          <p className="text-xs text-emerald-700 mt-1">Nilai ini digunakan untuk menghitung estimasi gaji teknisi di Laporan Produksi.</p>
+                      </div>
+                      <div className="relative">
+                          <span className="absolute left-3 top-2.5 font-bold text-emerald-500">Rp</span>
+                          <input 
+                              type="number" 
+                              className="w-48 pl-10 p-2.5 border border-emerald-300 rounded-lg font-black text-emerald-800 focus:ring-2 focus:ring-emerald-500"
+                              value={localSettings.mechanicPanelRate || 0}
+                              onChange={e => handleChange('mechanicPanelRate', Number(e.target.value))}
+                          />
+                      </div>
+                  </div>
+
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
                       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
