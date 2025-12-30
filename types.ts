@@ -89,6 +89,9 @@ export interface EstimateItem {
   isOrdered?: boolean;
   isIndent?: boolean;
   indentETA?: string;
+  // PRICE MISMATCH CONTROL
+  isPriceMismatch?: boolean;
+  mismatchSuggestedPrice?: number;
 }
 
 export interface InsuranceLog {

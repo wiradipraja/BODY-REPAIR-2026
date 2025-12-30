@@ -210,19 +210,39 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           name: part.name,
           price: part.sellPrice, 
           inventoryId: part.id,
-          qty: newItems[index].qty || 1
+          qty: newItems[index].qty || 1,
+          isPriceMismatch: false // Reset flag if selecting new part
       };
       setPartItems(newItems);
       setActiveSearch(null);
   };
 
-  const syncPartPrice = (index: number) => {
+  const syncPartPrice = (index: number, targetPrice?: number) => {
       const item = partItems[index];
+      const newItems = [...partItems];
+      
+      // If we have a mismatch suggestion from the system (PO Logic), prioritize it
+      if (targetPrice) {
+          newItems[index] = { 
+              ...newItems[index], 
+              price: targetPrice,
+              isPriceMismatch: false,
+              mismatchSuggestedPrice: undefined // Clear suggestion after sync
+          };
+          setPartItems(newItems);
+          showNotification("Harga disinkronkan ke Harga Baru (PO/Supplier)", "success");
+          return;
+      }
+
+      // Default logic: Sync to Master Stock Current Sell Price
       if (!item.inventoryId) return;
       const masterItem = inventoryItems.find(i => i.id === item.inventoryId);
       if (masterItem) {
-          const newItems = [...partItems];
-          newItems[index] = { ...newItems[index], price: masterItem.sellPrice };
+          newItems[index] = { 
+              ...newItems[index], 
+              price: masterItem.sellPrice,
+              isPriceMismatch: false // Clear flag
+          };
           setPartItems(newItems);
           showNotification("Harga disinkronkan ke Master Stok", "success");
       }
@@ -328,6 +348,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* ... (Existing Layout: Header, Status Bar) ... */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-white border border-indigo-100 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row gap-6 items-center">
               <div className="shrink-0 flex items-center gap-3">
@@ -379,6 +400,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
               <h4 className="font-black text-gray-800 tracking-tight">{t('sec_jasa')}</h4>
               <button onClick={() => addItem('jasa')} disabled={job.isClosed} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 transition-all active:scale-95"><Plus size={16}/> {t('btn_add_jasa')}</button>
           </div>
+          {/* ... Jasa Table Code ... */}
           <div className="relative">
               <table className="w-full text-sm text-left border-separate border-spacing-y-2 min-w-[700px]">
                   <thead>
@@ -407,6 +429,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                       <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all" placeholder="SEARCH..." disabled={job.isClosed} />
                                       {activeSearch?.type === 'jasa' && activeSearch.index === i && (
                                           <div ref={searchRef} className={`absolute left-0 ${i > jasaItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-indigo-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
+                                              {/* ... (Search List for Jasa) ... */}
                                               <div className="p-3 bg-indigo-50/50 border-b border-indigo-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
                                                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{lang === 'id' ? 'Pilih Item Jasa' : 'Select Service Item'}</span>
                                                   <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full"><X size={14} className="text-indigo-400"/></button>
@@ -464,7 +487,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                   </thead>
                   <tbody>
                       {partItems.map((item, i) => (
-                          <tr key={i} className="group hover:bg-gray-50 transition-colors">
+                          <tr key={i} className={`group transition-colors ${item.isPriceMismatch ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-gray-50'}`}>
                               <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
                               <td className="px-4 py-3 border-y border-gray-100">
                                   <input type="text" value={item.number || ''} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.number || ''); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'number', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg uppercase font-mono text-xs font-bold focus:ring-2 ring-orange-500 transition-all" placeholder="CARI..." disabled={job.isClosed} />
@@ -472,8 +495,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                               <td className="px-4 py-3 border-y border-gray-100 relative">
                                   <div className="relative">
                                       <input type="text" value={item.name} onFocus={() => { setActiveSearch({ type: 'part', index: i }); setSearchQuery(item.name); }} onChange={e => { setSearchQuery(e.target.value); updateItemRaw('part', i, 'name', e.target.value); }} className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-orange-500 transition-all" placeholder="SEARCH..." disabled={job.isClosed} />
+                                      
+                                      {item.isPriceMismatch && (
+                                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-red-600 animate-pulse bg-red-100 px-2 py-0.5 rounded text-[9px] font-black uppercase">
+                                              <AlertTriangle size={12}/> Price Mismatch
+                                          </div>
+                                      )}
+
                                       {activeSearch?.type === 'part' && activeSearch.index === i && (
                                           <div ref={searchRef} className={`absolute left-0 ${i > partItems.length - 3 && i > 2 ? 'bottom-full mb-2' : 'top-full mt-2'} w-[500px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-orange-100 z-[100] max-h-[400px] overflow-y-auto animate-pop-in scrollbar-thin backdrop-blur-md bg-white/98`}>
+                                              {/* ... (Search List for Parts) ... */}
                                               <div className="p-3 bg-orange-50/50 border-b border-orange-100 flex justify-between items-center sticky top-0 z-10 backdrop-blur-sm">
                                                   <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{lang === 'id' ? 'Pilih Sparepart' : 'Select Sparepart'}</span>
                                                   <button onClick={() => setActiveSearch(null)} className="p-1 hover:bg-white rounded-full"><X size={14} className="text-orange-400"/></button>
@@ -497,8 +528,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                   <input type="number" value={item.qty || 1} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs" disabled={job.isClosed} />
                               </td>
                               <td className="px-4 py-3 border-y border-gray-100 text-right relative group-input">
-                                  <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800" disabled={job.isClosed} />
-                                  {item.inventoryId && (
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('part', i, 'price', Number(e.target.value))} className={`w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800 ${item.isPriceMismatch ? 'ring-2 ring-red-300' : ''}`} disabled={job.isClosed} />
+                                  
+                                  {item.isPriceMismatch && item.mismatchSuggestedPrice && (
+                                       <button 
+                                          onClick={() => syncPartPrice(i, item.mismatchSuggestedPrice)} 
+                                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-indigo-600 shadow-md rounded text-white hover:bg-indigo-700 transition-all flex items-center gap-1 z-10" 
+                                          title={`Sync ke Harga Baru: ${formatCurrency(item.mismatchSuggestedPrice)}`}
+                                       >
+                                          <RefreshCw size={12}/> <span className="text-[9px] font-bold">SYNC</span>
+                                       </button>
+                                  )}
+
+                                  {!item.isPriceMismatch && item.inventoryId && (
                                       <button onClick={() => syncPartPrice(i)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-input-hover:opacity-100 p-1 bg-white shadow rounded-full text-indigo-600 hover:scale-110 transition-all" title="Reset ke Harga Master"><RefreshCw size={12}/></button>
                                   )}
                               </td>
@@ -515,7 +557,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           </div>
       </div>
 
-      {/* SUMMARY */}
+      {/* SUMMARY SECTION */}
+      {/* ... (Existing Summary Code) ... */}
       <div className="bg-slate-900 p-6 rounded-3xl text-white shadow-2xl">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-4">
