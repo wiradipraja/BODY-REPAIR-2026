@@ -44,12 +44,14 @@ const AppContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<Settings>(defaultSettings);
   
-  // Real-time Data States (OPTIMIZED)
+  // Real-time Data States (GLOBAL INTEGRATION FIX)
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]); 
   const [transactions, setTransactions] = useState<CashierTransaction[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]); 
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   
   const [loadingData, setLoadingData] = useState(true);
 
@@ -63,7 +65,7 @@ const AppContent: React.FC = () => {
         setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)));
     }, handleError("Vehicles"));
 
-    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
         setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
     }, handleError("Jobs"));
 
@@ -71,13 +73,23 @@ const AppContent: React.FC = () => {
         setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
     }, handleError("Suppliers"));
 
-    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc'), limit(200)), (snap) => {
         setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
     }, handleError("Transactions"));
 
     const unsubAssets = onSnapshot(query(collection(db, ASSETS_COLLECTION)), (snap) => {
         setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
     }, handleError("Assets"));
+
+    // NEW: Inventory Listener (For FIFO Logic & Reporting)
+    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION), limit(1000)), (snap) => {
+        setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
+    }, handleError("Inventory"));
+
+    // NEW: Purchase Orders Listener (For Debt & Receiving)
+    const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
+    }, handleError("PurchaseOrders"));
 
     const unsubSettings = onSnapshot(collection(db, SETTINGS_COLLECTION), (snap) => {
        if (!snap.empty) {
@@ -88,7 +100,8 @@ const AppContent: React.FC = () => {
     setLoadingData(false);
     return () => { 
         unsubVehicles(); unsubJobs(); 
-        unsubSuppliers(); unsubTransactions(); unsubAssets(); unsubSettings();
+        unsubSuppliers(); unsubTransactions(); unsubAssets(); 
+        unsubInventory(); unsubPOs(); unsubSettings();
     };
   }, [user]);
   
@@ -349,7 +362,7 @@ const AppContent: React.FC = () => {
             <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} />
         )}
         {currentView === 'overview_ai' && (
-            <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={[]} />
+            <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={inventoryItems} />
         )}
 
         {currentView === 'input_data' && (
@@ -368,7 +381,7 @@ const AppContent: React.FC = () => {
         )}
 
         {currentView === 'claims_control' && (
-            <ClaimsControlView jobs={jobs} inventoryItems={[]} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} onNavigate={setCurrentView} />
+            <ClaimsControlView jobs={jobs} inventoryItems={inventoryItems} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} onNavigate={setCurrentView} />
         )}
 
         {currentView === 'entry_data' && (
@@ -379,31 +392,31 @@ const AppContent: React.FC = () => {
         )}
 
         {currentView === 'production_spkl' && ( <SpklManagementView jobs={jobs} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} /> )}
-        {currentView === 'job_control' && ( <JobControlView jobs={jobs} inventoryItems={[]} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
+        {currentView === 'job_control' && ( <JobControlView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} /> )}
         {currentView === 'general_affairs' && ( <AssetManagementView assets={assets} userPermissions={userPermissions} showNotification={showNotification} /> )}
-        {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={[]} settings={appSettings} showNotification={showNotification} /> )}
+        {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={inventoryItems} settings={appSettings} showNotification={showNotification} /> )}
         
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} suppliers={suppliers} />}
         
-        {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={[]} />}
+        {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={inventoryItems} />}
         
-        {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={[]} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={inventoryItems} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} realTimePOs={purchaseOrders} />}
         
-        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={[]} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}
-        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={[]} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" settings={appSettings} />}
+        {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}
+        {currentView === 'material_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={inventoryItems} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="material" settings={appSettings} />}
         
         {currentView === 'finance_invoice' && <InvoiceCreatorView jobs={jobs} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
-        {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={[]} transactions={transactions} suppliers={suppliers} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
-        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={[]} transactions={transactions} assets={assets} />}
+        {currentView === 'finance_tax' && <TaxManagementView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} suppliers={suppliers} settings={appSettings} showNotification={showNotification} userPermissions={userPermissions} />}
+        {currentView === 'finance_dashboard' && <AccountingView jobs={jobs} purchaseOrders={purchaseOrders} transactions={transactions} assets={assets} />}
         {currentView === 'finance_cashier' && <CashierView jobs={jobs} transactions={transactions} userPermissions={userPermissions} showNotification={showNotification} />}
-        {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={[]} userPermissions={userPermissions} showNotification={showNotification} />}
+        {currentView === 'finance_debt' && <DebtReceivableView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} userPermissions={userPermissions} showNotification={showNotification} />}
         
         {currentView === 'settings' && ( <div className="max-w-5xl mx-auto"><SettingsView currentSettings={appSettings} refreshSettings={async () => {}} showNotification={showNotification} userPermissions={userPermissions} realTimeSuppliers={suppliers} /></div> )}
         
-        {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={[]} inventoryItems={[]} vehicles={vehicles} /> )}
+        {currentView === 'report_center' && ( <ReportCenterView jobs={jobs} transactions={transactions} purchaseOrders={purchaseOrders} inventoryItems={inventoryItems} vehicles={vehicles} /> )}
 
         <Modal isOpen={actualModalState.isOpen} onClose={closeModal} title={actualModalState.type === 'create_estimation' ? 'Editor Estimasi & Work Order' : 'Registrasi Master Unit'} maxWidth={actualModalState.type === 'create_estimation' ? 'max-w-7xl' : 'max-w-3xl'} >
-            {actualModalState.type === 'create_estimation' && actualModalState.data && ( <EstimateEditor job={actualModalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={[]} showNotification={showNotification} /> )}
+            {actualModalState.type === 'create_estimation' && actualModalState.data && ( <EstimateEditor job={actualModalState.data} ppnPercentage={appSettings.ppnPercentage} insuranceOptions={appSettings.insuranceOptions} onSave={handleSaveEstimate} onCancel={closeModal} settings={appSettings} creatorName={userData.displayName || 'Admin'} inventoryItems={inventoryItems} showNotification={showNotification} /> )}
             {actualModalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={actualModalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>

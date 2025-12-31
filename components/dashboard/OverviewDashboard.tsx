@@ -171,7 +171,7 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
         const revPart = j.hargaPart || 0;
         const totalNetRevenue = revJasa + revPart;
 
-        // Cost Components (Real Recorded Costs)
+        // Cost Components (Real Recorded Costs) - SAFETY CHECK ADDED
         const costBahan = j.costData?.hargaModalBahan || 0;
         const costPart = j.costData?.hargaBeliPart || 0;
         const costSublet = j.costData?.jasaExternal || 0;
