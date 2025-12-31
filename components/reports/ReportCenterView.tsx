@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
 import { Job, CashierTransaction, PurchaseOrder, InventoryItem, Vehicle } from '../../types';
 import * as XLSX from 'xlsx';
 import { formatDateIndo, formatCurrency } from '../../utils/helpers';
-import { FileSpreadsheet, Download, Calendar, Activity, DollarSign, Package, User, BarChart3, Database, Landmark, Scale, Wallet, Loader2 } from 'lucide-react';
+import { FileSpreadsheet, Download, Calendar, Activity, DollarSign, Package, User, ShoppingCart, BarChart3, TrendingUp, Shield, MapPin, Car, Database, Landmark, Scale, Wallet, Loader2 } from 'lucide-react';
 import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, UNITS_MASTER_COLLECTION } from '../../services/firebase';
 

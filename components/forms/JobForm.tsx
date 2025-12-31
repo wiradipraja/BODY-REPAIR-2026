@@ -1,25 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
-import { Vehicle, Settings } from '../../types'; // Changed type to Vehicle
-import { formatPoliceNumber } from '../../utils/helpers';
-import { Save, Loader2, User, Car, Shield, Search, Info, MapPin, Tag, Calendar, Database } from 'lucide-react';
+import { Vehicle, Settings } from '../../types';
+import { formatPoliceNumber, cleanObject } from '../../utils/helpers';
+import { Save, Loader2, User, Car, Shield, Search, Info, MapPin, Tag, Calendar, Database, RefreshCw } from 'lucide-react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db, UNITS_MASTER_COLLECTION } from '../../services/firebase';
 
 interface JobFormProps {
-  initialData?: Vehicle | null; // Changed from Job to Vehicle
+  initialData?: Vehicle | null;
   settings: Settings;
-  onSave: (data: Partial<Vehicle>) => Promise<void>; // Changed from Job to Vehicle
+  onSave: (data: Partial<Vehicle>) => Promise<void>;
   onCancel: () => void;
-  allJobs?: any[]; // Kept for checking existing, but logic is simplified
+  allJobs?: any[];
 }
 
 const DICTIONARY: Record<string, Record<string, string>> = {
     id: {
-        title: "Registrasi Master Unit", // Updated Title
+        title: "Registrasi Master Unit", 
         edit_title: "Perbarui Data Unit Master",
-        desc_banner: "Menu ini khusus untuk mendaftarkan database kendaraan baru. Untuk memulai perbaikan, silakan masuk ke menu 'Estimasi & WO' setelah data unit tersimpan.",
+        desc_banner: "Menu ini khusus untuk mendaftarkan database kendaraan baru. Masukkan No. Polisi lalu tekan ENTER untuk cek data lama.",
         sec_vehicle: "Spesifikasi Kendaraan",
         label_police: "No. Polisi (Nopol)",
-        placeholder_police: "B 1234 ABC",
+        placeholder_police: "B 1234 ABC (Tekan Enter)",
         label_brand: "Merk Kendaraan",
         label_model: "Tipe / Model",
         placeholder_model: "CX-5, Mazda 3, dll...",
@@ -48,10 +50,10 @@ const DICTIONARY: Record<string, Record<string, string>> = {
     en: {
         title: "Master Vehicle Registration",
         edit_title: "Update Master Vehicle Data",
-        desc_banner: "This menu is strictly for registering new vehicle database. To start a repair job, please go to 'Estimates & WO' after saving unit data.",
+        desc_banner: "Enter License Plate and press ENTER to check for existing data or register new.",
         sec_vehicle: "Vehicle Specification",
         label_police: "Plate Number",
-        placeholder_police: "B 1234 ABC",
+        placeholder_police: "B 1234 ABC (Press Enter)",
         label_brand: "Vehicle Brand",
         label_model: "Type / Model",
         placeholder_model: "CX-5, Mazda 3, etc...",
@@ -83,7 +85,6 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
 
-  // REMOVED: statusKendaraan, statusPekerjaan, posisiKendaraan, woNumber, namaSA
   const [formData, setFormData] = useState<Partial<Vehicle>>({
     customerName: '',
     customerPhone: '',
@@ -105,7 +106,9 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [searchMessage, setSearchMessage] = useState<{type: 'success'|'error'|'info', text: string} | null>(null);
 
   useEffect(() => {
     if (initialData) {
@@ -123,6 +126,48 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
         ...prev, 
         [name]: processedValue 
     }));
+  };
+
+  const handleCheckVehicle = async () => {
+      const nopol = formData.policeNumber;
+      if (!nopol || nopol.length < 3) return;
+
+      setIsSearching(true);
+      setSearchMessage(null);
+
+      try {
+          const q = query(collection(db, UNITS_MASTER_COLLECTION), where("policeNumber", "==", nopol));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+              const docData = querySnapshot.docs[0].data() as Vehicle;
+              const docId = querySnapshot.docs[0].id;
+              
+              setFormData({ ...docData, id: docId });
+              setIsEditMode(true);
+              setSearchMessage({ type: 'success', text: "Data kendaraan ditemukan! Mode Edit Aktif." });
+          } else {
+              setSearchMessage({ type: 'info', text: "Unit belum terdaftar. Silakan lanjutkan input data baru." });
+              setIsEditMode(false);
+              // Reset ID to ensure new creation if previously in edit mode
+              setFormData(prev => {
+                  const { id, ...rest } = prev;
+                  return { ...rest, policeNumber: nopol }; // Keep the nopol
+              });
+          }
+      } catch (error) {
+          console.error("Error checking vehicle:", error);
+          setSearchMessage({ type: 'error', text: "Gagal mengecek database." });
+      } finally {
+          setIsSearching(false);
+      }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+          e.preventDefault(); // Prevent form submission
+          handleCheckVehicle();
+      }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,13 +195,39 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
             <h4 className="text-base font-bold text-gray-800">{t('sec_vehicle')}</h4>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-6">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 md:col-span-1 relative">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_police')}</label>
-                <div className="relative">
-                    <input type="text" name="policeNumber" value={formData.policeNumber} onChange={handleChange} placeholder={t('placeholder_police')} className="w-full p-3 pl-11 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all uppercase font-black text-indigo-900 tracking-tight" required autoFocus />
-                    <Search className="absolute left-4 top-3.5 text-gray-300" size={18}/>
+                <div className="relative group">
+                    <input 
+                        type="text" 
+                        name="policeNumber" 
+                        value={formData.policeNumber} 
+                        onChange={handleChange} 
+                        onKeyDown={handleKeyDown}
+                        placeholder={t('placeholder_police')} 
+                        className={`w-full p-3 pl-11 bg-white border-2 rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all uppercase font-black text-indigo-900 tracking-tight ${searchMessage?.type === 'success' ? 'border-emerald-400' : 'border-gray-200 focus:border-indigo-500'}`}
+                        required 
+                        autoFocus 
+                    />
+                    <div className="absolute left-4 top-3.5 text-gray-400">
+                        {isSearching ? <Loader2 size={18} className="animate-spin text-indigo-600"/> : <Search size={18}/>}
+                    </div>
+                    <button 
+                        type="button"
+                        onClick={handleCheckVehicle}
+                        className="absolute right-2 top-2 p-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors"
+                        title="Cek Database"
+                    >
+                        <RefreshCw size={14}/>
+                    </button>
                 </div>
+                {searchMessage && (
+                    <div className={`mt-2 text-xs font-bold flex items-center gap-1.5 animate-fade-in ${searchMessage.type === 'success' ? 'text-emerald-600' : searchMessage.type === 'error' ? 'text-red-600' : 'text-blue-600'}`}>
+                        <Info size={12}/> {searchMessage.text}
+                    </div>
+                )}
             </div>
+            
             <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('label_brand')}</label>
                 <select name="carBrand" value={formData.carBrand} onChange={handleChange} className="w-full p-3 bg-gray-50 border-none rounded-xl focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-gray-700">
