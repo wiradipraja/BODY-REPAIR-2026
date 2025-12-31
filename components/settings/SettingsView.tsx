@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; // Added setDoc
+import { collection, doc, updateDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore'; 
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { db, auth, firebaseConfig, SETTINGS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION, SERVICE_JOBS_COLLECTION, PURCHASE_ORDERS_COLLECTION } from '../../services/firebase';
@@ -9,6 +9,7 @@ import { Save, Plus, Trash2, Building, Phone, Mail, Percent, Target, Calendar, U
 import * as XLSX from 'xlsx';
 import Modal from '../ui/Modal';
 
+// ... (Interface and Props remain same)
 interface SettingsViewProps {
   currentSettings: Settings;
   refreshSettings: () => Promise<void>;
@@ -44,119 +45,59 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
   
   const [newCsiInput, setNewCsiInput] = useState('');
 
+  // ... (useEffects and Handlers remain same until handleImportServices) ...
   useEffect(() => {
     setLocalSettings(currentSettings);
   }, [currentSettings]);
 
-  // Real-time Listeners for Settings Sub-data
   useEffect(() => {
-      // 1. Services Listener
       const qServices = query(collection(db, SERVICES_MASTER_COLLECTION), orderBy('serviceName'));
       const unsubServices = onSnapshot(qServices, (snap) => {
           setServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServiceMasterItem)));
       }, (error) => console.error("Services Listener Error:", error));
 
-      // 2. Users Listener
       const qUsers = query(collection(db, USERS_COLLECTION));
       const unsubUsers = onSnapshot(qUsers, (snap) => {
           setSystemUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
       }, (error) => console.error("Users Listener Error:", error));
 
-      return () => {
-          unsubServices();
-          unsubUsers();
-      };
+      return () => { unsubServices(); unsubUsers(); };
   }, []);
 
   const filteredServices = useMemo(() => {
       if (!serviceSearchQuery) return services;
       const term = serviceSearchQuery.toLowerCase();
-      return services.filter(s => 
-          s.serviceName.toLowerCase().includes(term) || 
-          (s.serviceCode && s.serviceCode.toLowerCase().includes(term))
-      );
+      return services.filter(s => s.serviceName.toLowerCase().includes(term) || (s.serviceCode && s.serviceCode.toLowerCase().includes(term)));
   }, [services, serviceSearchQuery]);
 
-  const handleChange = (field: keyof Settings, value: any) => {
-    setLocalSettings(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleNestedChange = (parent: 'whatsappTemplates' | 'whatsappConfig', field: string, value: any) => {
-    setLocalSettings(prev => ({
-        ...prev,
-        [parent]: {
-            ...(prev[parent] || {}),
-            [field]: value
-        }
-    }));
-  };
-
-  const handleArrayChange = (field: keyof Settings, index: number, value: any) => {
-    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
-    const arr = [...currentArray];
-    arr[index] = value;
-    setLocalSettings(prev => ({ ...prev, [field]: arr }));
-  };
-
-  const addItem = (field: keyof Settings, initialValue: any) => {
-    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
-    const arr = [...currentArray];
-    arr.push(initialValue);
-    setLocalSettings(prev => ({ ...prev, [field]: arr }));
-  };
-
-  const removeItem = (field: keyof Settings, index: number) => {
-    const currentArray = Array.isArray(localSettings[field]) ? (localSettings[field] as any[]) : [];
-    const arr = [...currentArray];
-    arr.splice(index, 1);
-    setLocalSettings(prev => ({ ...prev, [field]: arr }));
-  };
-
-  const handleAddCsiItem = () => {
-      if (!newCsiInput.trim()) return;
-      addItem('csiIndicators', newCsiInput);
-      setNewCsiInput('');
-  };
+  const handleChange = (field: keyof Settings, value: any) => { setLocalSettings(prev => ({ ...prev, [field]: value })); };
+  const handleNestedChange = (parent: 'whatsappTemplates' | 'whatsappConfig', field: string, value: any) => { setLocalSettings(prev => ({ ...prev, [parent]: { ...(prev[parent] || {}), [field]: value } })); };
+  const handleArrayChange = (field: keyof Settings, index: number, value: any) => { const arr = [...(localSettings[field] as any[])]; arr[index] = value; setLocalSettings(prev => ({ ...prev, [field]: arr })); };
+  const addItem = (field: keyof Settings, initialValue: any) => { setLocalSettings(prev => ({ ...prev, [field]: [...(prev[field] as any[]), initialValue] })); };
+  const removeItem = (field: keyof Settings, index: number) => { const arr = [...(localSettings[field] as any[])]; arr.splice(index, 1); setLocalSettings(prev => ({ ...prev, [field]: arr })); };
+  const handleAddCsiItem = () => { if (!newCsiInput.trim()) return; addItem('csiIndicators', newCsiInput); setNewCsiInput(''); };
 
   const saveSettings = async () => {
-    if (!isManager) {
-        showNotification("Akses Ditolak: Hanya Manager yang dapat menyimpan pengaturan.", "error");
-        return;
-    }
+    if (!isManager) { showNotification("Akses Ditolak: Hanya Manager yang dapat menyimpan pengaturan.", "error"); return; }
     setIsLoading(true);
     try {
-      // Logic for saving settings document (Main Settings)
-      // Note: Services and Users are saved independently via other handlers
-      const q = await getDocs(collection(db, SETTINGS_COLLECTION)); // Still use getDocs for single fetch to find ID
-      // Real-time update for main settings handled in App.tsx via onSnapshot
-      if (q.empty) {
-        await addDoc(collection(db, SETTINGS_COLLECTION), localSettings);
-      } else {
-        await updateDoc(doc(db, SETTINGS_COLLECTION, q.docs[0].id), localSettings as any);
-      }
+      const q = await getDocs(collection(db, SETTINGS_COLLECTION));
+      if (q.empty) await addDoc(collection(db, SETTINGS_COLLECTION), localSettings);
+      else await updateDoc(doc(db, SETTINGS_COLLECTION, q.docs[0].id), localSettings as any);
       showNotification("Pengaturan berhasil disimpan.", "success");
-      // refreshSettings is optional now as onSnapshot in App.tsx will update
-    } catch (e: any) {
-      showNotification("Gagal menyimpan: " + e.message, "error");
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (e: any) { showNotification("Gagal menyimpan: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
+  // ... (handleCreateUser, handleDeleteUser, Password handlers same as before) ...
   const handleCreateUser = async (e: React.FormEvent) => {
-      // ... (Existing user creation logic)
       e.preventDefault();
       if (!isManager) return;
       setIsLoading(true);
-      
       let tempApp: firebase.app.App | null = null;
       let newUid: string | null = null;
-
       try {
           if (userForm.password) {
-              if (userForm.password.length < 6) {
-                  throw new Error("Password minimal 6 karakter.");
-              }
+              if (userForm.password.length < 6) throw new Error("Password minimal 6 karakter.");
               const tempAppName = `tempApp-${Date.now()}`;
               tempApp = firebase.initializeApp(firebaseConfig, tempAppName);
               const tempAuth = tempApp.auth();
@@ -164,17 +105,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               newUid = cred.user?.uid || null;
               await tempAuth.signOut();
           }
-
           const docId = newUid || userForm.email.toLowerCase();
-
-          await setDoc(doc(db, USERS_COLLECTION, docId), {
-              email: userForm.email.toLowerCase(),
-              displayName: userForm.displayName,
-              role: userForm.role,
-              createdAt: serverTimestamp(),
-              uid: newUid
-          }, { merge: true }); 
-          
+          await setDoc(doc(db, USERS_COLLECTION, docId), { email: userForm.email.toLowerCase(), displayName: userForm.displayName, role: userForm.role, createdAt: serverTimestamp(), uid: newUid }, { merge: true }); 
           showNotification(`User ${userForm.displayName} berhasil didaftarkan.`, "success");
           setIsUserModalOpen(false);
           setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
@@ -183,82 +115,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           let msg = e.message;
           if (e.code === 'auth/email-already-in-use') {
               try {
-                  await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), {
-                      email: userForm.email.toLowerCase(),
-                      displayName: userForm.displayName,
-                      role: userForm.role,
-                      createdAt: serverTimestamp()
-                  }, { merge: true });
-                  
+                  await setDoc(doc(db, USERS_COLLECTION, userForm.email.toLowerCase()), { email: userForm.email.toLowerCase(), displayName: userForm.displayName, role: userForm.role, createdAt: serverTimestamp() }, { merge: true });
                   showNotification("Email sudah terdaftar. Hak akses diperbarui (via Email Key).", "success");
                   setIsUserModalOpen(false);
                   setUserForm({ email: '', displayName: '', role: 'Staff', password: '' });
                   return;
-              } catch (fsErr: any) {
-                  msg = "Email ada di Auth tapi gagal update Firestore: " + fsErr.message;
-              }
+              } catch (fsErr: any) { msg = "Email ada di Auth tapi gagal update Firestore: " + fsErr.message; }
           }
           showNotification("Gagal menambah user: " + msg, "error");
-      } finally { 
-          if (tempApp) {
-              await (tempApp as firebase.app.App).delete();
-          }
-          setIsLoading(false); 
-      }
+      } finally { if (tempApp) await (tempApp as firebase.app.App).delete(); setIsLoading(false); }
   };
 
-  const handleDeleteUser = async (uid: string) => {
-      if (!window.confirm("Hapus akses user ini?")) return;
-      try {
-          await deleteDoc(doc(db, USERS_COLLECTION, uid));
-          showNotification("User dihapus.", "success");
-      } catch (e) { showNotification("Gagal menghapus.", "error"); }
-  };
-
-  const handleResetPassword = async (email: string) => {
-      if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return;
-      try {
-          await auth.sendPasswordResetEmail(email);
-          showNotification("Email reset password berhasil dikirim.", "success");
-      } catch (e: any) {
-          showNotification("Gagal mengirim email reset.", "error");
-      }
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (newPassword !== confirmPassword) {
-          showNotification("Konfirmasi password tidak cocok.", "error");
-          return;
-      }
-      if (newPassword.length < 6) {
-          showNotification("Password minimal 6 karakter.", "error");
-          return;
-      }
-
-      setIsLoading(true);
-      try {
-          if (auth.currentUser) {
-              await auth.currentUser.updatePassword(newPassword);
-              showNotification("Password berhasil diubah.", "success");
-              setNewPassword('');
-              setConfirmPassword('');
-          } else {
-              showNotification("Gagal: User tidak terdeteksi.", "error");
-          }
-      } catch (e: any) {
-          if (e.code === 'auth/requires-recent-login') {
-              showNotification("Sesi kadaluarsa. Silakan Logout lalu Login kembali untuk ubah password.", "error");
-          } else {
-              showNotification("Gagal ubah password: " + e.message, "error");
-          }
-      } finally {
-          setIsLoading(false);
-      }
-  };
-
+  const handleDeleteUser = async (uid: string) => { if (!window.confirm("Hapus akses user ini?")) return; try { await deleteDoc(doc(db, USERS_COLLECTION, uid)); showNotification("User dihapus.", "success"); } catch (e) { showNotification("Gagal menghapus.", "error"); } };
+  const handleResetPassword = async (email: string) => { if (!window.confirm(`Kirim link reset password ke email: ${email}?`)) return; try { await auth.sendPasswordResetEmail(email); showNotification("Email reset password berhasil dikirim.", "success"); } catch (e: any) { showNotification("Gagal mengirim email reset.", "error"); } };
+  const handleChangePassword = async (e: React.FormEvent) => { e.preventDefault(); if (newPassword !== confirmPassword) { showNotification("Konfirmasi password tidak cocok.", "error"); return; } if (newPassword.length < 6) { showNotification("Password minimal 6 karakter.", "error"); return; } setIsLoading(true); try { if (auth.currentUser) { await auth.currentUser.updatePassword(newPassword); showNotification("Password berhasil diubah.", "success"); setNewPassword(''); setConfirmPassword(''); } else { showNotification("Gagal: User tidak terdeteksi.", "error"); } } catch (e: any) { if (e.code === 'auth/requires-recent-login') showNotification("Sesi kadaluarsa. Silakan Logout lalu Login kembali untuk ubah password.", "error"); else showNotification("Gagal ubah password: " + e.message, "error"); } finally { setIsLoading(false); } };
+  
   const handleSyncSystemData = async () => {
-      // ... (Existing sync logic)
       if (!isManager) return;
       if (!window.confirm("Sinkronisasi data unit masif?")) return;
       setIsLoading(true);
@@ -269,7 +141,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
           const allPOs = poSnap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder));
           const batch = writeBatch(db);
           let updatedCount = 0;
-
           allJobs.forEach(job => {
               let hasChanged = false;
               const currentJobData = { ...job };
@@ -278,11 +149,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
               if (parts.length > 0) {
                   parts.forEach((part, idx) => {
                       const isOrderedInPO = allPOs.some(po => (po.status !== 'Draft' && po.status !== 'Rejected') && po.items.some(item => item.refJobId === job.id && item.refPartIndex === idx));
-                      if (isOrderedInPO && !part.isOrdered) {
-                          parts[idx] = { ...part, isOrdered: true };
-                          anyPartUpdated = true;
-                          hasChanged = true;
-                      }
+                      if (isOrderedInPO && !part.isOrdered) { parts[idx] = { ...part, isOrdered: true }; anyPartUpdated = true; hasChanged = true; }
                   });
               }
               if (hasChanged) {
@@ -293,63 +160,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
                   updatedCount++;
               }
           });
-          if (updatedCount > 0) {
-              await batch.commit();
-              showNotification(`Berhasil merapikan ${updatedCount} data.`, "success");
-          } else { showNotification("Data sudah sinkron.", "success"); }
+          if (updatedCount > 0) { await batch.commit(); showNotification(`Berhasil merapikan ${updatedCount} data.`, "success"); } else { showNotification("Data sudah sinkron.", "success"); }
       } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
   };
 
-  const handleCleanupDuplicates = async () => {
-      // ... (Existing duplicate cleanup logic)
-      if (!isManager) return;
-      setIsLoading(true);
-      try {
-          const seen = new Set<string>();
-          const toDelete: string[] = [];
-          for (const s of services) {
-              const key = `${s.serviceName.trim().toLowerCase()}_${s.workType}`;
-              if (seen.has(key)) toDelete.push(s.id); else seen.add(key);
-          }
-          if (toDelete.length === 0) { showNotification("Tidak ada duplikat.", "success"); return; }
-          if (window.confirm(`Hapus ${toDelete.length} duplikat?`)) {
-              for (const id of toDelete) await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
-              showNotification("Pembersihan selesai.", "success");
-          }
-      } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
-  };
-
-  const handleSaveService = async (e: React.FormEvent) => {
-      // ... (Existing service save logic)
-      e.preventDefault();
-      if (!isManager) return;
-      setIsLoading(true);
-      try {
-          const payload = { ...serviceForm, serviceCode: serviceForm.serviceCode?.toUpperCase() || '' };
-          if (serviceForm.id) await updateDoc(doc(db, SERVICES_MASTER_COLLECTION, serviceForm.id), payload);
-          else await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...payload, createdAt: serverTimestamp() });
-          showNotification("Data diperbarui", "success");
-          setServiceForm({ serviceCode: '', workType: 'KC', panelValue: 1.0 });
-          setIsEditingService(false);
-      } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); }
-  };
-
-  const handleDeleteService = async (id: string) => {
-      if (!isManager || !window.confirm("Hapus?")) return;
-      try {
-          await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id));
-          showNotification("Terhapus", "success");
-      } catch(e) { showNotification("Gagal", "error"); }
-  };
-
-  const handleDownloadServiceTemplate = () => {
-      const headers = [['Kode Jasa', 'Nama Jasa', 'Jenis Pekerjaan (KC/GTC/BP)', 'Nilai Panel', 'Harga Dasar']];
-      const sampleData = services.map(s => [s.serviceCode || '', s.serviceName, s.workType, s.panelValue, s.basePrice]);
-      const ws = XLSX.utils.aoa_to_sheet([...headers, ...sampleData]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Master Jasa");
-      XLSX.writeFile(wb, "Master_Jasa_Panel.xlsx");
-  };
+  const handleCleanupDuplicates = async () => { if (!isManager) return; setIsLoading(true); try { const seen = new Set<string>(); const toDelete: string[] = []; for (const s of services) { const key = `${s.serviceName.trim().toLowerCase()}_${s.workType}`; if (seen.has(key)) toDelete.push(s.id); else seen.add(key); } if (toDelete.length === 0) { showNotification("Tidak ada duplikat.", "success"); return; } if (window.confirm(`Hapus ${toDelete.length} duplikat?`)) { for (const id of toDelete) await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id)); showNotification("Pembersihan selesai.", "success"); } } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); } };
+  const handleSaveService = async (e: React.FormEvent) => { e.preventDefault(); if (!isManager) return; setIsLoading(true); try { const payload = { ...serviceForm, serviceCode: serviceForm.serviceCode?.toUpperCase() || '' }; if (serviceForm.id) await updateDoc(doc(db, SERVICES_MASTER_COLLECTION, serviceForm.id), payload); else await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...payload, createdAt: serverTimestamp() }); showNotification("Data diperbarui", "success"); setServiceForm({ serviceCode: '', workType: 'KC', panelValue: 1.0 }); setIsEditingService(false); } catch (e: any) { showNotification("Gagal: " + e.message, "error"); } finally { setIsLoading(false); } };
+  const handleDeleteService = async (id: string) => { if (!isManager || !window.confirm("Hapus?")) return; try { await deleteDoc(doc(db, SERVICES_MASTER_COLLECTION, id)); showNotification("Terhapus", "success"); } catch(e) { showNotification("Gagal", "error"); } };
+  
+  const handleDownloadServiceTemplate = () => { const headers = [['Kode Jasa', 'Nama Jasa', 'Jenis Pekerjaan (KC/GTC/BP)', 'Nilai Panel', 'Harga Dasar']]; const sampleData = services.map(s => [s.serviceCode || '', s.serviceName, s.workType, s.panelValue, s.basePrice]); const ws = XLSX.utils.aoa_to_sheet([...headers, ...sampleData]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Master Jasa"); XLSX.writeFile(wb, "Master_Jasa_Panel.xlsx"); };
 
   const handleImportServices = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -358,17 +177,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentSettings, refreshSet
       reader.onload = async (evt) => {
           setIsLoading(true);
           try {
-              const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-              const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+              const bstr = evt.target?.result;
+              const wb = XLSX.read(bstr, { type: 'binary' });
+              const wsname = wb.SheetNames[0];
+              if (!wsname) throw new Error("File Excel tidak valid atau kosong.");
+              
+              const ws = wb.Sheets[wsname];
+              const data = XLSX.utils.sheet_to_json(ws);
+              
+              if (!data || data.length === 0) throw new Error("Tidak ada data ditemukan dalam sheet.");
+
+              let successCount = 0;
+              const batch = writeBatch(db);
+              
+              // Process in chunks if needed, but for now simple loop is ok for <500 items
               for (const row of data as any[]) {
                   const serviceName = (row['Nama Jasa'] || '').toString().trim();
                   if (serviceName) {
-                      const itemData = { serviceCode: String(row['Kode Jasa'] || '').toUpperCase(), serviceName, workType: (row['Jenis Pekerjaan (KC/GTC/BP)'] || 'KC') as any, panelValue: Number(row['Nilai Panel'] || 0), basePrice: Number(row['Harga Dasar'] || 0) };
-                      await addDoc(collection(db, SERVICES_MASTER_COLLECTION), { ...itemData, createdAt: serverTimestamp() });
+                      const itemData = { 
+                          serviceCode: String(row['Kode Jasa'] || '').toUpperCase(), 
+                          serviceName, 
+                          workType: (row['Jenis Pekerjaan (KC/GTC/BP)'] || 'KC') as any, 
+                          panelValue: Number(row['Nilai Panel'] || 0), 
+                          basePrice: Number(row['Harga Dasar'] || 0) 
+                      };
+                      const ref = doc(collection(db, SERVICES_MASTER_COLLECTION));
+                      batch.set(ref, { ...itemData, createdAt: serverTimestamp() });
+                      successCount++;
                   }
               }
-              showNotification("Import Selesai", "success");
-          } catch (err: any) { showNotification("Error: " + err.message, "error"); } finally { setIsLoading(false); e.target.value = ''; }
+              await batch.commit();
+              showNotification(`Import Selesai. ${successCount} data ditambahkan.`, "success");
+          } catch (err: any) { 
+              console.error(err);
+              showNotification("Error: " + err.message, "error"); 
+          } finally { 
+              setIsLoading(false); 
+              e.target.value = ''; 
+          }
       };
       reader.readAsBinaryString(file);
   };

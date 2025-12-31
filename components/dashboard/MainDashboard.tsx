@@ -2,7 +2,7 @@
 import React from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatDateIndo, exportToCsv, formatCurrency } from '../../utils/helpers';
-import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw, ShieldAlert, Clock, UserCheck, Stethoscope, CheckCircle2, Hammer, PauseCircle, PlayCircle } from 'lucide-react';
+import { Search, Filter, Download, Trash2, Edit, FileText, AlertCircle, CheckCircle, RotateCcw, ShieldAlert, Clock, UserCheck, Stethoscope, CheckCircle2, Hammer, PauseCircle, PlayCircle, Sparkles } from 'lucide-react';
 
 interface MainDashboardProps {
   allData: Job[];
@@ -80,9 +80,6 @@ const MainDashboard: React.FC<MainDashboardProps> = ({
 
       return { color: 'bg-gray-50 text-gray-600 border-gray-200', icon: RotateCcw };
   };
-
-  // Helper dummy icon for import fix if needed, assuming Sparkles is imported
-  const Sparkles = UserCheck; 
 
   const handleDelete = (job: Job) => {
     if(window.confirm(`Hapus Pekerjaan ${job.policeNumber}?`)) {

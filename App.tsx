@@ -81,12 +81,12 @@ const AppContent: React.FC = () => {
         setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
     }, handleError("Assets"));
 
-    // NEW: Inventory Listener (For FIFO Logic & Reporting)
+    // FIXED: Inventory Listener Added (Integration Restore)
     const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION), limit(1000)), (snap) => {
         setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
     }, handleError("Inventory"));
 
-    // NEW: Purchase Orders Listener (For Debt & Receiving)
+    // FIXED: Purchase Orders Listener Added (Integration Restore)
     const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
         setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
     }, handleError("PurchaseOrders"));
