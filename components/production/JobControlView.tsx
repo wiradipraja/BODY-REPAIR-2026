@@ -330,23 +330,23 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
   return (
     <div className="space-y-6 animate-fade-in pb-4 h-[calc(100vh-100px)] flex flex-col">
         {/* HEADER & FILTER */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/80 backdrop-blur-lg p-4 rounded-xl border border-white/60 shadow-lg shadow-indigo-100/50 shrink-0">
             <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-600 rounded-xl shadow-sm text-white"><Hammer size={24}/></div>
-                <div><h1 className="text-2xl font-bold text-gray-900">Job Control Board</h1><p className="text-sm text-gray-500 font-medium">Monitoring Produksi & Gaji Mekanik</p></div>
+                <div className="p-3 bg-blue-600 rounded-xl shadow-lg shadow-blue-200 text-white"><Hammer size={24}/></div>
+                <div><h1 className="text-2xl font-bold text-slate-800">Job Control Board</h1><p className="text-sm text-slate-500 font-medium">Monitoring Produksi & Gaji Mekanik</p></div>
             </div>
             <div className="flex items-center gap-3">
-                <div className="relative"><Search className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="text" placeholder="Cari Unit / Nopol..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-50 w-64"/></div>
-                <button onClick={() => setShowProductivityReport(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-sm"><BarChart2 size={16}/> Laporan Gaji (Panel)</button>
+                <div className="relative"><Search className="absolute left-3 top-2.5 text-slate-400" size={18}/><input type="text" placeholder="Cari Unit / Nopol..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 w-64 shadow-sm"/></div>
+                <button onClick={() => setShowProductivityReport(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-200"><BarChart2 size={16}/> Laporan Gaji (Panel)</button>
             </div>
         </div>
 
         {/* MECHANIC LOAD BAR */}
         <div className="flex gap-4 overflow-x-auto pb-2 shrink-0 scrollbar-thin">
             {(settings.mechanicNames || []).map(mech => (
-                <div key={mech} className="bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3 min-w-[150px]">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><User size={14}/></div>
-                    <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Load Stall</p><p className="text-xs font-bold text-gray-800">{mech}</p></div>
+                <div key={mech} className="bg-white/80 backdrop-blur-md px-3 py-2 rounded-xl border border-white/60 shadow-sm flex items-center gap-3 min-w-[150px]">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600"><User size={14}/></div>
+                    <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Load Stall</p><p className="text-xs font-bold text-slate-800">{mech}</p></div>
                     <div className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${mechanicWorkload[mech] > 2 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{mechanicWorkload[mech] || 0}</div>
                 </div>
             ))}
@@ -361,13 +361,13 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                     const isFinal = stage === "Selesai (Tunggu Pengambilan)";
                     
                     return (
-                        <div key={stage} className={`w-80 flex flex-col h-full rounded-xl border border-gray-200 shadow-inner ${isPersiapan ? 'bg-amber-50/30' : isFinal ? 'bg-emerald-50/30' : 'bg-gray-100'}`}>
-                            <div className="p-3 border-b border-gray-200 bg-white rounded-t-xl flex justify-between items-center sticky top-0 z-10">
+                        <div key={stage} className={`w-80 flex flex-col h-full rounded-2xl border border-white/40 shadow-inner ${isPersiapan ? 'bg-amber-50/50 backdrop-blur-sm' : isFinal ? 'bg-emerald-50/50 backdrop-blur-sm' : 'bg-slate-100/50 backdrop-blur-sm'}`}>
+                            <div className="p-3 border-b border-slate-200/50 bg-white/60 rounded-t-2xl flex justify-between items-center sticky top-0 z-10 backdrop-blur-md">
                                 <div className="flex items-center gap-2">
-                                    {isPersiapan ? <PackageSearch size={16} className="text-amber-500"/> : isFinal ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Wrench size={16} className="text-gray-400"/>}
-                                    <h3 className={`font-bold text-sm uppercase ${isPersiapan ? 'text-amber-700' : isFinal ? 'text-emerald-700' : 'text-gray-700'}`}>{stage}</h3>
+                                    {isPersiapan ? <PackageSearch size={16} className="text-amber-500"/> : isFinal ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Wrench size={16} className="text-slate-400"/>}
+                                    <h3 className={`font-bold text-sm uppercase ${isPersiapan ? 'text-amber-700' : isFinal ? 'text-emerald-700' : 'text-slate-700'}`}>{stage}</h3>
                                 </div>
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isFinal ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{jobsInStage.length}</span>
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isFinal ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{jobsInStage.length}</span>
                             </div>
                             <div className="p-2 flex-grow overflow-y-auto space-y-3 scrollbar-thin">
                                 {jobsInStage.map(job => {
@@ -383,33 +383,33 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                     const partStatus = getPartStatus(job);
                                     
                                     return (
-                                        <div key={job.id} className={`bg-white p-3 rounded-lg shadow-sm border-l-4 transition-all hover:shadow-md relative ${job.isVVIP ? 'border-l-yellow-400 ring-2 ring-yellow-200' : isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
+                                        <div key={job.id} className={`bg-white p-3 rounded-xl shadow-sm border-l-4 transition-all hover:shadow-lg hover:-translate-y-1 relative ${job.isVVIP ? 'border-l-yellow-400 ring-2 ring-yellow-200' : isAdminPending ? 'border-l-amber-500 ring-1 ring-amber-100' : isFinal ? 'border-l-emerald-500' : 'border-l-blue-500'}`}>
                                             {job.isVVIP && <div className="absolute -top-2 -right-2 bg-yellow-400 text-white p-1 rounded-full shadow-sm z-10"><Crown size={14} fill="currentColor"/></div>}
                                             
                                             <div className="flex justify-between items-start mb-2">
-                                                <span className="font-black text-gray-800 text-sm tracking-tight">{job.policeNumber}</span>
+                                                <span className="font-extrabold text-slate-800 text-sm tracking-tight">{job.policeNumber}</span>
                                                 <div className="flex gap-1">
-                                                    <button onClick={() => toggleVVIP(job)} className={`p-1 rounded transition-colors ${job.isVVIP ? 'text-yellow-500 bg-yellow-50' : 'text-gray-300 hover:text-yellow-500'}`} title="Set VVIP"><Crown size={14}/></button>
-                                                    <button onClick={() => openScheduleModal(job)} className="p-1 hover:bg-gray-100 rounded transition-colors text-blue-600" title="Atur Jadwal"><CalendarDays size={14}/></button>
-                                                    <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-gray-100 rounded transition-colors"><History size={14} className="text-gray-400"/></button>
+                                                    <button onClick={() => toggleVVIP(job)} className={`p-1 rounded transition-colors ${job.isVVIP ? 'text-yellow-500 bg-yellow-50' : 'text-slate-300 hover:text-yellow-500'}`} title="Set VVIP"><Crown size={14}/></button>
+                                                    <button onClick={() => openScheduleModal(job)} className="p-1 hover:bg-slate-100 rounded transition-colors text-blue-600" title="Atur Jadwal"><CalendarDays size={14}/></button>
+                                                    <button onClick={() => setViewHistoryJob(job)} className="p-1 hover:bg-slate-100 rounded transition-colors"><History size={14} className="text-slate-400"/></button>
                                                 </div>
                                             </div>
-                                            <p className="text-[11px] font-bold text-gray-500 mb-2 truncate uppercase">{job.carModel} | {job.customerName}</p>
+                                            <p className="text-xs font-bold text-slate-500 mb-2 truncate uppercase">{job.carModel} | {job.customerName}</p>
                                             
-                                            <div className="flex justify-between items-center text-[10px] text-gray-500 mb-2 border-b border-gray-100 pb-1">
-                                                <div className="flex items-center gap-1"><User size={10}/> {job.namaSA || 'No SA'}</div>
-                                                <div className="font-bold bg-gray-100 px-1.5 py-0.5 rounded">{totalPanelValue.toFixed(1)} Panels</div>
+                                            <div className="flex justify-between items-center text-xs text-slate-500 mb-2 border-b border-slate-100 pb-1">
+                                                <div className="flex items-center gap-1"><User size={12}/> {job.namaSA || 'No SA'}</div>
+                                                <div className="font-bold bg-slate-100 px-1.5 py-0.5 rounded">{totalPanelValue.toFixed(1)} Panels</div>
                                             </div>
 
                                             {/* Progress Indicators */}
                                             {!isAdminPending && !isFinal && (
                                                 <div className="flex gap-2 my-2">
-                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black border ${daysRunning > 14 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                                                        <Timer size={10}/> {daysRunning} Hari Jalan
+                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${daysRunning > 14 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                                                        <Timer size={12}/> {daysRunning} Hari Jalan
                                                     </div>
                                                     {daysRemaining !== null && (
-                                                        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black border ${daysRemaining < 0 ? 'bg-red-50 text-red-600 border-red-100' : daysRemaining < 3 ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                                            <CalendarClock size={10}/> {daysRemaining < 0 ? `Telat ${Math.abs(daysRemaining)} Hr` : `Sisa ${daysRemaining} Hr`}
+                                                        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${daysRemaining < 0 ? 'bg-red-50 text-red-600 border-red-100' : daysRemaining < 3 ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                                            <CalendarClock size={12}/> {daysRemaining < 0 ? `Telat ${Math.abs(daysRemaining)} Hr` : `Sisa ${daysRemaining} Hr`}
                                                         </div>
                                                     )}
                                                 </div>
@@ -417,37 +417,37 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
                                             {isAdminPending && (
                                                 <div className="space-y-2 mb-2">
-                                                    <div className="px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[9px] font-black text-amber-700 uppercase">PENDING: {job.statusKendaraan}</div>
+                                                    <div className="px-2 py-1 bg-amber-50 rounded border border-amber-100 text-[10px] font-bold text-amber-700 uppercase">PENDING: {job.statusKendaraan}</div>
                                                     {/* PART STATUS BADGE FOR PENDING JOBS */}
                                                     {partStatus && (
-                                                        <div className={`px-2 py-1 rounded border text-[9px] font-black flex items-center gap-1 ${partStatus.color}`}>
-                                                            <PackageSearch size={10}/> {partStatus.label}
+                                                        <div className={`px-2 py-1 rounded border text-[10px] font-bold flex items-center gap-1 ${partStatus.color}`}>
+                                                            <PackageSearch size={12}/> {partStatus.label}
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
                                             
                                             <div className="mb-3">
-                                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">PIC (Teknisi):</label>
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">PIC (Teknisi):</label>
                                                 {currentPIC ? (
                                                     <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded p-1.5 cursor-pointer hover:bg-indigo-100" onClick={() => setAssigningJobId(assigningJobId === job.id ? null : job.id)}>
                                                         <User size={12} className="text-indigo-600"/>
                                                         <span className="text-xs font-bold text-indigo-700 truncate">{currentPIC}</span>
-                                                        {picPanels && <span className="text-[9px] bg-white px-1 rounded border border-indigo-200 ml-auto">{picPanels} Pnl</span>}
+                                                        {picPanels && <span className="text-[10px] bg-white px-1 rounded border border-indigo-200 ml-auto">{picPanels} Pnl</span>}
                                                     </div>
                                                 ) : (
-                                                    <button onClick={() => setAssigningJobId(assigningJobId === job.id ? null : job.id)} className="w-full py-1 border border-dashed border-gray-300 rounded text-xs text-gray-400 hover:text-indigo-600 flex items-center justify-center gap-1"><Wrench size={12}/> Tunjuk Mekanik</button>
+                                                    <button onClick={() => setAssigningJobId(assigningJobId === job.id ? null : job.id)} className="w-full py-1 border border-dashed border-slate-300 rounded text-xs text-slate-400 hover:text-indigo-600 flex items-center justify-center gap-1"><Wrench size={12}/> Tunjuk Mekanik</button>
                                                 )}
                                                 {assigningJobId === job.id && (
-                                                    <div className="mt-2 grid grid-cols-2 gap-1 bg-gray-50 p-2 rounded border border-gray-200 shadow-inner z-20 relative animate-pop-in">
+                                                    <div className="mt-2 grid grid-cols-2 gap-1 bg-slate-50 p-2 rounded border border-slate-200 shadow-inner z-20 relative animate-pop-in">
                                                         {(settings.mechanicNames || []).map(m => <button key={m} onClick={(e) => { e.stopPropagation(); handleAssignMechanic(job, m); }} className={`text-[10px] p-1.5 border rounded text-left truncate transition-colors ${currentPIC === m ? 'bg-indigo-600 text-white' : 'bg-white hover:bg-indigo-50'}`}>{m}</button>)}
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex justify-between items-center pt-2 border-t border-gray-100 mt-2">
+                                            <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-2">
                                                 <button onClick={() => handleMoveStage(job, 'prev')} disabled={isPersiapan} className={`p-1.5 rounded-lg border transition-all ${isPersiapan ? 'opacity-0' : 'bg-orange-50 text-orange-600 border-orange-200'}`}><ChevronRight size={18} className="rotate-180"/></button>
                                                 {!isAdminPending && <button onClick={() => handleRequestAddition(job)} className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600" title="Request Tambahan"><AlertCircle size={18}/></button>}
-                                                <button onClick={() => handleMoveStage(job, 'next')} disabled={isFinal} className={`rounded-lg p-1.5 shadow-md transform active:scale-95 transition-all ${isFinal ? 'bg-gray-300 text-white opacity-20' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}><ChevronRight size={18}/></button>
+                                                <button onClick={() => handleMoveStage(job, 'next')} disabled={isFinal} className={`rounded-lg p-1.5 shadow-md transform active:scale-95 transition-all ${isFinal ? 'bg-slate-300 text-white opacity-20' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}><ChevronRight size={18}/></button>
                                             </div>
                                         </div>
                                     );
@@ -479,28 +479,28 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
 
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-1">Mulai Perbaikan (Start Date)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Mulai Perbaikan (Start Date)</label>
                         <div className="relative">
                             <input 
                                 type="date" 
                                 required
                                 value={scheduleModal.startDate} 
                                 onChange={e => setScheduleModal({...scheduleModal, startDate: e.target.value})}
-                                className="w-full p-3 border border-gray-300 rounded-xl font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full p-3 border border-slate-300 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
-                            <Calendar className="absolute right-3 top-3 text-gray-400 pointer-events-none" size={18}/>
+                            <Calendar className="absolute right-3 top-3 text-slate-400 pointer-events-none" size={18}/>
                         </div>
                     </div>
 
                     <div>
-                        <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-1">Estimasi Selesai (Target Date)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Estimasi Selesai (Target Date)</label>
                         <div className="relative">
                             <input 
                                 type="date" 
                                 required
                                 value={scheduleModal.endDate} 
                                 onChange={e => setScheduleModal({...scheduleModal, endDate: e.target.value})}
-                                className="w-full p-3 border border-gray-300 rounded-xl font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full p-3 border border-slate-300 rounded-xl font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
                             <CalendarClock className="absolute right-3 top-3 text-indigo-400 pointer-events-none" size={18}/>
                         </div>
@@ -510,7 +510,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 <div className="flex gap-3 pt-4">
                     <button 
                         onClick={() => setScheduleModal({ isOpen: false, job: null, startDate: '', endDate: '' })} 
-                        className="flex-1 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition-colors"
+                        className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors"
                     >
                         Batal
                     </button>
@@ -532,30 +532,30 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
             maxWidth="max-w-7xl"
         >
             <div className="space-y-6">
-                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
                     <div className="flex items-center gap-4">
-                        <div className="bg-white border border-gray-300 rounded-lg p-2 flex items-center gap-2">
-                            <Calendar size={16} className="text-gray-500"/>
+                        <div className="bg-white border border-slate-300 rounded-lg p-2 flex items-center gap-2">
+                            <Calendar size={16} className="text-slate-500"/>
                             <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="bg-transparent text-sm font-bold outline-none"/>
-                            <span className="text-gray-400">-</span>
+                            <span className="text-slate-400">-</span>
                             <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="bg-transparent text-sm font-bold outline-none"/>
                         </div>
                         <div className="text-sm">
-                            <p className="text-gray-500">Tarif Standar:</p>
+                            <p className="text-slate-500">Tarif Standar:</p>
                             <p className="font-black text-indigo-600">{formatCurrency(settings.mechanicPanelRate || 0)} / Panel</p>
                         </div>
                     </div>
                     <div className="text-right">
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Estimasi Gaji Periode Ini</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Estimasi Gaji Periode Ini</p>
                         <p className="text-2xl font-black text-emerald-600">
-                            {formatCurrency(Object.values(aggregatedReport).reduce((acc, curr: any) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0))}
+                            {formatCurrency(Object.values(aggregatedReport).reduce((acc: number, curr: any) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0))}
                         </p>
                     </div>
                 </div>
 
-                <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
                     <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-800 text-white uppercase text-xs font-black">
+                        <thead className="bg-slate-800 text-white uppercase text-xs font-bold">
                             <tr>
                                 <th className="p-4">Nama Mekanik</th>
                                 <th className="p-4 text-center">Total Unit</th>
@@ -564,22 +564,22 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                                 <th className="p-4 text-right">Total Gaji</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
+                        <tbody className="divide-y divide-slate-100">
                             {Object.entries(aggregatedReport).map(([name, data]: [string, { totalUnit: number, totalPanel: number, details: any[] }]) => (
-                                <tr key={name} className="hover:bg-gray-50">
+                                <tr key={name} className="hover:bg-slate-50">
                                     <td className="p-4">
-                                        <div className="font-bold text-gray-900">{name}</div>
-                                        <div className="text-xs text-gray-500 mt-1">
+                                        <div className="font-bold text-slate-900">{name}</div>
+                                        <div className="text-xs text-slate-500 mt-1">
                                             {data.details.length} Assignment Record
                                         </div>
                                     </td>
-                                    <td className="p-4 text-center font-bold text-gray-700">{data.totalUnit}</td>
+                                    <td className="p-4 text-center font-bold text-slate-700">{data.totalUnit}</td>
                                     <td className="p-4 text-center">
-                                        <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-black border border-indigo-100">
+                                        <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold border border-indigo-100">
                                             {data.totalPanel.toFixed(1)} Pnl
                                         </span>
                                     </td>
-                                    <td className="p-4 text-right text-gray-500">{formatCurrency(settings.mechanicPanelRate || 0)}</td>
+                                    <td className="p-4 text-right text-slate-500">{formatCurrency(settings.mechanicPanelRate || 0)}</td>
                                     <td className="p-4 text-right font-black text-emerald-600">
                                         {formatCurrency(data.totalPanel * (settings.mechanicPanelRate || 0))}
                                     </td>
@@ -587,7 +587,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                             ))}
                             {Object.keys(aggregatedReport).length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="p-8 text-center text-gray-400 italic">Tidak ada data pekerjaan pada periode ini.</td>
+                                    <td colSpan={5} className="p-8 text-center text-slate-400 italic">Tidak ada data pekerjaan pada periode ini.</td>
                                 </tr>
                             )}
                         </tbody>
@@ -597,16 +597,16 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 {/* DETAIL EXPANSION (Simple List for now) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
                     {Object.entries(aggregatedReport).map(([name, data]: [string, { totalUnit: number, totalPanel: number, details: any[] }]) => (
-                        <div key={name} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm h-60 overflow-y-auto scrollbar-thin">
-                            <h5 className="font-bold text-gray-800 border-b pb-2 mb-2 sticky top-0 bg-white">Detail: {name}</h5>
+                        <div key={name} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm h-60 overflow-y-auto scrollbar-thin">
+                            <h5 className="font-bold text-slate-800 border-b pb-2 mb-2 sticky top-0 bg-white">Detail: {name}</h5>
                             <ul className="space-y-2">
                                 {data.details.map((d: any, idx: number) => (
-                                    <li key={idx} className="text-xs border-b border-gray-50 pb-1 last:border-0">
+                                    <li key={idx} className="text-xs border-b border-slate-50 pb-1 last:border-0">
                                         <div className="flex justify-between font-bold">
                                             <span>{d.nopol}</span>
                                             <span className="text-indigo-600">{d.panels} Pnl</span>
                                         </div>
-                                        <div className="text-gray-500">{formatDateIndo(d.date)} - {d.stage}</div>
+                                        <div className="text-slate-500">{formatDateIndo(d.date)} - {d.stage}</div>
                                     </li>
                                 ))}
                             </ul>

@@ -22,24 +22,24 @@ interface OverviewProps {
 }
 
 const StatCard = ({ title, value, icon: Icon, color, subValue, trend, info }: any) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all group overflow-hidden relative">
-    <div className={`absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform`}>
-        <Icon size={120}/>
+  <div className="bg-white/70 backdrop-blur-lg p-6 rounded-3xl shadow-lg shadow-indigo-100/50 border border-white/60 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group overflow-hidden relative">
+    <div className={`absolute -right-6 -bottom-6 opacity-5 group-hover:scale-125 transition-transform duration-500`}>
+        <Icon size={140}/>
     </div>
     <div className="flex justify-between items-start relative z-10">
       <div>
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{title}</p>
-        <h3 className="text-2xl font-black text-gray-900 mt-1 tracking-tight">{value}</h3>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{title}</p>
+        <h3 className="text-3xl font-extrabold text-slate-800 mt-2 tracking-tight">{value}</h3>
         {subValue && (
-            <div className="flex items-center gap-1 mt-2">
-                {trend === 'up' ? <ArrowUpRight size={14} className="text-emerald-500"/> : null}
-                <p className="text-[10px] font-bold text-gray-500">{subValue}</p>
+            <div className="flex items-center gap-1.5 mt-3">
+                {trend === 'up' ? <ArrowUpRight size={16} className="text-emerald-500"/> : null}
+                <p className="text-xs font-semibold text-slate-500">{subValue}</p>
             </div>
         )}
-        {info && <p className="text-[9px] text-gray-400 mt-1 italic">{info}</p>}
+        {info && <p className="text-xs text-slate-400 mt-1 italic">{info}</p>}
       </div>
-      <div className={`p-3 rounded-xl shadow-lg shadow-indigo-100 ${color} text-white`}>
-        <Icon size={24} />
+      <div className={`p-3.5 rounded-2xl shadow-lg ${color} text-white`}>
+        <Icon size={26} />
       </div>
     </div>
   </div>
@@ -223,30 +223,30 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
   return (
     <div className="space-y-8 animate-fade-in pb-10">
       {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 bg-slate-900 p-8 rounded-3xl text-white shadow-2xl relative overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 bg-slate-900 p-8 rounded-[32px] text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden">
           <div className="absolute right-0 top-0 p-4 opacity-10 rotate-12 scale-150"><Activity size={200}/></div>
           
           <div className="relative z-10 flex-grow">
             <h1 className="text-4xl font-black tracking-tighter">{t('title')}</h1>
-            <p className="text-indigo-300 font-medium mt-1">{t('subtitle')}</p>
+            <p className="text-indigo-200 font-medium mt-1 text-lg">{t('subtitle')}</p>
           </div>
 
           {/* Database Unit Info (Text Only) */}
           <div className="relative z-10 flex flex-col items-end mr-6 border-r border-white/20 pr-6">
-              <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest flex items-center gap-1">
-                  <Database size={12}/> {t('card_db')}
+              <p className="text-xs font-bold text-indigo-300 uppercase tracking-widest flex items-center gap-2">
+                  <Database size={14}/> {t('card_db')}
               </p>
-              <p className="text-3xl font-black text-white">{totalUnits}</p>
+              <p className="text-4xl font-black text-white">{totalUnits}</p>
           </div>
 
           <div className="flex items-center gap-3 bg-white/10 p-2 rounded-2xl backdrop-blur-md border border-white/10 relative z-10">
               <Calendar className="text-indigo-300 ml-2" size={20}/>
-              <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent border-none text-sm font-black focus:ring-0 cursor-pointer py-2">
+              <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer py-2">
                   {["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map((m, i) => (
                       <option key={i} value={i} className="text-gray-900">{m}</option>
                   ))}
               </select>
-              <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="bg-transparent border-none text-sm font-black focus:ring-0 cursor-pointer border-l border-white/20 pl-4 py-2">
+              <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer border-l border-white/20 pl-4 py-2">
                   {[2024, 2025, 2026].map(y => <option key={y} value={y} className="text-gray-900">{y}</option>)}
               </select>
           </div>
@@ -268,26 +268,26 @@ const OverviewDashboard: React.FC<OverviewProps> = ({ allJobs, totalUnits, setti
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-6 border-l-4 border-l-indigo-600">
+          <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-lg shadow-indigo-100/30 flex items-center gap-6 border-l-4 border-l-indigo-600">
               <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><FileCheck size={32}/></div>
-              <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('row1')}</p><h4 className="text-3xl font-black text-gray-900">{stats.totalInvoicedUnits}</h4></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('row1')}</p><h4 className="text-3xl font-extrabold text-slate-800">{stats.totalInvoicedUnits}</h4></div>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-6 border-l-4 border-l-orange-500">
+          <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-lg shadow-indigo-100/30 flex items-center gap-6 border-l-4 border-l-orange-500">
               <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl"><Layers size={32}/></div>
-              <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('row2')}</p><h4 className="text-3xl font-black text-gray-900">{stats.totalPanels.toFixed(1)}</h4></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('row2')}</p><h4 className="text-3xl font-extrabold text-slate-800">{stats.totalPanels.toFixed(1)}</h4></div>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-6 border-l-4 border-l-emerald-500">
+          <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-lg shadow-indigo-100/30 flex items-center gap-6 border-l-4 border-l-emerald-500">
               <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><TrendingUp size={32}/></div>
-              <div><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('row3')}</p><h4 className="text-2xl font-black text-emerald-700">{formatCurrency(stats.grossProfit)}</h4></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t('row3')}</p><h4 className="text-3xl font-extrabold text-emerald-700">{formatCurrency(stats.grossProfit)}</h4></div>
           </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-center mb-8"><h3 className="text-lg font-black text-gray-800 flex items-center gap-2"><Activity className="text-indigo-600" size={20}/> {t('chart1')}</h3><button onClick={() => onNavigate('job_control')} className="text-xs font-bold text-indigo-600 hover:underline flex items-center gap-1">Kanban Board <ChevronRight size={14}/></button></div>
+          <div className="lg:col-span-2 bg-white/70 backdrop-blur-md p-8 rounded-[32px] shadow-lg shadow-indigo-100/30 border border-white/60">
+              <div className="flex justify-between items-center mb-8"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Activity className="text-indigo-600" size={20}/> {t('chart1')}</h3><button onClick={() => onNavigate('job_control')} className="text-xs font-bold text-indigo-600 hover:underline flex items-center gap-1">Kanban Board <ChevronRight size={14}/></button></div>
               <div className="h-80"><Bar data={barChartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }} /></div>
           </div>
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col"><h3 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2"><PieChart className="text-emerald-500" size={20}/> {t('chart2')}</h3><div className="flex-grow flex items-center justify-center relative"><div className="h-56 w-56"><Doughnut data={doughnutData} options={{ plugins: { legend: { display: false } } }} /></div><div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><p className="text-3xl font-black text-gray-900">{stats.totalInvoicedUnits}</p><p className="text-[10px] font-black text-gray-400 uppercase">Closing</p></div></div></div>
+          <div className="bg-white/70 backdrop-blur-md p-8 rounded-[32px] shadow-lg shadow-indigo-100/30 border border-white/60 flex flex-col"><h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><PieChart className="text-emerald-500" size={20}/> {t('chart2')}</h3><div className="flex-grow flex items-center justify-center relative"><div className="h-56 w-56"><Doughnut data={doughnutData} options={{ plugins: { legend: { display: false } } }} /></div><div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"><p className="text-4xl font-extrabold text-slate-800">{stats.totalInvoicedUnits}</p><p className="text-xs font-bold text-slate-400 uppercase">Closing</p></div></div></div>
       </div>
     </div>
   );

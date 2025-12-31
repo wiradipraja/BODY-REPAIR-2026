@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp, limit, where } from 'firebase/firestore'; // Added limit, where
+import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp, limit, where } from 'firebase/firestore'; 
 import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from './services/firebase';
 import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder, Asset, ServiceMasterItem, UserProfile } from './types';
 import { initialSettingsState } from './utils/constants';
@@ -51,9 +51,6 @@ const AppContent: React.FC = () => {
   const [transactions, setTransactions] = useState<CashierTransaction[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]); 
   
-  // Inventory removed from global state to save costs. 
-  // It is now fetched on-demand inside InventoryView/EstimateEditor.
-  
   const [loadingData, setLoadingData] = useState(true);
 
   // Global Listeners
@@ -62,34 +59,21 @@ const AppContent: React.FC = () => {
     setLoadingData(true);
     const handleError = (context: string) => (error: any) => console.error(`Error in ${context} listener:`, error);
 
-    // 1. Vehicles: Keep full load (Master Data usually small < 2000 units for single workshop)
-    // If > 2000, consider limiting this too.
     const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION), orderBy('updatedAt', 'desc'), limit(500)), (snap) => {
         setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)));
     }, handleError("Vehicles"));
 
-    // 2. Jobs: OPTIMIZED -> Only load Active Jobs OR Recent 100 Closed Jobs
-    // Using limit to prevent loading thousands of old history.
     const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
         setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
     }, handleError("Jobs"));
 
-    // 3. Inventory: LISTENER REMOVED (Cost Saving)
-    
-    // 4. Suppliers: Keep (Small Data)
     const unsubSuppliers = onSnapshot(query(collection(db, SUPPLIERS_COLLECTION)), (snap) => {
         setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
     }, handleError("Suppliers"));
 
-    // 5. Transactions: Limited to 100 recent
     const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
         setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
     }, handleError("Transactions"));
-
-    // 6. PO: Removed global listener, moved to local in PO View or Limited
-    // We keep a small listener for active POs notification logic if needed, but for now we limit to 50
-    // Actually, PurchaseOrderView needs it. We will limit it.
-    // *Correction*: PO View handles logic locally better. Removed from global to save cost.
 
     const unsubAssets = onSnapshot(query(collection(db, ASSETS_COLLECTION)), (snap) => {
         setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
@@ -128,6 +112,8 @@ const AppContent: React.FC = () => {
   const openModal = (type: any, data: any = null) => setActualModalState({ isOpen: true, type, data });
   const closeModal = () => setActualModalState({ isOpen: false, type: null, data: null });
 
+  // ... (Keep existing handlers: handleSaveVehicle, handleCreateTransaction, generateDocumentNumber, handleSaveEstimate, handleCloseJob, filteredJobs)
+  
   const handleSaveVehicle = async (formData: Partial<Vehicle>) => {
       try {
           const vehiclePayload = {
@@ -346,11 +332,12 @@ const AppContent: React.FC = () => {
   if (!user) return <LoginView />;
 
   return (
-    <div className="flex min-h-screen bg-gray-50 relative">
+    <div className="flex min-h-screen relative">
       <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} currentView={currentView} setCurrentView={setCurrentView} userData={userData} userPermissions={userPermissions} onLogout={logout} settings={appSettings} />
 
+      {/* Main Content Area - Transparent Background to show Body Gradient */}
       <main className="flex-grow p-4 md:p-8 overflow-y-auto h-screen w-full relative">
-        {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white z-[100] animate-fade-in ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
+        {notification.show && ( <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-xl text-white z-[100] animate-fade-in font-bold text-sm ${notification.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{notification.message}</div> )}
 
         {currentView === 'overview_main' && (
             <OverviewDashboard allJobs={jobs} totalUnits={vehicles.length} settings={appSettings} onNavigate={setCurrentView} />
@@ -362,14 +349,13 @@ const AppContent: React.FC = () => {
             <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} />
         )}
         {currentView === 'overview_ai' && (
-            // Note: inventoryItems prop here will be empty array as we removed global listener. AI View might need updating if it relies on it.
             <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={[]} />
         )}
 
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-                 <h1 className="text-3xl font-bold text-gray-900">Input Data Unit Baru</h1>
-                 <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-100">
+                 <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Input Data Unit Baru</h1>
+                 <div className="bg-white/80 backdrop-blur-lg p-6 md:p-8 rounded-2xl shadow-lg border border-white/50">
                     <JobForm settings={appSettings} onSave={handleSaveVehicle} onCancel={() => setCurrentView('entry_data')} />
                  </div>
              </div>
@@ -381,14 +367,13 @@ const AppContent: React.FC = () => {
             </div>
         )}
 
-        {/* Claims Control needs inventory for logic, but since we optimized, it should handle missing data gracefully or we pass empty */}
         {currentView === 'claims_control' && (
             <ClaimsControlView jobs={jobs} inventoryItems={[]} vehicles={vehicles} settings={appSettings} showNotification={showNotification} openModal={openModal} onNavigate={setCurrentView} />
         )}
 
         {currentView === 'entry_data' && (
             <div className="space-y-4">
-                <h1 className="text-3xl font-bold text-gray-900">Daftar Pekerjaan</h1>
+                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Daftar Pekerjaan</h1>
                 <MainDashboard allData={filteredJobs} openModal={openModal} onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }} onCloseJob={handleCloseJob} onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }} userPermissions={userPermissions} showNotification={showNotification} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterStatus={filterStatus} setFilterStatus={setFilterStatus} filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus} showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs} settings={appSettings} />
             </div>
         )}
@@ -398,13 +383,10 @@ const AppContent: React.FC = () => {
         {currentView === 'general_affairs' && ( <AssetManagementView assets={assets} userPermissions={userPermissions} showNotification={showNotification} /> )}
         {currentView === 'crc_dashboard' && ( <CrcDashboardView jobs={jobs} inventoryItems={[]} settings={appSettings} showNotification={showNotification} /> )}
         
-        {/* Inventory View now handles its own fetching */}
         {currentView === 'inventory' && <InventoryView userPermissions={userPermissions} showNotification={showNotification} suppliers={suppliers} />}
         
-        {/* Monitoring View needs items. We might need a basic fetch here or let it handle it. For optimization, passed empty array, it will show "Stok 0" unless we refactor it too. */}
         {currentView === 'part_monitoring' && <PartMonitoringView jobs={jobs} inventoryItems={[]} />}
         
-        {/* Purchase Order View now handles fetching */}
         {currentView === 'purchase_order' && <PurchaseOrderView suppliers={suppliers} inventoryItems={[]} jobs={jobs} userPermissions={userPermissions} showNotification={showNotification} />}
         
         {currentView === 'part_issuance' && <MaterialIssuanceView activeJobs={jobs.filter(j => j.woNumber)} inventoryItems={[]} suppliers={suppliers} userPermissions={userPermissions} showNotification={showNotification} onRefreshData={() => {}} issuanceType="sparepart" />}

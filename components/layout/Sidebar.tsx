@@ -144,7 +144,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             icon: BarChart3,
             children: [
                 { id: 'finance_invoice', label: t('invoice'), icon: FileCheck },
-                { id: 'finance_cashier', label: t('cashier'), icon: Banknote }, // Moved UP
+                { id: 'finance_cashier', label: t('cashier'), icon: Banknote },
                 { id: 'finance_tax', label: t('tax'), icon: Landmark },
                 { id: 'finance_debt', label: t('debt'), icon: Scale },
                 { id: 'finance_dashboard', label: t('reports'), icon: BarChart3 },
@@ -167,15 +167,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsOpen(false)}></div>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-20 md:hidden" onClick={() => setIsOpen(false)}></div>
       )}
-      <aside className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white shadow-xl flex flex-col z-30 transform transition-transform duration-200 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="p-6 border-b flex justify-between items-center">
+      <aside className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white/80 backdrop-blur-2xl border-r border-white/50 shadow-xl flex flex-col z-30 transform transition-transform duration-200 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="p-6 border-b border-indigo-50/50 flex justify-between items-center bg-white/40">
           <div>
-            <h2 className="text-xl font-bold text-indigo-700">ReForma</h2>
-            <p className="text-xs text-gray-500">Body & Paint System</p>
+            <h2 className="text-xl font-extrabold text-indigo-700 tracking-tight">ReForma</h2>
+            <p className="text-xs text-slate-500 font-medium">Body & Paint System</p>
           </div>
-          <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-500"><Menu size={20} /></button>
+          <button onClick={() => setIsOpen(false)} className="md:hidden text-slate-500"><Menu size={20} /></button>
         </div>
         <nav className="flex-grow p-4 space-y-1 overflow-y-auto scrollbar-thin">
           {menuItems.map((item) => {
@@ -190,23 +190,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {!hasChildren ? (
                       <button 
                         onClick={() => { setCurrentView(item.id); setIsOpen(false); }} 
-                        className={`flex items-center gap-3 w-full p-3 rounded-lg text-sm font-medium transition-all duration-200 ${isSingleActive ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-indigo-600'}`}
+                        className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-medium transition-all duration-200 ${isSingleActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-600 hover:bg-white/60 hover:text-indigo-600'}`}
                       >
                         <Icon size={18}/> {item.label}
                       </button>
                   ) : (
-                      <div className={`rounded-lg transition-colors duration-200 ${isExpanded ? 'bg-gray-50' : ''}`}>
-                          <button onClick={() => toggleMenu(item.id)} className={`flex items-center justify-between w-full p-3 rounded-lg text-sm font-medium transition-all duration-200 ${isParentActive && !isExpanded ? 'text-indigo-600 bg-indigo-50' : 'text-gray-600 hover:bg-gray-100 hover:text-indigo-600'} ${isExpanded ? 'text-indigo-700 font-bold' : ''}`}>
+                      <div className={`rounded-xl transition-colors duration-200 ${isExpanded ? 'bg-indigo-50/50' : ''}`}>
+                          <button onClick={() => toggleMenu(item.id)} className={`flex items-center justify-between w-full p-3 rounded-xl text-sm font-medium transition-all duration-200 ${isParentActive && !isExpanded ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-600 hover:bg-white/60 hover:text-indigo-600'} ${isExpanded ? 'text-indigo-700 font-bold' : ''}`}>
                              <div className="flex items-center gap-3"><Icon size={18}/> {item.label}</div>
                              {isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
                           </button>
-                          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-                              <div className="ml-4 pl-2 border-l-2 border-indigo-100 space-y-1 mb-2">
+                          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100 pb-2' : 'max-h-0 opacity-0'}`}>
+                              <div className="space-y-1 px-3">
                                   {item.children?.map(child => {
                                       const ChildIcon = child.icon;
                                       const isChildActive = currentView === child.id;
                                       return (
-                                        <button key={child.id} onClick={() => { setCurrentView(child.id); setIsOpen(false); }} className={`flex items-center gap-3 w-full p-2 rounded-md text-sm transition-all duration-200 ${isChildActive ? 'text-indigo-700 font-bold bg-white shadow-sm translate-x-1' : 'text-gray-500 hover:text-indigo-600 hover:bg-white/50'}`}>
+                                        <button key={child.id} onClick={() => { setCurrentView(child.id); setIsOpen(false); }} className={`flex items-center gap-3 w-full p-2.5 rounded-lg text-sm transition-all duration-200 ${isChildActive ? 'text-indigo-700 font-bold bg-white shadow-sm' : 'text-slate-500 hover:text-indigo-600 hover:bg-white/40'}`}>
                                             <ChildIcon size={16} className={isChildActive ? "text-indigo-600" : "opacity-70"}/> {child.label}
                                         </button>
                                       )
@@ -219,18 +219,18 @@ const Sidebar: React.FC<SidebarProps> = ({
             )
           })}
         </nav>
-        <div className="p-4 border-t bg-gray-50 space-y-3">
+        <div className="p-4 border-t border-indigo-50/50 bg-white/40 space-y-3">
           <div className="flex items-center justify-between px-2">
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0 shadow-sm border border-indigo-200"><User size={16}/></div>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-white flex items-center justify-center text-indigo-700 font-bold shrink-0 shadow-sm border border-white"><User size={18}/></div>
                 <div className="overflow-hidden">
-                  <p className="text-sm font-bold text-gray-900 truncate max-w-[100px]">{userData.displayName || userData.email || 'User'}</p>
-                  <p className="text-[10px] text-gray-500 truncate capitalize font-medium">{userPermissions.role}</p>
+                  <p className="text-sm font-bold text-slate-800 truncate max-w-[100px]">{userData.displayName || userData.email || 'User'}</p>
+                  <p className="text-xs text-slate-500 truncate capitalize font-medium">{userPermissions.role}</p>
                 </div>
               </div>
-              <button onClick={() => { setCurrentView('settings'); setIsOpen(false); }} className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-200 text-indigo-800' : 'hover:bg-gray-200 text-gray-600'}`} title={t('settings')}><Settings size={18} /></button>
+              <button onClick={() => { setCurrentView('settings'); setIsOpen(false); }} className={`p-2 rounded-full transition-colors ${currentView === 'settings' ? 'bg-indigo-100 text-indigo-800' : 'hover:bg-white text-slate-500'}`} title={t('settings')}><Settings size={18} /></button>
           </div>
-          <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-medium hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-all w-full border border-transparent hover:border-red-100">
+          <button onClick={onLogout} className="flex items-center gap-2 text-rose-600 text-sm font-medium hover:text-rose-800 hover:bg-rose-50/50 p-2.5 rounded-xl transition-all w-full border border-transparent hover:border-rose-100">
             <LogOut size={16}/> {t('logout')}
           </button>
         </div>
