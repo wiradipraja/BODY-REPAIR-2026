@@ -548,7 +548,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                     <div className="text-right">
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Estimasi Gaji Periode Ini</p>
                         <p className="text-2xl font-black text-emerald-600">
-                            {formatCurrency(Object.values(aggregatedReport).reduce((acc: number, curr: any) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0))}
+                            {formatCurrency(Object.values(aggregatedReport).reduce((acc: number, curr: any) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0) as number)}
                         </p>
                     </div>
                 </div>

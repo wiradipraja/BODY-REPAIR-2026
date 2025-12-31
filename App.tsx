@@ -81,8 +81,8 @@ const AppContent: React.FC = () => {
         setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
     }, handleError("Assets"));
 
-    // FIXED: Inventory Listener Added (Integration Restore)
-    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION), limit(1000)), (snap) => {
+    // FIXED: Inventory Listener (Increased limit to 5000 to cover full warehouse for accurate Job Control mapping)
+    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION), limit(5000)), (snap) => {
         setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
     }, handleError("Inventory"));
 

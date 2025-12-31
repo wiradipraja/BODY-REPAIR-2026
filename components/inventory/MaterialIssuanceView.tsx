@@ -1,11 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Job, InventoryItem, UserPermissions, Supplier, Settings } from '../../types';
-import { doc, updateDoc, increment, arrayUnion, serverTimestamp, getDoc, writeBatch, addDoc, collection, query, orderBy, limit, getDocs, where, documentId } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION, CASHIER_COLLECTION } from '../../services/firebase';
-import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
-import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Clock, Zap, Target, Link, MousePointerClick, CheckSquare, Square, Box, Archive, Receipt, Loader2, ChevronRight } from 'lucide-react';
-import Modal from '../ui/Modal';
+import { doc, updateDoc, increment, arrayUnion, serverTimestamp, writeBatch, collection, query, limit, getDocs, where, documentId } from 'firebase/firestore';
+import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
+import { formatCurrency, formatDateIndo } from '../../utils/helpers';
+import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Zap, CheckSquare, Loader2 } from 'lucide-react';
 
 interface MaterialIssuanceViewProps {
   activeJobs: Job[];
@@ -15,11 +14,11 @@ interface MaterialIssuanceViewProps {
   onRefreshData: () => void;
   issuanceType: 'sparepart' | 'material';
   settings?: Settings; 
-  inventoryItems?: InventoryItem[]; // Deprecated but kept for type compatibility
+  inventoryItems?: InventoryItem[]; // Now actively used for integration
 }
 
 const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({ 
-  activeJobs, userPermissions, showNotification, onRefreshData, issuanceType, settings, suppliers
+  activeJobs, userPermissions, showNotification, onRefreshData, issuanceType, settings, suppliers, inventoryItems = []
 }) => {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [filterWo, setFilterWo] = useState('');
@@ -34,7 +33,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
   const [notes, setNotes] = useState('');
   const [selectedMaterialItem, setSelectedMaterialItem] = useState<InventoryItem | null>(null);
 
-  // ASYNC FETCH STATE (Local Inventory Cache)
+  // ASYNC FETCH STATE (Fallback)
   const [fetchedInventoryItems, setFetchedInventoryItems] = useState<InventoryItem[]>([]);
   const [isFetchingItems, setIsFetchingItems] = useState(false);
 
@@ -49,93 +48,84 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
   const filteredJobs = useMemo(() => {
     const lowerFilter = filterWo.toLowerCase().trim();
-    // Filter jobs: Must have WO number and match search term
     return activeJobs.filter(j => 
         j.woNumber && 
         ((j.woNumber.toLowerCase().includes(lowerFilter)) || 
         (j.policeNumber && j.policeNumber.toLowerCase().includes(lowerFilter)) ||
         (j.customerName && j.customerName.toLowerCase().includes(lowerFilter)))
-    ).slice(0, 10); // Limit dropdown results
+    ).slice(0, 10);
   }, [activeJobs, filterWo]);
 
-  // --- FETCHING LOGIC ---
+  // --- INTEGRATED FETCHING LOGIC (GLOBAL + FALLBACK) ---
 
-  // 1. Fetch Inventory for SPAREPARTS when Job is selected
+  // 1. Resolve Inventory Items for Selected Job
   useEffect(() => {
-      const loadJobParts = async () => {
+      const resolveJobParts = async () => {
           if (selectedJob && issuanceType === 'sparepart') {
-              setIsFetchingItems(true);
-              const idsToFetch = selectedJob.estimateData?.partItems
+              const idsToResolve = selectedJob.estimateData?.partItems
                   ?.map(p => p.inventoryId)
                   .filter(id => id && typeof id === 'string') as string[] || [];
               
-              if (idsToFetch.length > 0) {
+              if (idsToResolve.length === 0) {
+                  setFetchedInventoryItems([]);
+                  return;
+              }
+
+              // A. Try finding in Global State first (Instant)
+              const foundInGlobal: InventoryItem[] = [];
+              const missingIds: string[] = [];
+
+              idsToResolve.forEach(id => {
+                  const item = inventoryItems.find(i => i.id === id);
+                  if (item) foundInGlobal.push(item);
+                  else missingIds.push(id);
+              });
+
+              // B. If missing from global (rare, e.g. >1000 items), fetch from DB
+              let fetchedMissing: InventoryItem[] = [];
+              if (missingIds.length > 0) {
+                  setIsFetchingItems(true);
                   try {
-                      // Chunking requests because Firestore 'in' limit is 10
+                      // Chunking requests
                       const chunkSize = 10;
-                      let allFetched: InventoryItem[] = [];
-                      
-                      for (let i = 0; i < idsToFetch.length; i += chunkSize) {
-                          const chunk = idsToFetch.slice(i, i + chunkSize);
-                          if (chunk.length === 0) continue;
-                          
+                      for (let i = 0; i < missingIds.length; i += chunkSize) {
+                          const chunk = missingIds.slice(i, i + chunkSize);
                           const q = query(collection(db, SPAREPART_COLLECTION), where(documentId(), 'in', chunk));
                           const snap = await getDocs(q);
-                          const chunkItems = snap.docs.map(d => ({id: d.id, ...d.data()} as InventoryItem));
-                          allFetched = [...allFetched, ...chunkItems];
+                          fetchedMissing = [...fetchedMissing, ...snap.docs.map(d => ({id: d.id, ...d.data()} as InventoryItem))];
                       }
-                      setFetchedInventoryItems(allFetched);
                   } catch (e) {
-                      console.error("Error fetching job parts:", e);
+                      console.error("Error fetching missing parts:", e);
+                  } finally {
+                      setIsFetchingItems(false);
                   }
-              } else {
-                  setFetchedInventoryItems([]);
               }
-              setIsFetchingItems(false);
-          }
-      };
-      
-      loadJobParts();
-  }, [selectedJob, issuanceType]);
 
-  // 2. Search Materials On Demand
-  useEffect(() => {
-      const searchMaterials = async () => {
-          if (issuanceType === 'material' && materialSearchTerm.length > 2) {
-              // Basic search: Fetch recent materials or implement specific search logic
-              // Since firestore doesn't support full-text search easily, we'll fetch recent materials
-              // and filter client side, or if you have exact code match.
-              try {
-                  const q = query(
-                      collection(db, SPAREPART_COLLECTION), 
-                      where('category', '==', 'material'), 
-                      limit(50) // Fetch top 50 to filter
-                  );
-                  const snap = await getDocs(q);
-                  const allMats = snap.docs.map(d => ({id: d.id, ...d.data()} as InventoryItem));
-                  
-                  const term = materialSearchTerm.toLowerCase();
-                  const matches = allMats.filter(m => 
-                      m.name.toLowerCase().includes(term) || 
-                      (m.code && m.code.toLowerCase().includes(term))
-                  );
-                  setFetchedInventoryItems(matches);
-              } catch (e) {
-                  console.error("Material search error:", e);
-              }
+              // Combine Global + Fetched
+              setFetchedInventoryItems([...foundInGlobal, ...fetchedMissing]);
           }
       };
       
-      const timeoutId = setTimeout(searchMaterials, 500); // Debounce
-      return () => clearTimeout(timeoutId);
-  }, [materialSearchTerm, issuanceType]);
+      resolveJobParts();
+  }, [selectedJob, issuanceType, inventoryItems]);
+
+  // 2. Search Materials (Global First)
+  const materialSearchResults = useMemo(() => {
+      if (issuanceType !== 'material' || materialSearchTerm.length < 2) return [];
+      
+      const term = materialSearchTerm.toLowerCase();
+      // Filter Global State
+      return inventoryItems.filter(i => 
+          i.category === 'material' && 
+          (i.name.toLowerCase().includes(term) || (i.code && i.code.toLowerCase().includes(term)))
+      ).slice(0, 50);
+  }, [inventoryItems, materialSearchTerm, issuanceType]);
 
   // --- ACTIONS ---
 
   const handleSelectMaterial = (item: InventoryItem) => {
       setSelectedMaterialItem(item);
       setMaterialSearchTerm(item.name);
-      // Auto fill items
   };
 
   const handleSparepartIssuance = async () => {
@@ -159,7 +149,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
 
           for (const idx of selectedPartIndices) {
               const partEst = currentParts[idx];
-              // Find matching inventory item
+              // Find matching inventory item (from combined resolved list)
               const invItem = fetchedInventoryItems.find(i => i.id === partEst.inventoryId);
               
               if (!invItem) {
@@ -177,7 +167,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
               });
 
               // 2. Mark as Arrived/Issued in Job
-              // Note: We use 'hasArrived' to indicate it's physically available/issued for installation
               currentParts[idx] = { ...partEst, hasArrived: true };
 
               // 3. Create Usage Log Entry
@@ -212,7 +201,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           await batch.commit();
           showNotification(`Berhasil mengeluarkan ${successCount} part.`, "success");
           setSelectedPartIndices([]);
-          onRefreshData(); // Refresh parent if needed, though activeJobs might update via listener
+          onRefreshData(); 
       } catch (e: any) {
           showNotification("Gagal proses: " + e.message, "error");
       } finally {
@@ -279,14 +268,7 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
       if (!selectedJob || !window.confirm("Batalkan pemakaian ini? Stok akan dikembalikan.")) return;
       
       try {
-          // This is complex because arrayUnion/Remove needs exact object match.
-          // Simplification: We just reverse the stock and cost, but removing specific array item by index 
-          // atomically is hard in Firestore without reading the whole array.
-          // For now, we will perform a full read-modify-write on usageLog array.
-          
           const newUsageLog = [...(selectedJob.usageLog || [])];
-          // Remove the item at index (reverse sorted in UI, so be careful. Use exact match if possible or original index logic)
-          // Since UI sorts by date desc, finding by object properties is safer
           const actualIndex = newUsageLog.findIndex(l => 
               l.itemId === logItem.itemId && 
               l.issuedAt === logItem.issuedAt &&
@@ -294,7 +276,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
           );
 
           if (actualIndex === -1) return;
-          
           newUsageLog.splice(actualIndex, 1);
 
           const batch = writeBatch(db);
@@ -310,14 +291,6 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
               updates['costData.hargaModalBahan'] = increment(-logItem.totalCost);
           }
           
-          // If it was a sparepart linked to estimate, uncheck hasArrived?
-          if (logItem.category === 'sparepart' && logItem.refPartIndex !== undefined) {
-              // We need to read current parts to toggle flag safely
-              // For simplicity, we skip this unless we reload job data first. 
-              // It's acceptable to leave it 'arrived' visual or fetch fresh.
-              // Let's assume user manually fixes status if needed, or we implement deep update.
-          }
-
           batch.update(jobRef, updates);
           await batch.commit();
           
@@ -413,7 +386,9 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
-                                        {(selectedJob.estimateData?.partItems || []).map((part, idx) => {
+                                        {isFetchingItems ? (
+                                            <tr><td colSpan={5} className="p-8 text-center text-gray-400"><Loader2 className="animate-spin inline mr-2"/> Memuat Inventory...</td></tr>
+                                        ) : (selectedJob.estimateData?.partItems || []).map((part, idx) => {
                                             const invItem = fetchedInventoryItems.find(i => i.id === part.inventoryId);
                                             const isAvailable = invItem && invItem.stock >= (part.qty || 1);
                                             const isSelected = selectedPartIndices.includes(idx);
@@ -489,10 +464,10 @@ const MaterialIssuanceView: React.FC<MaterialIssuanceViewProps> = ({
                                             className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 font-bold"
                                         />
                                     </div>
-                                    {/* DROPDOWN RESULTS */}
-                                    {materialSearchTerm && !selectedMaterialItem && fetchedInventoryItems.length > 0 && (
+                                    {/* DROPDOWN RESULTS (FROM GLOBAL INVENTORY PROP) */}
+                                    {materialSearchTerm && !selectedMaterialItem && materialSearchResults.length > 0 && (
                                         <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl mt-1 z-50 max-h-48 overflow-y-auto">
-                                            {fetchedInventoryItems.map(item => (
+                                            {materialSearchResults.map(item => (
                                                 <div 
                                                     key={item.id} 
                                                     onClick={() => handleSelectMaterial(item)}

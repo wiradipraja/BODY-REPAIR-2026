@@ -70,7 +70,7 @@ const DICTIONARY: Record<string, Record<string, string>> = {
 };
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ 
-  job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, showNotification 
+  job, ppnPercentage, insuranceOptions, onSave, onCancel, settings, creatorName, showNotification, inventoryItems 
 }) => {
   const lang = settings.language || 'id';
   const t = (key: string) => DICTIONARY[lang][key] || key;
@@ -113,22 +113,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       loadServices();
   }, [job.namaAsuransi, insuranceOptions]); 
 
-  // Debounce Search for Parts to save reads
+  // Optimized Search for Parts
   useEffect(() => {
       if (activeSearch?.type !== 'part' || !searchQuery || searchQuery.length < 2) {
           setSearchResults([]);
           return;
       }
 
+      // INTEGRATION OPTIMIZATION: Use Global State if available
+      // This makes searching for existing parts instant without network calls
+      if (inventoryItems && inventoryItems.length > 0) {
+          const term = searchQuery.toLowerCase();
+          const matches = inventoryItems.filter(i => 
+              i.category === 'sparepart' && 
+              (i.name.toLowerCase().includes(term) || (i.code && i.code.toLowerCase().includes(term)))
+          ).slice(0, 50);
+          setSearchResults(matches);
+          return;
+      }
+
+      // Fallback: Fetch from Firestore (only if inventoryItems prop is empty/missing)
       const timer = setTimeout(async () => {
           setIsSearching(true);
           try {
-              // Fetch from Firestore
-              // Optimized: Fetch recent 50 and filter locally works for recently added, but 
-              // for a true optimization we rely on fetching all (too expensive) or exact search.
-              // For now, let's fetch a limit of 20 sorted by updated.
-              // Ideally this should use a proper search index (Algolia/Elastic) or specific keywords array.
-              // We will simulate search by fetching recent ones and filter, OR query matches if possible.
               const q = query(collection(db, SPAREPART_COLLECTION), orderBy('updatedAt', 'desc'), limit(50));
               const snap = await getDocs(q);
               const all = snap.docs.map(d => ({id: d.id, ...d.data()} as InventoryItem));
@@ -142,7 +149,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
       }, 500);
 
       return () => clearTimeout(timer);
-  }, [searchQuery, activeSearch]);
+  }, [searchQuery, activeSearch, inventoryItems]);
 
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
@@ -310,8 +317,130 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* ... (Locked Notification, Position Control, Jasa Table - Unchanged) ... */}
-      {/* JASA TABLE OMITTED FOR BREVITY, NO LOGIC CHANGE */}
+      {/* LOCKED NOTIFICATION */}
+      {isLocked && (
+          <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 animate-fade-in">
+              <Lock className="text-red-500" size={24}/>
+              <div>
+                  <h4 className="font-bold text-red-800">Dokumen Terkunci</h4>
+                  <p className="text-sm text-red-600">
+                      WO ini sudah ditutup atau difakturkan. Perubahan tidak diperbolehkan untuk menjaga integritas data keuangan.
+                  </p>
+              </div>
+          </div>
+      )}
+
+      {/* HEADER & CONTROLS */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-4">
+              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><Calculator size={28}/></div>
+              <div>
+                  <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+                      {job.woNumber ? `Work Order: ${job.woNumber}` : `Estimasi Biaya`}
+                  </h2>
+                  <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                      <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-600 border border-gray-200">{job.policeNumber}</span>
+                      <span className="text-gray-300">|</span>
+                      <span>{job.customerName}</span>
+                  </p>
+              </div>
+          </div>
+          <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-lg border border-gray-200 mr-2">
+                  <MapPin size={16} className="text-gray-400 ml-1"/>
+                  <select 
+                      disabled={isLocked}
+                      value={currentPosisi} 
+                      onChange={e => handlePositionChange(e.target.value)} 
+                      className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer disabled:opacity-50"
+                  >
+                      <option value="Di Bengkel">Unit Di Bengkel</option>
+                      <option value="Di Pemilik">Unit Di Pemilik</option>
+                  </select>
+              </div>
+              <button onClick={() => handlePrint('estimate')} className="p-2.5 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors" title="Print Estimasi"><Printer size={18}/></button>
+              {job.woNumber && <button onClick={() => handlePrint('wo')} className="p-2.5 text-indigo-600 hover:bg-indigo-50 rounded-lg border border-indigo-200 transition-colors font-bold flex items-center gap-1" title="Print WO"><FileText size={18}/> WO</button>}
+          </div>
+      </div>
+
+      {/* JASA SECTION */}
+      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative">
+          <div className="flex justify-between items-center mb-6">
+              <h4 className="font-black text-gray-800 tracking-tight">{t('sec_jasa')}</h4>
+              <button onClick={() => addItem('jasa')} disabled={isLocked} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-xl font-black hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"><Plus size={16}/> {t('btn_add_jasa')}</button>
+          </div>
+          <div className="relative">
+              <table className="w-full text-sm text-left border-separate border-spacing-y-2">
+                  <thead>
+                      <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          <th className="px-4 py-2 w-10 text-center">No</th>
+                          <th className="px-4 py-2 w-24">{t('col_type')}</th>
+                          <th className="px-4 py-2">{t('col_desc')}</th>
+                          <th className="px-4 py-2 w-24 text-center">{t('col_panel')}</th>
+                          <th className="px-4 py-2 w-48 text-right">{t('col_cost')}</th>
+                          <th className="px-4 py-2 w-10"></th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {jasaItems.map((item, i) => (
+                          <tr key={i} className="group hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-3 text-center text-gray-400 font-bold bg-gray-50/50 rounded-l-xl border-y border-l border-gray-100">{i+1}</td>
+                              <td className="px-4 py-3 border-y border-gray-100">
+                                  <select 
+                                      value={item.workType || 'KC'} 
+                                      onChange={e => updateItemRaw('jasa', i, 'workType', e.target.value)}
+                                      className="w-full bg-transparent font-bold text-xs outline-none cursor-pointer text-gray-600 disabled:opacity-50"
+                                      disabled={isLocked}
+                                  >
+                                      <option value="KC">Kaca/Body</option>
+                                      <option value="GTC">GTC</option>
+                                      <option value="BP">Body Paint</option>
+                                      <option value="Lainnya">Lainnya</option>
+                                  </select>
+                              </td>
+                              <td className="px-4 py-3 border-y border-gray-100 relative">
+                                  <div className="relative">
+                                      <input 
+                                          type="text" 
+                                          value={item.name} 
+                                          onFocus={() => { setActiveSearch({ type: 'jasa', index: i }); setSearchQuery(''); }}
+                                          onChange={e => { setSearchQuery(e.target.value); updateItemRaw('jasa', i, 'name', e.target.value); }}
+                                          className="w-full p-2 bg-gray-50 border-none rounded-lg font-bold text-gray-700 focus:ring-2 ring-indigo-500 transition-all disabled:opacity-60 placeholder-gray-400"
+                                          placeholder="Ketik nama pekerjaan..."
+                                          disabled={isLocked}
+                                      />
+                                      {/* Service Dropdown */}
+                                      {activeSearch?.type === 'jasa' && activeSearch.index === i && (
+                                          <div ref={searchRef} className="absolute left-0 top-full mt-2 w-full bg-white rounded-xl shadow-2xl border border-gray-100 z-[100] max-h-60 overflow-y-auto animate-pop-in">
+                                              {filteredServices.map(s => (
+                                                  <div key={s.id} onClick={() => selectService(i, s)} className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-gray-50 last:border-0">
+                                                      <div className="font-bold text-sm text-gray-800">{s.serviceName}</div>
+                                                      <div className="text-[10px] text-gray-400 flex justify-between mt-1">
+                                                          <span>Kode: {s.serviceCode || '-'}</span>
+                                                          <span className="font-bold text-indigo-600">{formatCurrency(s.basePrice)}</span>
+                                                      </div>
+                                                  </div>
+                                              ))}
+                                              {filteredServices.length === 0 && <div className="p-3 text-center text-xs text-gray-400">Tidak ada jasa ditemukan.</div>}
+                                          </div>
+                                      )}
+                                  </div>
+                              </td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-center">
+                                  <span className="font-mono font-bold text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">{item.panelCount || 0}</span>
+                              </td>
+                              <td className="px-4 py-3 border-y border-gray-100 text-right">
+                                  <input type="number" value={item.price} onChange={e => updateItemRaw('jasa', i, 'price', Number(e.target.value))} className="w-full p-2 text-right bg-gray-50 border-none rounded-lg font-bold text-gray-800 focus:ring-2 ring-indigo-500 transition-all disabled:opacity-60" disabled={isLocked} />
+                              </td>
+                              <td className="px-4 py-3 border-y border-r border-gray-100 bg-gray-50/50 rounded-r-xl text-center">
+                                  <button onClick={() => removeItem('jasa', i)} className="text-red-300 hover:text-red-500 transition-colors disabled:opacity-20" disabled={isLocked}><Trash2 size={16}/></button>
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
+      </div>
       
       {/* PART SECTION */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
@@ -376,7 +505,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
                                       )}
                                   </div>
                               </td>
-                              {/* ... Qty, Price, Total Columns (Unchanged) ... */}
                               <td className="px-4 py-3 border-y border-gray-100 text-center">
                                   <input type="number" value={item.qty || 1} onChange={e => updateItemRaw('part', i, 'qty', Number(e.target.value))} className="w-16 p-2 text-center bg-gray-50 border-none rounded-lg font-bold text-xs disabled:opacity-60" disabled={isLocked} />
                               </td>
@@ -405,9 +533,65 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({
           </div>
       </div>
 
-      {/* ... (Summary Section - Unchanged) ... */}
+      {/* SUMMARY */}
       <div className="bg-slate-900 p-6 rounded-3xl text-white shadow-2xl">
-          {/* ... Summary Content ... */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div className="space-y-4">
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Jasa</p>
+                      <p className="text-2xl font-black">{formatCurrency(totals.subtotalJasa)}</p>
+                  </div>
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Diskon Jasa ({discountJasa}%)</p>
+                      <input type="range" min="0" max="100" value={discountJasa} onChange={e => setDiscountJasa(Number(e.target.value))} disabled={isLocked} className="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50"/>
+                      <p className="text-sm font-bold text-red-400 mt-1">- {formatCurrency(totals.discountJasaAmount)}</p>
+                  </div>
+              </div>
+
+              <div className="space-y-4">
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Sparepart</p>
+                      <p className="text-2xl font-black">{formatCurrency(totals.subtotalPart)}</p>
+                  </div>
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Diskon Part ({discountPart}%)</p>
+                      <input type="range" min="0" max="100" value={discountPart} onChange={e => setDiscountPart(Number(e.target.value))} disabled={isLocked} className="w-full accent-orange-500 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50"/>
+                      <p className="text-sm font-bold text-red-400 mt-1">- {formatCurrency(totals.discountPartAmount)}</p>
+                  </div>
+              </div>
+
+              <div className="space-y-2 bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                  <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-400">Subtotal Net</span>
+                      <span className="font-bold">{formatCurrency(totals.grandTotal - totals.ppnAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-400">PPN ({ppnPercentage}%)</span>
+                      <span className="font-bold">{formatCurrency(totals.ppnAmount)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-700 mt-2">
+                      <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Grand Total Estimasi</p>
+                      <p className="text-3xl font-black text-emerald-400">{formatCurrency(totals.grandTotal)}</p>
+                  </div>
+              </div>
+
+              <div className="flex flex-col justify-end space-y-2">
+                  <div className="p-3 bg-indigo-900/50 rounded-xl border border-indigo-800 mb-2">
+                      <p className="text-[10px] font-bold text-indigo-300 uppercase mb-1">Estimator</p>
+                      <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold">{creatorName[0]}</div>
+                          <span className="text-sm font-bold">{creatorName}</span>
+                      </div>
+                  </div>
+                  {specialColorRate && (
+                      <div className="p-3 bg-pink-900/30 rounded-xl border border-pink-800/50 text-[10px] text-pink-300 flex items-center gap-2">
+                          <Palette size={14}/>
+                          <span>Warna Spesial (+{formatCurrency(specialColorRate.surchargePerPanel)}/Panel)</span>
+                      </div>
+                  )}
+              </div>
+          </div>
+
           <div className="mt-8 flex flex-wrap gap-3 justify-end border-t border-white/10 pt-6">
               <button onClick={onCancel} className="px-6 py-3 rounded-xl font-bold text-gray-400 hover:text-white hover:bg-white/10 transition-colors">Batal</button>
               <button onClick={() => handleSaveAction('estimate')} disabled={isSubmitting || isLocked} className="px-6 py-3 bg-white text-indigo-900 rounded-xl font-black shadow-lg hover:bg-indigo-50 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
