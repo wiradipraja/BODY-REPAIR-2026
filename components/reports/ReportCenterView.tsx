@@ -1,9 +1,8 @@
-
 import React, { useState } from 'react';
 import { Job, CashierTransaction, PurchaseOrder, InventoryItem, Vehicle } from '../../types';
 import * as XLSX from 'xlsx';
 import { formatDateIndo, formatCurrency } from '../../utils/helpers';
-import { FileSpreadsheet, Download, Calendar, Activity, DollarSign, Package, User, ShoppingCart, BarChart3, TrendingUp, Shield, MapPin, Car, Database, Landmark, Scale, Wallet, Loader2 } from 'lucide-react';
+import { FileSpreadsheet, Download, Calendar, Activity, DollarSign, Package, User, BarChart3, Database, Landmark, Scale, Wallet, Loader2 } from 'lucide-react';
 import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
 import { db, SERVICE_JOBS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, UNITS_MASTER_COLLECTION } from '../../services/firebase';
 
@@ -16,21 +15,13 @@ interface ReportCenterViewProps {
 }
 
 const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transactions: _t, purchaseOrders: _p, inventoryItems: _i, vehicles: _v }) => {
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  // Default to First Day of Month -> Today
+  const [startDate, setStartDate] = useState(() => {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  });
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [isGenerating, setIsGenerating] = useState(false);
-
-  const getStartOfDay = (dateStr: string) => {
-      const d = new Date(dateStr);
-      d.setHours(0, 0, 0, 0);
-      return d;
-  };
-
-  const getEndOfDay = (dateStr: string) => {
-      const d = new Date(dateStr);
-      d.setHours(23, 59, 59, 999);
-      return d;
-  };
 
   const handleExport = async (type: string) => {
       setIsGenerating(true);
@@ -39,31 +30,45 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
           const wb = XLSX.utils.book_new();
           let data: any[] = [];
           
-          const start = getStartOfDay(startDate);
-          const end = getEndOfDay(endDate);
+          // Setup Date Objects for Query (Start 00:00 - End 23:59)
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
 
-          // Helper to fetch docs
+          const startTs = Timestamp.fromDate(start);
+          const endTs = Timestamp.fromDate(end);
+
+          // Helper to fetch docs with constraints
           const fetchDocs = async (col: string, constraints: any[] = []) => {
-              const q = query(collection(db, col), ...constraints);
-              const snap = await getDocs(q);
-              return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              try {
+                  const q = query(collection(db, col), ...constraints);
+                  const snap = await getDocs(q);
+                  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              } catch (err) {
+                  console.error(`Error fetching ${col}:`, err);
+                  throw err;
+              }
           };
 
           switch (type) {
               case 'VEHICLE_DATABASE':
-                  // Fetch ALL vehicles (Master DB)
+                  // Master DB is a Snapshot (Fetch All, no date filter)
                   const allVehicles = await fetchDocs(UNITS_MASTER_COLLECTION) as Vehicle[];
                   
                   const uniqueVehiclesMap = new Map<string, Vehicle>();
                   const sortedVehicles = [...allVehicles].sort((a, b) => {
-                      const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
-                      const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+                      const dateA = (a as any).updatedAt?.seconds || 0;
+                      const dateB = (b as any).updatedAt?.seconds || 0;
                       return dateB - dateA;
                   });
+                  
                   sortedVehicles.forEach(v => {
                       const nopol = (v.policeNumber || '').toUpperCase().replace(/\s/g, '');
                       if (nopol && !uniqueVehiclesMap.has(nopol)) uniqueVehiclesMap.set(nopol, v);
                   });
+
                   data = Array.from(uniqueVehiclesMap.values()).map(v => ({
                       'No. Polisi': v.policeNumber,
                       'Nama Pelanggan': v.customerName,
@@ -74,47 +79,48 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                       'Tipe / Model': v.carModel,
                       'Warna': v.warnaMobil,
                       'Pihak Penjamin (Asuransi)': v.namaAsuransi,
-                      'Tanggal Terdaftar': v.createdAt ? formatDateIndo(v.createdAt) : '-'
+                      'Tahun': v.tahunPembuatan,
+                      'Terdaftar Sejak': v.createdAt ? formatDateIndo(v.createdAt) : '-'
                   }));
-                  filename = `Database_Master_Unit_Full_${new Date().toISOString().split('T')[0]}.xlsx`;
+                  filename = `Database_Master_Unit_${new Date().toISOString().split('T')[0]}.xlsx`;
                   break;
 
               case 'TAX_REPORT':
-                  // Fetch Transactions in Range
+                  // Fetch Transactions (Cashier) with Date Range
                   const taxTrans = await fetchDocs(CASHIER_COLLECTION, [
-                      where('date', '>=', start),
-                      where('date', '<=', end)
+                      where('date', '>=', startTs),
+                      where('date', '<=', endTs)
                   ]) as CashierTransaction[];
 
                   data = taxTrans
-                    .filter(t => t.category.includes('Pajak') || t.description?.toLowerCase().includes('ppn') || t.description?.toLowerCase().includes('pph'))
+                    .filter(t => t.category.includes('Pajak') || (t.description && (t.description.toLowerCase().includes('ppn') || t.description.toLowerCase().includes('pph'))))
                     .map(t => ({
                         'No. Transaksi': t.transactionNumber || '-',
-                        'Tanggal Transaksi': formatDateIndo(t.date),
-                        'Tipe Pajak': t.type === 'IN' ? 'Pajak Masuk / Potongan' : 'Setoran Pajak / Keluar',
-                        'Kategori Pajak': t.category,
-                        'Ref Dokumen (WO/PO)': t.refNumber || '-',
-                        'Nama Pihak Terkait': t.customerName || '-',
+                        'Tanggal': formatDateIndo(t.date),
+                        'Tipe': t.type === 'IN' ? 'Pajak Masuk (Terima)' : 'Pajak Keluar (Setor)',
+                        'Kategori': t.category,
+                        'Ref Dokumen': t.refNumber || '-',
+                        'Pihak Terkait': t.customerName || '-',
                         'Nominal (Rp)': t.amount,
-                        'No. Bukti Potong': t.taxCertificateNumber || '-',
-                        'Keterangan / Catatan': t.description || '-',
-                        'Metode Pembayaran': t.paymentMethod,
-                        'Bank / Kas': t.bankName || 'KAS TUNAI',
-                        'Admin Input': t.createdBy || '-'
+                        'Bukti Potong': t.taxCertificateNumber || '-',
+                        'Keterangan': t.description || '-',
+                        'Admin': t.createdBy || '-'
                     }));
                   
                   if (data.length > 0) {
                       const total = data.reduce((acc, curr) => acc + (curr['Nominal (Rp)'] || 0), 0);
-                      data.push({ 'Tanggal Transaksi': 'TOTAL KESELURUHAN', 'Nominal (Rp)': total });
+                      data.push({ 'Tanggal': 'TOTAL PERIODE', 'Nominal (Rp)': total });
                   }
                   filename = `Laporan_Pajak_${startDate}_to_${endDate}.xlsx`;
                   break;
 
               case 'RECEIVABLE_REPORT':
-                  // Fetch All Invoiced Jobs (Snapshot of Receivables)
-                  // To be accurate we fetch all jobs with Invoice, and all IN transactions to calc balance
-                  // Optimization: fetch jobs with hasInvoice=true
+                  // Snapshot of current receivables (No Date Filter usually, or filter by created date)
+                  // Strategy: Fetch all jobs with invoice, calc remaining locally
                   const invoicedJobs = await fetchDocs(SERVICE_JOBS_COLLECTION, [where('hasInvoice', '==', true)]) as Job[];
+                  
+                  // Need ALL IN transactions to calculate balance properly
+                  // Optimization: Fetch only IN transactions, client-side match
                   const allInTrx = await fetchDocs(CASHIER_COLLECTION, [where('type', '==', 'IN')]) as CashierTransaction[];
 
                   data = invoicedJobs
@@ -129,29 +135,26 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                             'No. Invoice': job.invoiceNumber || '-',
                             'No. WO': job.woNumber,
                             'No. Polisi': job.policeNumber,
-                            'Nama Pelanggan': job.customerName,
-                            'Asuransi / Penjamin': job.namaAsuransi,
-                            'Tgl Masuk Unit': formatDateIndo(job.tanggalMasuk),
-                            'Total Tagihan (Rp)': totalBill,
-                            'Sudah Dibayar (Rp)': paidAmount,
-                            'Sisa Piutang (Rp)': remaining,
-                            'Status Dokumen': job.isClosed ? 'Closed' : 'Open',
-                            'SA Penanggungjawab': job.namaSA || '-'
+                            'Pelanggan': job.customerName,
+                            'Asuransi': job.namaAsuransi,
+                            'Tgl Masuk': formatDateIndo(job.tanggalMasuk),
+                            'Total Tagihan': totalBill,
+                            'Sudah Dibayar': paidAmount,
+                            'Sisa Piutang': remaining,
+                            'Status': job.isClosed ? 'Closed' : 'Open'
                         };
                     })
-                    .filter(r => r['Sisa Piutang (Rp)'] > 100); // Filter valid receivables
+                    .filter(r => r['Sisa Piutang'] > 100); // Filter active debt
                   
                   if (data.length > 0) {
-                      const tBill = data.reduce((acc, curr) => acc + curr['Total Tagihan (Rp)'], 0);
-                      const tPaid = data.reduce((acc, curr) => acc + curr['Sudah Dibayar (Rp)'], 0);
-                      const tRem = data.reduce((acc, curr) => acc + curr['Sisa Piutang (Rp)'], 0);
-                      data.push({ 'No. WO': 'TOTAL KESELURUHAN', 'Total Tagihan (Rp)': tBill, 'Sudah Dibayar (Rp)': tPaid, 'Sisa Piutang (Rp)': tRem });
+                      const tRem = data.reduce((acc, curr) => acc + curr['Sisa Piutang'], 0);
+                      data.push({ 'Pelanggan': 'TOTAL PIUTANG', 'Sisa Piutang': tRem });
                   }
                   filename = `Laporan_Piutang_Unit_${new Date().toISOString().split('T')[0]}.xlsx`;
                   break;
 
               case 'DEBT_REPORT':
-                  // Fetch POs and OUT transactions
+                  // Snapshot of current payables
                   const allPOs = await fetchDocs(PURCHASE_ORDERS_COLLECTION) as PurchaseOrder[];
                   const allOutTrx = await fetchDocs(CASHIER_COLLECTION, [where('type', '==', 'OUT')]) as CashierTransaction[];
 
@@ -165,57 +168,47 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                         const remaining = totalBill - paidAmount;
                         return {
                             'No. PO': po.poNumber,
-                            'Tanggal PO': po.date ? formatDateIndo(po.date) : formatDateIndo(po.createdAt || po.approvedAt), 
-                            'Nama Supplier': po.supplierName,
-                            'Status Barang': po.status,
-                            'Total Hutang (Rp)': totalBill,
-                            'Sudah Dibayar (Rp)': paidAmount,
-                            'Sisa Hutang (Rp)': remaining,
-                            'Catatan / Keterangan PO': po.notes || '-',
-                            'Admin Pembuat PO': po.createdBy || '-'
+                            'Tanggal PO': po.createdAt ? formatDateIndo(po.createdAt) : '-', 
+                            'Supplier': po.supplierName,
+                            'Total Hutang': totalBill,
+                            'Sudah Dibayar': paidAmount,
+                            'Sisa Hutang': remaining,
+                            'Status PO': po.status
                         };
                     })
-                    .filter(p => p['Sisa Hutang (Rp)'] > 100);
+                    .filter(p => p['Sisa Hutang'] > 100);
                   
                   if (data.length > 0) {
-                      const tBill = data.reduce((acc, curr) => acc + curr['Total Hutang (Rp)'], 0);
-                      const tPaid = data.reduce((acc, curr) => acc + curr['Sudah Dibayar (Rp)'], 0);
-                      const tRem = data.reduce((acc, curr) => acc + curr['Sisa Hutang (Rp)'], 0);
-                      data.push({ 'No. PO': 'TOTAL KESELURUHAN', 'Total Hutang (Rp)': tBill, 'Sudah Dibayar (Rp)': tPaid, 'Sisa Hutang (Rp)': tRem });
+                      const tRem = data.reduce((acc, curr) => acc + curr['Sisa Hutang'], 0);
+                      data.push({ 'Supplier': 'TOTAL HUTANG', 'Sisa Hutang': tRem });
                   }
                   filename = `Laporan_Hutang_Supplier_${new Date().toISOString().split('T')[0]}.xlsx`;
                   break;
 
               case 'UNIT_FLOW':
-                  // Fetch Jobs in Range (Created)
+                  // Filter by CreatedAt Range
                   const flowJobs = await fetchDocs(SERVICE_JOBS_COLLECTION, [
-                      where('createdAt', '>=', start),
-                      where('createdAt', '<=', end)
+                      where('createdAt', '>=', startTs),
+                      where('createdAt', '<=', endTs)
                   ]) as Job[];
 
                   data = flowJobs.map(j => ({
                       'Tgl Masuk': formatDateIndo(j.tanggalMasuk), 
-                      'No. Invoice': j.invoiceNumber || '-',
                       'No. WO': j.woNumber || '-', 
                       'No. Polisi': j.policeNumber, 
-                      'Nama Pelanggan': j.customerName, 
+                      'Pelanggan': j.customerName, 
                       'Status Unit': j.statusKendaraan, 
-                      'Service Advisor': j.namaSA, 
-                      'Total Panel (Pcs)': j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0,
-                      'Catatan Progress': j.statusPekerjaan
+                      'Posisi': j.posisiKendaraan,
+                      'SA': j.namaSA, 
+                      'Estimasi Total': j.estimateData?.grandTotal || 0
                   }));
-                  
-                  if (data.length > 0) {
-                      const totalPanel = data.reduce((acc, curr) => acc + curr['Total Panel (Pcs)'], 0);
-                      data.push({ 'Tgl Masuk': 'TOTAL REKAPITULASI', 'No. WO': `Total Unit: ${data.length}`, 'Total Panel (Pcs)': totalPanel });
-                  }
                   break;
 
               case 'PROFIT_LOSS_UNIT':
-                  // Fetch Closed Jobs in Range
+                  // Filter by ClosedAt Range
                   const closedJobs = await fetchDocs(SERVICE_JOBS_COLLECTION, [
-                      where('closedAt', '>=', start),
-                      where('closedAt', '<=', end)
+                      where('closedAt', '>=', startTs),
+                      where('closedAt', '<=', endTs)
                   ]) as Job[];
 
                   data = closedJobs.map(j => {
@@ -225,119 +218,103 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                           'No. Invoice': j.invoiceNumber || '-',
                           'No. WO': j.woNumber, 
                           'No. Polisi': j.policeNumber, 
-                          'Asuransi / Penjamin': j.namaAsuransi,
-                          'Revenue (Rp)': rev, 
-                          'HPP (Bahan+Part+Sublet)': cogs, 
-                          'Gross Profit (Rp)': rev - cogs,
+                          'Asuransi': j.namaAsuransi,
+                          'Revenue (Net)': rev, 
+                          'HPP Total': cogs, 
+                          'Gross Profit': rev - cogs,
                           'Tgl Closing': formatDateIndo(j.closedAt)
                       };
                   });
 
                   if (data.length > 0) {
-                      const tRev = data.reduce((acc, curr) => acc + curr['Revenue (Rp)'], 0);
-                      const tCogs = data.reduce((acc, curr) => acc + curr['HPP (Bahan+Part+Sublet)'], 0);
-                      const tGp = data.reduce((acc, curr) => acc + curr['Gross Profit (Rp)'], 0);
-                      data.push({ 'No. WO': 'TOTAL KESELURUHAN', 'Revenue (Rp)': tRev, 'HPP (Bahan+Part+Sublet)': tCogs, 'Gross Profit (Rp)': tGp });
+                      const tGp = data.reduce((acc, curr) => acc + curr['Gross Profit'], 0);
+                      data.push({ 'No. Polisi': 'TOTAL GP PERIODE', 'Gross Profit': tGp });
                   }
                   break;
 
               case 'CASHIER':
+                  // Filter by Date Range
                   const cashierTrx = await fetchDocs(CASHIER_COLLECTION, [
-                      where('date', '>=', start),
-                      where('date', '<=', end)
+                      where('date', '>=', startTs),
+                      where('date', '<=', endTs)
                   ]) as CashierTransaction[];
 
-                  data = cashierTrx
-                    .map(t => ({ 
-                        'No. Transaksi': t.transactionNumber || '-',
-                        'Tanggal': formatDateIndo(t.date), 
-                        'No. Ref (WO/PO)': t.refNumber || '-', 
-                        'Tipe Arus': t.type === 'IN' ? 'UANG MASUK' : 'UANG KELUAR', 
-                        'Kategori': t.category, 
-                        'Nama Pihak (Customer/Vendor)': t.customerName || '-',
-                        'Nominal (Rp)': t.amount, 
-                        'Keterangan / Log Transaksi': t.description || '-', 
-                        'Metode': t.paymentMethod,
-                        'Bank / Sumber Dana': t.bankName || 'KAS TUNAI',
-                        'Admin/Petugas': t.createdBy || '-'
-                    }));
+                  data = cashierTrx.map(t => ({ 
+                      'No. Transaksi': t.transactionNumber || '-',
+                      'Tanggal': formatDateIndo(t.date), 
+                      'Tipe': t.type === 'IN' ? 'MASUK' : 'KELUAR', 
+                      'Kategori': t.category, 
+                      'Ref': t.refNumber || '-', 
+                      'Pihak': t.customerName || '-',
+                      'Nominal': t.amount, 
+                      'Metode': t.paymentMethod,
+                      'Keterangan': t.description || '-',
+                      'User': t.createdBy || '-'
+                  }));
                   
                   if (data.length > 0) {
-                      const totalIn = data.filter(d => d['Tipe Arus'] === 'UANG MASUK').reduce((acc, curr) => acc + curr['Nominal (Rp)'], 0);
-                      const totalOut = data.filter(d => d['Tipe Arus'] === 'UANG KELUAR').reduce((acc, curr) => acc + curr['Nominal (Rp)'], 0);
-                      data.push({ 'Tanggal': 'TOTAL MASUK', 'Nominal (Rp)': totalIn });
-                      data.push({ 'Tanggal': 'TOTAL KELUAR', 'Nominal (Rp)': totalOut });
-                      data.push({ 'Tanggal': 'SALDO PERIODE', 'Nominal (Rp)': totalIn - totalOut });
+                      const net = data.reduce((acc, curr) => acc + (curr['Tipe'] === 'MASUK' ? curr['Nominal'] : -curr['Nominal']), 0);
+                      data.push({ 'Keterangan': 'NET CASH FLOW', 'Nominal': net });
                   }
                   filename = `Laporan_Arus_Kasir_${startDate}_to_${endDate}.xlsx`;
                   break;
 
               case 'INVENTORY_STOCK':
-                  // Fetch ALL Inventory
+                  // Snapshot (All Items)
                   const allInventory = await fetchDocs(SPAREPART_COLLECTION) as InventoryItem[];
                   data = allInventory.map(i => ({ 
-                      'Kode Item': i.code, 
+                      'Kode': i.code, 
                       'Nama Barang': i.name, 
-                      'Merk': i.brand || '-',
+                      'Kategori': i.category,
                       'Stok Akhir': i.stock, 
                       'Satuan': i.unit, 
-                      'Harga Beli Satuan (Rp)': i.buyPrice,
-                      'Total Nilai Stok (Rp)': i.stock * i.buyPrice 
+                      'Harga Beli': i.buyPrice,
+                      'Total Aset': i.stock * i.buyPrice 
                   }));
 
                   if (data.length > 0) {
-                      const totalValue = data.reduce((acc, curr) => acc + curr['Total Nilai Stok (Rp)'], 0);
-                      data.push({ 'Kode Item': 'TOTAL VALUASI GUDANG', 'Total Nilai Stok (Rp)': totalValue });
+                      const totalValue = data.reduce((acc, curr) => acc + curr['Total Aset'], 0);
+                      data.push({ 'Nama Barang': 'TOTAL VALUASI GUDANG', 'Total Aset': totalValue });
                   }
                   filename = `Valuasi_Stok_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`;
                   break;
                 
               case 'MECHANIC_PROD':
+                  // Closed Jobs in Range
                   const prodJobs = await fetchDocs(SERVICE_JOBS_COLLECTION, [
-                      where('closedAt', '>=', start),
-                      where('closedAt', '<=', end)
+                      where('closedAt', '>=', startTs),
+                      where('closedAt', '<=', endTs)
                   ]) as Job[];
 
                   const mStats: any = {};
                   prodJobs.forEach(j => {
                       const involvedMechs = Array.from(new Set(j.assignedMechanics?.map(a => a.name) || []));
                       involvedMechs.forEach((mName: any) => {
-                          if (!mStats[mName]) mStats[mName] = { 'Nama Mekanik': mName, 'Total Unit Selesai': 0, 'Total Produksi Panel': 0 };
-                          mStats[mName]['Total Unit Selesai']++;
+                          if (!mStats[mName]) mStats[mName] = { 'Nama Mekanik': mName, 'Unit Selesai': 0, 'Panel Selesai': 0 };
+                          mStats[mName]['Unit Selesai']++;
                           
-                          // Calculate panel for this mechanic specifically or shared
                           const mechAssignment = j.assignedMechanics?.find(a => a.name === mName);
-                          const panels = mechAssignment?.panelCount || 0; // Prefer specific assignment
-                          
-                          // If no specific panel count (legacy), fallback to total / mechanics count (simple approx) or just 0
-                          // Here we use what is stored or default to total if legacy
+                          const panels = mechAssignment?.panelCount || 0; 
                           const finalPanels = panels > 0 ? panels : (j.estimateData?.jasaItems?.reduce((acc, i) => acc + (i.panelCount || 0), 0) || 0);
 
-                          mStats[mName]['Total Produksi Panel'] += finalPanels;
+                          mStats[mName]['Panel Selesai'] += finalPanels;
                       });
                   });
                   data = Object.values(mStats);
-
-                  if (data.length > 0) {
-                      const tUnit = data.reduce((acc, curr) => acc + curr['Total Unit Selesai'], 0);
-                      const tPanel = data.reduce((acc, curr) => acc + curr['Total Produksi Panel'], 0);
-                      data.push({ 'Nama Mekanik': 'TOTAL PRODUKSI TIM', 'Total Unit Selesai': tUnit, 'Total Produksi Panel': tPanel });
-                  }
                   filename = `Produktivitas_Mekanik_${startDate}_to_${endDate}.xlsx`;
                   break;
           }
 
           if (data.length === 0) {
-              alert("Tidak ada data ditemukan pada periode atau kriteria yang dipilih.");
+              alert(`Tidak ada data ditemukan untuk laporan ${type}.\n\nPeriode: ${formatDateIndo(start)} s/d ${formatDateIndo(end)}\n\nPastikan ada transaksi/data pada rentang tanggal tersebut.`);
               setIsGenerating(false);
               return;
           }
 
           const ws = XLSX.utils.json_to_sheet(data);
           const colWidths = Object.keys(data[0]).map(key => {
-              const lengths = data.map(d => (d[key] ? d[key].toString().length : 0));
-              const maxLen = Math.max(key.length, ...lengths);
-              return { wch: maxLen + 4 };
+              // Simple width calc
+              return { wch: 20 };
           });
           ws['!cols'] = colWidths;
 
@@ -389,7 +366,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                     <div className="p-2 bg-indigo-900 text-white rounded-lg"><Database size={20}/></div>
                     <h3 className="font-bold text-gray-800">Database Master Unit</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Data lengkap pelanggan & kendaraan dari menu Input Unit (Deduplikasi Nopol terbaru).</p>
+                <p className="text-xs text-gray-500 mb-6 h-10">Data lengkap pelanggan & kendaraan dari menu Input Unit (Full Snapshot).</p>
                 <button onClick={() => handleExport('VEHICLE_DATABASE')} disabled={isGenerating} className="w-full py-2 bg-indigo-900 text-white font-bold rounded-lg hover:bg-black flex items-center justify-center gap-2 disabled:opacity-50">
                     <Download size={16}/> Export Master DB
                 </button>
@@ -433,7 +410,7 @@ const ReportCenterView: React.FC<ReportCenterViewProps> = ({ jobs: _j, transacti
                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Activity size={20}/></div>
                     <h3 className="font-bold text-gray-800">Log Unit & Produksi</h3>
                 </div>
-                <p className="text-xs text-gray-500 mb-6 h-10">Rekapitulasi unit masuk, status progress, dan rekap TOTAL panel produksi.</p>
+                <p className="text-xs text-gray-500 mb-6 h-10">Rekapitulasi unit masuk, status progress, dan rekap TOTAL panel produksi (by Tanggal Masuk).</p>
                 <button onClick={() => handleExport('UNIT_FLOW')} disabled={isGenerating} className="w-full py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2 disabled:opacity-50">
                     <Download size={16}/> Download .xlsx
                 </button>
