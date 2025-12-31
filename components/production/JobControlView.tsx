@@ -549,7 +549,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                     <div className="text-right">
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Estimasi Gaji Periode Ini</p>
                         <p className="text-2xl font-black text-emerald-600">
-                            {formatCurrency(Object.values(aggregatedReport).reduce((acc, curr) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0))}
+                            {formatCurrency(Object.values(aggregatedReport).reduce((acc: number, curr: { totalPanel: number }) => acc + (curr.totalPanel * (settings.mechanicPanelRate || 0)), 0))}
                         </p>
                     </div>
                 </div>
@@ -566,7 +566,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {Object.entries(aggregatedReport).map(([name, data]) => (
+                            {Object.entries(aggregatedReport).map(([name, data]: [string, { totalUnit: number, totalPanel: number, details: any[] }]) => (
                                 <tr key={name} className="hover:bg-gray-50">
                                     <td className="p-4">
                                         <div className="font-bold text-gray-900">{name}</div>
@@ -597,7 +597,7 @@ const JobControlView: React.FC<JobControlViewProps> = ({ jobs, settings, showNot
                 
                 {/* DETAIL EXPANSION (Simple List for now) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                    {Object.entries(aggregatedReport).map(([name, data]) => (
+                    {Object.entries(aggregatedReport).map(([name, data]: [string, { totalUnit: number, totalPanel: number, details: any[] }]) => (
                         <div key={name} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm h-60 overflow-y-auto scrollbar-thin">
                             <h5 className="font-bold text-gray-800 border-b pb-2 mb-2 sticky top-0 bg-white">Detail: {name}</h5>
                             <ul className="space-y-2">
