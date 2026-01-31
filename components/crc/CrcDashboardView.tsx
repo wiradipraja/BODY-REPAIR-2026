@@ -2,8 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, InventoryItem } from '../../types';
 import { formatDateIndo, formatCurrency, formatWaNumber, cleanObject } from '../../utils/helpers';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 // Added Car to imports to fix "Cannot find name 'Car'" error
 import { MessageSquare, Phone, CheckCircle, Calendar, Star, Send, XCircle, Clock, Search, User, Megaphone, CheckSquare, Square, Zap, Package, Wrench, Loader2, Save, Filter, Users, Trash2, ClipboardCheck, Info, AlertCircle, CheckCircle2, Ticket, Car } from 'lucide-react';
 import Modal from '../ui/Modal';

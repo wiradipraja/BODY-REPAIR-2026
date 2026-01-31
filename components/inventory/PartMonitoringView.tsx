@@ -5,8 +5,9 @@ import { formatDateIndo } from '../../utils/helpers';
 // Added CheckCircle2 to the imports to resolve reference error
 import { Search, Filter, CheckCircle, CheckCircle2, Clock, Package, AlertCircle, Eye, X, AlertTriangle, Save, ShoppingCart, Info, Zap } from 'lucide-react';
 import Modal from '../ui/Modal';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 
 interface PartMonitoringViewProps {
   jobs: Job[];

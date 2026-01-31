@@ -2,8 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import { Job, SpklItem, Supplier, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject } from '../../utils/helpers';
-import { collection, updateDoc, doc, increment, arrayUnion } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { Search, ExternalLink, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, FileText, User, Car, Calculator, Save, XCircle, Info, Building2 } from 'lucide-react';
 
 interface SpklManagementViewProps {

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, UserPermissions, MechanicAssignment, InventoryItem } from '../../types';
-import { doc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { formatPoliceNumber, formatDateIndo, formatCurrency } from '../../utils/helpers';
 import { 
     Hammer, Clock, CheckCircle, User, 

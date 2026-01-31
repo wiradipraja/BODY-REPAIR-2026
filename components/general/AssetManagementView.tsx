@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { Asset, UserPermissions } from '../../types';
-import { collection, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
-import { db, ASSETS_COLLECTION, CASHIER_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { formatCurrency, formatDateIndo, generateTransactionId } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { Briefcase, Plus, Save, Trash2, TrendingDown, DollarSign, ShoppingBag, ShoppingCart, AlertCircle, Building, Laptop, Wrench, Megaphone } from 'lucide-react';

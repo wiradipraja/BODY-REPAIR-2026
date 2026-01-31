@@ -3,8 +3,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Job, Settings, UserPermissions } from '../../types';
 import { formatCurrency, formatDateIndo, cleanObject, generateRandomId } from '../../utils/helpers';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
-import { doc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { FileCheck, Search, FileText, User, Car, Printer, Save, Calculator, AlertTriangle, CheckCircle, Clock, XCircle, RotateCcw, Box, Truck, Eye, ExternalLink } from 'lucide-react';
 
 interface InvoiceCreatorViewProps {

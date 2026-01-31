@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Job, InventoryItem, UserPermissions, Supplier, Settings } from '../../types';
-import { doc, updateDoc, increment, arrayUnion, serverTimestamp, writeBatch, collection, query, limit, getDocs, where, documentId } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { formatCurrency, formatDateIndo } from '../../utils/helpers';
 import { Search, Truck, PaintBucket, CheckCircle, History, Save, ArrowRight, AlertTriangle, Info, Package, XCircle, Zap, CheckSquare, Loader2 } from 'lucide-react';
 

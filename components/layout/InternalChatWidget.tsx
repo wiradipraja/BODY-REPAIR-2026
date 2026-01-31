@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, deleteDoc, doc, getDocs } from 'firebase/firestore';
-import { db, INTERNAL_CHATS_COLLECTION, USERS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { ChatMessage, UserProfile } from '../../types';
 import { MessageCircle, Send, X, Minimize2, User, Loader2, AlertCircle, Trash2, Users, ChevronDown, Lock } from 'lucide-react';
 

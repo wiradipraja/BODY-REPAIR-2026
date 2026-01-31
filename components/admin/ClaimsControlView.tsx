@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { Job, Settings, UserPermissions, InventoryItem, Vehicle } from '../../types';
-import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { formatDateIndo, formatCurrency, cleanObject } from '../../utils/helpers';
 import { ShieldCheck, Clock, AlertTriangle, ChevronRight, User, MessageSquare, Search, Phone, Package, Calendar, ArrowRight, ClipboardList, CheckCircle2, Zap, Plus, Car, X, Info, ShoppingCart, Loader2, Gavel, Timer } from 'lucide-react';
 import Modal from '../ui/Modal';

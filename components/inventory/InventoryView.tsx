@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { collection, doc, deleteDoc, addDoc, updateDoc, serverTimestamp, query, limit, getDocs, orderBy, startAt, endAt } from 'firebase/firestore';
-import { db, SPAREPART_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { InventoryItem, UserPermissions, Supplier } from '../../types';
 import { formatCurrency } from '../../utils/helpers';
 import InventoryForm from './InventoryForm';

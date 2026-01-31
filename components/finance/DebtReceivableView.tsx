@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Job, PurchaseOrder, CashierTransaction, UserPermissions, Settings } from '../../types';
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, CASHIER_COLLECTION, SETTINGS_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 import { formatCurrency, formatDateIndo, cleanObject, generateTransactionId } from '../../utils/helpers';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { Scale, ArrowUpRight, ArrowDownLeft, Filter, Wallet, Building2, User, FileText, CheckCircle, Clock, AlertTriangle, Save } from 'lucide-react';

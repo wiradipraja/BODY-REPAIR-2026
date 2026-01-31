@@ -8,8 +8,9 @@ import {
     CheckCircle2, ChevronRight, Hash, Layers, MapPin, UserCheck, RefreshCw, AlertTriangle, FileText, Loader2
 } from 'lucide-react';
 import { generateEstimationPDF } from '../../utils/pdfGenerator';
-import { collection, getDocs, query, orderBy, doc, updateDoc, arrayUnion, serverTimestamp, limit } from 'firebase/firestore';
-import { db, SERVICES_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SPAREPART_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 
 interface EstimateEditorProps {
   job: Job;

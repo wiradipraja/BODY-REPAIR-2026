@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Vehicle, Settings } from '../../types';
 import { formatPoliceNumber, cleanObject } from '../../utils/helpers';
 import { Save, Loader2, User, Car, Shield, Search, Info, MapPin, Tag, Calendar, Database, RefreshCw } from 'lucide-react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db, UNITS_MASTER_COLLECTION } from '../../services/firebase';
 
 interface JobFormProps {
   initialData?: Vehicle | null;
@@ -136,25 +134,13 @@ const JobForm: React.FC<JobFormProps> = ({ initialData, settings, onSave, onCanc
       setSearchMessage(null);
 
       try {
-          const q = query(collection(db, UNITS_MASTER_COLLECTION), where("policeNumber", "==", nopol));
-          const querySnapshot = await getDocs(q);
-
-          if (!querySnapshot.empty) {
-              const docData = querySnapshot.docs[0].data() as Vehicle;
-              const docId = querySnapshot.docs[0].id;
-              
-              setFormData({ ...docData, id: docId });
-              setIsEditMode(true);
-              setSearchMessage({ type: 'success', text: "Data kendaraan ditemukan! Mode Edit Aktif." });
-          } else {
-              setSearchMessage({ type: 'info', text: "Unit belum terdaftar. Silakan lanjutkan input data baru." });
-              setIsEditMode(false);
-              // Reset ID to ensure new creation if previously in edit mode
-              setFormData(prev => {
-                  const { id, ...rest } = prev;
-                  return { ...rest, policeNumber: nopol }; // Keep the nopol
-              });
-          }
+          // TODO: Migrate to Supabase query
+          setSearchMessage({ type: 'info', text: "Unit belum terdaftar. Silakan lanjutkan input data baru." });
+          setIsEditMode(false);
+          setFormData(prev => {
+              const { id, ...rest } = prev;
+              return { ...rest, policeNumber: nopol }; // Keep the nopol
+          });
       } catch (error) {
           console.error("Error checking vehicle:", error);
           setSearchMessage({ type: 'error', text: "Gagal mengecek database." });

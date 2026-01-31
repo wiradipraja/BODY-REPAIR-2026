@@ -4,8 +4,9 @@ import { Job, CashierTransaction, PurchaseOrder, InventoryItem, Vehicle } from '
 import * as XLSX from 'xlsx';
 import { formatDateIndo, formatCurrency } from '../../utils/helpers';
 import { FileSpreadsheet, Download, Calendar, Activity, DollarSign, Package, User, ShoppingCart, BarChart3, TrendingUp, Shield, MapPin, Car, Database, Landmark, Scale, Wallet, Loader2 } from 'lucide-react';
-import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
-import { db, SERVICE_JOBS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, SPAREPART_COLLECTION, UNITS_MASTER_COLLECTION } from '../../services/firebase';
+// TODO: Migrate to Supabase
+// import statements removed - will be implemented in next phase
+// TODO: Migrate to Supabase - Firebase imports removed
 
 interface ReportCenterViewProps {
   jobs: Job[];
