@@ -1,13 +1,11 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import firebase from 'firebase/compat/app';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, ADMIN_UID, USERS_COLLECTION } from '../services/firebase';
+import { supabase, ADMIN_UID, USERS_COLLECTION } from '../services/supabase';
 import { UserProfile, UserPermissions, Settings } from '../types';
 import { initialSettingsState } from '../utils/constants';
 
 interface AuthContextType {
-  user: firebase.User | null;
+  user: any | null;
   userData: UserProfile;
   userPermissions: UserPermissions;
   settings: Settings;
@@ -19,84 +17,108 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<firebase.User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [userData, setUserData] = useState<UserProfile>({ uid: '', email: '', displayName: '' });
   const [userPermissions, setUserPermissions] = useState<UserPermissions>({ role: 'Guest', hasFinanceAccess: false });
   const [settings, setSettings] = useState<Settings>(initialSettingsState);
   const [loading, setLoading] = useState(true);
 
-  // Initialize Firebase Auth Listener
+  // Initialize Supabase Auth Listener
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+    const unsubscribe = supabase.auth.onAuthStateChange(async (event, session) => {
+      const currentUser = session?.user;
       setUser(currentUser);
+      
       if (currentUser) {
-        // 1. Check if user is Super Admin
-        const isSuperAdmin = currentUser.uid === ADMIN_UID;
-        
-        let role = 'Staff'; // Default role
-        let firestoreDisplayName = '';
-        
-        if (isSuperAdmin) {
-             role = 'Manager';
-             
-             // Sync Admin Role to Firestore
-             try {
-                 const userRef = doc(db, USERS_COLLECTION, currentUser.uid);
-                 const userSnap = await getDoc(userRef);
-                 
-                 if (!userSnap.exists() || userSnap.data()?.role !== 'Manager') {
-                     await setDoc(userRef, {
-                         uid: currentUser.uid,
-                         email: currentUser.email,
-                         displayName: currentUser.displayName || 'Super Admin',
-                         role: 'Manager',
-                         createdAt: serverTimestamp()
-                     }, { merge: true });
-                 }
-                 if (userSnap.exists()) {
-                     firestoreDisplayName = userSnap.data().displayName;
-                 }
-             } catch (err: any) {
-                 console.error("Failed to sync admin role to Firestore.", err);
-             }
-        } else {
-             // 2. Fetch Role from Firestore 'users' collection
-             try {
-                 let userDocRef = doc(db, USERS_COLLECTION, currentUser.uid);
-                 let userDocSnap = await getDoc(userDocRef);
-                 
-                 // Fallback: Check by Email if UID doc doesn't exist (legacy support)
-                 if (!userDocSnap.exists() && currentUser.email) {
-                     userDocRef = doc(db, USERS_COLLECTION, currentUser.email.toLowerCase());
-                     userDocSnap = await getDoc(userDocRef);
-                 }
-                 
-                 if (userDocSnap.exists()) {
-                     const data = userDocSnap.data();
-                     role = data.role || 'Staff';
-                     firestoreDisplayName = data.displayName;
-                 }
-             } catch (error) {
-                 console.error("Error fetching user role:", error);
-             }
+        try {
+          // 1. Check if user is Super Admin
+          const isSuperAdmin = currentUser.id === ADMIN_UID;
+          
+          let role = 'Staff'; // Default role
+          let supabaseDisplayName = '';
+          
+          if (isSuperAdmin) {
+               role = 'Manager';
+               
+               // Sync Admin Role to Supabase
+               try {
+                   const { data: existingUser, error: fetchError } = await supabase
+                       .from(USERS_COLLECTION)
+                       .select('*')
+                       .eq('uid', currentUser.id)
+                       .single();
+                   
+                   if (fetchError || !existingUser || existingUser.role !== 'Manager') {
+                       const { error: upsertError } = await supabase
+                           .from(USERS_COLLECTION)
+                           .upsert({
+                               uid: currentUser.id,
+                               email: currentUser.email,
+                               display_name: currentUser.user_metadata?.name || 'Super Admin',
+                               role: 'Manager',
+                               created_at: new Date().toISOString()
+                           }, { onConflict: 'uid' });
+                       
+                       if (upsertError) throw upsertError;
+                   }
+                   
+                   if (existingUser) {
+                       supabaseDisplayName = existingUser.display_name;
+                   }
+               } catch (err: any) {
+                   console.error("Failed to sync admin role to Supabase.", err);
+               }
+          } else {
+               // 2. Fetch Role from Supabase 'users' table
+               try {
+                   const { data: userRecord, error: userError } = await supabase
+                       .from(USERS_COLLECTION)
+                       .select('*')
+                       .eq('uid', currentUser.id)
+                       .single();
+                   
+                   // Fallback: Check by Email if UID doesn't exist
+                   if (userError && currentUser.email) {
+                       const { data: userByEmail } = await supabase
+                           .from(USERS_COLLECTION)
+                           .select('*')
+                           .eq('email', currentUser.email.toLowerCase())
+                           .single();
+                       
+                       if (userByEmail) {
+                           role = userByEmail.role || 'Staff';
+                           supabaseDisplayName = userByEmail.display_name;
+                       }
+                   } else if (userRecord) {
+                       role = userRecord.role || 'Staff';
+                       supabaseDisplayName = userRecord.display_name;
+                   }
+               } catch (error) {
+                   console.error("Error fetching user role:", error);
+               }
+          }
+
+          // Logic Akses Finance: Manager atau Admin Bengkel
+          const hasFinanceAccess = role === 'Manager' || role === 'Admin Bengkel';
+
+          // Set User Data
+          setUserData({
+              uid: currentUser.id,
+              email: currentUser.email,
+              displayName: supabaseDisplayName || currentUser.user_metadata?.name || 'User',
+              jobdesk: role,
+              role: role
+          });
+          
+          setUserPermissions({
+              role: role,
+              hasFinanceAccess: hasFinanceAccess 
+          });
+        } catch (error) {
+          console.error("Error setting up user context:", error);
+          setUserData({ uid: '', email: '', displayName: '' });
+          setUserPermissions({ role: 'Guest', hasFinanceAccess: false });
         }
-
-        // Logic Akses Finance: Manager atau Admin Bengkel
-        const hasFinanceAccess = role === 'Manager' || role === 'Admin Bengkel';
-
-        // Set User Data
-        setUserData({
-            uid: currentUser.uid,
-            email: currentUser.email,
-            displayName: firestoreDisplayName || currentUser.displayName || 'User',
-            jobdesk: role,
-            role: role
-        });
-        
-        setUserPermissions({
-            role: role,
-            hasFinanceAccess: hasFinanceAccess 
-        });
       } else {
         setUserData({ uid: '', email: '', displayName: '' });
         setUserPermissions({ role: 'Guest', hasFinanceAccess: false });
@@ -104,16 +126,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe.data?.subscription?.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password?: string) => {
     if (!password) throw new Error("Password required");
-    await auth.signInWithEmailAndPassword(email, password);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (error) throw error;
   };
 
   const logout = async () => {
-    await auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   };
 
   return (

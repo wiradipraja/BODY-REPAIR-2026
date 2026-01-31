@@ -1,5 +1,6 @@
 
-import { Timestamp } from "firebase/firestore";
+// Supabase uses standard JavaScript Date and ISO string timestamps
+// No need to import Timestamp from Firebase
 
 export const formatCurrency = (number: number | undefined) => 
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
@@ -64,7 +65,7 @@ export const generateTransactionNumber = (type: 'IN' | 'OUT'): string => {
 // --- Helper lainnya tetap sama ---
 
 export const cleanObject = (obj: any): any => {
-  if (obj === null || typeof obj !== 'object' || obj instanceof Timestamp || obj instanceof Date) {
+  if (obj === null || typeof obj !== 'object' || obj instanceof Date) {
     return obj;
   }
   if (Array.isArray(obj)) return obj.map(item => cleanObject(item));

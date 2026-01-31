@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { collection, addDoc, updateDoc, doc, serverTimestamp, getDocs, onSnapshot, query, orderBy, Timestamp, limit, where } from 'firebase/firestore'; 
-import { db, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from './services/firebase';
+import { supabase, UNITS_MASTER_COLLECTION, SERVICE_JOBS_COLLECTION, SETTINGS_COLLECTION, SPAREPART_COLLECTION, SUPPLIERS_COLLECTION, CASHIER_COLLECTION, PURCHASE_ORDERS_COLLECTION, ASSETS_COLLECTION, SERVICES_MASTER_COLLECTION, USERS_COLLECTION } from './services/supabase';
+import { subscribeToChanges, getCurrentTimestamp, queryWithFilters } from './services/supabaseHelpers';
 import { Job, EstimateData, Settings, InventoryItem, Supplier, Vehicle, CashierTransaction, PurchaseOrder, Asset, ServiceMasterItem, UserProfile } from './types';
 import { initialSettingsState } from './utils/constants';
 import { cleanObject } from './utils/helpers';
@@ -55,55 +55,210 @@ const AppContent: React.FC = () => {
   
   const [loadingData, setLoadingData] = useState(true);
 
-  // Global Listeners
+  // Global Listeners (Supabase Real-time Subscriptions)
   useEffect(() => {
     if (!user) return;
     setLoadingData(true);
     const handleError = (context: string) => (error: any) => console.error(`Error in ${context} listener:`, error);
 
-    const unsubVehicles = onSnapshot(query(collection(db, UNITS_MASTER_COLLECTION), orderBy('updatedAt', 'desc'), limit(500)), (snap) => {
-        setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)));
-    }, handleError("Vehicles"));
+    // Subscribe to Vehicles
+    const vehiclesSubscription = subscribeToChanges(
+      supabase,
+      UNITS_MASTER_COLLECTION,
+      () => loadVehicles(),
+      () => loadVehicles(),
+      () => loadVehicles()
+    );
 
-    const unsubJobs = onSnapshot(query(collection(db, SERVICE_JOBS_COLLECTION), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
-        setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)).filter(j => !j.isDeleted));
-    }, handleError("Jobs"));
+    // Subscribe to Jobs
+    const jobsSubscription = subscribeToChanges(
+      supabase,
+      SERVICE_JOBS_COLLECTION,
+      () => loadJobs(),
+      () => loadJobs(),
+      () => loadJobs()
+    );
 
-    const unsubSuppliers = onSnapshot(query(collection(db, SUPPLIERS_COLLECTION)), (snap) => {
-        setSuppliers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Supplier)));
-    }, handleError("Suppliers"));
+    // Subscribe to Suppliers
+    const suppliersSubscription = subscribeToChanges(
+      supabase,
+      SUPPLIERS_COLLECTION,
+      () => loadSuppliers(),
+      () => loadSuppliers(),
+      () => loadSuppliers()
+    );
 
-    const unsubTransactions = onSnapshot(query(collection(db, CASHIER_COLLECTION), orderBy('createdAt', 'desc'), limit(200)), (snap) => {
-        setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashierTransaction)));
-    }, handleError("Transactions"));
+    // Subscribe to Transactions
+    const transactionsSubscription = subscribeToChanges(
+      supabase,
+      CASHIER_COLLECTION,
+      () => loadTransactions(),
+      () => loadTransactions(),
+      () => loadTransactions()
+    );
 
-    const unsubAssets = onSnapshot(query(collection(db, ASSETS_COLLECTION)), (snap) => {
-        setAssets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Asset)));
-    }, handleError("Assets"));
+    // Subscribe to Assets
+    const assetsSubscription = subscribeToChanges(
+      supabase,
+      ASSETS_COLLECTION,
+      () => loadAssets(),
+      () => loadAssets(),
+      () => loadAssets()
+    );
 
-    // FIXED: Inventory Listener (Increased limit to 5000 to cover full warehouse for accurate Job Control mapping)
-    const unsubInventory = onSnapshot(query(collection(db, SPAREPART_COLLECTION), limit(5000)), (snap) => {
-        setInventoryItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)));
-    }, handleError("Inventory"));
+    // Subscribe to Inventory
+    const inventorySubscription = subscribeToChanges(
+      supabase,
+      SPAREPART_COLLECTION,
+      () => loadInventory(),
+      () => loadInventory(),
+      () => loadInventory()
+    );
 
-    // FIXED: Purchase Orders Listener Added (Integration Restore)
-    const unsubPOs = onSnapshot(query(collection(db, PURCHASE_ORDERS_COLLECTION), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-        setPurchaseOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseOrder)));
-    }, handleError("PurchaseOrders"));
+    // Subscribe to Purchase Orders
+    const posSubscription = subscribeToChanges(
+      supabase,
+      PURCHASE_ORDERS_COLLECTION,
+      () => loadPurchaseOrders(),
+      () => loadPurchaseOrders(),
+      () => loadPurchaseOrders()
+    );
 
-    const unsubSettings = onSnapshot(collection(db, SETTINGS_COLLECTION), (snap) => {
-       if (!snap.empty) {
-           setAppSettings({ ...initialSettingsState, ...snap.docs[0].data() } as Settings);
-       }
-    });
+    // Subscribe to Settings
+    const settingsSubscription = subscribeToChanges(
+      supabase,
+      SETTINGS_COLLECTION,
+      () => loadSettings(),
+      () => loadSettings(),
+      () => loadSettings()
+    );
 
     setLoadingData(false);
-    return () => { 
-        unsubVehicles(); unsubJobs(); 
-        unsubSuppliers(); unsubTransactions(); unsubAssets(); 
-        unsubInventory(); unsubPOs(); unsubSettings();
+
+    return () => {
+      vehiclesSubscription?.unsubscribe();
+      jobsSubscription?.unsubscribe();
+      suppliersSubscription?.unsubscribe();
+      transactionsSubscription?.unsubscribe();
+      assetsSubscription?.unsubscribe();
+      inventorySubscription?.unsubscribe();
+      posSubscription?.unsubscribe();
+      settingsSubscription?.unsubscribe();
     };
   }, [user]);
+
+  // Load functions
+  const loadVehicles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(UNITS_MASTER_COLLECTION)
+        .select('*')
+        .eq('is_deleted', false)
+        .order('updated_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      setVehicles((data || []).map(d => ({ ...d, id: d.id })) as Vehicle[]);
+    } catch (err) {
+      handleError('Vehicles')(err);
+    }
+  };
+
+  const loadJobs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(SERVICE_JOBS_COLLECTION)
+        .select('*')
+        .eq('is_deleted', false)
+        .order('updated_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      setJobs((data || []).map(d => ({ ...d, id: d.id })) as Job[]);
+    } catch (err) {
+      handleError('Jobs')(err);
+    }
+  };
+
+  const loadSuppliers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(SUPPLIERS_COLLECTION)
+        .select('*');
+      if (error) throw error;
+      setSuppliers((data || []).map(d => ({ ...d, id: d.id })) as Supplier[]);
+    } catch (err) {
+      handleError('Suppliers')(err);
+    }
+  };
+
+  const loadTransactions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(CASHIER_COLLECTION)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      setTransactions((data || []).map(d => ({ ...d, id: d.id })) as CashierTransaction[]);
+    } catch (err) {
+      handleError('Transactions')(err);
+    }
+  };
+
+  const loadAssets = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(ASSETS_COLLECTION)
+        .select('*');
+      if (error) throw error;
+      setAssets((data || []).map(d => ({ ...d, id: d.id })) as Asset[]);
+    } catch (err) {
+      handleError('Assets')(err);
+    }
+  };
+
+  const loadInventory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(SPAREPART_COLLECTION)
+        .select('*')
+        .limit(5000);
+      if (error) throw error;
+      setInventoryItems((data || []).map(d => ({ ...d, id: d.id })) as InventoryItem[]);
+    } catch (err) {
+      handleError('Inventory')(err);
+    }
+  };
+
+  const loadPurchaseOrders = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(PURCHASE_ORDERS_COLLECTION)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      setPurchaseOrders((data || []).map(d => ({ ...d, id: d.id })) as PurchaseOrder[]);
+    } catch (err) {
+      handleError('PurchaseOrders')(err);
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(SETTINGS_COLLECTION)
+        .select('*')
+        .limit(1);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setAppSettings({ ...initialSettingsState, ...data[0] } as Settings);
+      }
+    } catch (err) {
+      handleError('Settings')(err);
+    }
+  };
+
+  const handleError = (context: string) => (error: any) => console.error(`Error in ${context}:`, error);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -130,39 +285,47 @@ const AppContent: React.FC = () => {
   const handleSaveVehicle = async (formData: Partial<Vehicle>) => {
       try {
           const vehiclePayload = {
-              policeNumber: formData.policeNumber,
-              customerName: formData.customerName,
-              customerPhone: formData.customerPhone,
-              customerAddress: formData.customerAddress,
-              customerKelurahan: formData.customerKelurahan,
-              customerKecamatan: formData.customerKecamatan,
-              customerKota: formData.customerKota,
-              customerProvinsi: formData.customerProvinsi,
-              carBrand: formData.carBrand,
-              carModel: formData.carModel,
-              warnaMobil: formData.warnaMobil,
-              nomorRangka: formData.nomorRangka,
-              nomorMesin: formData.nomorMesin,
-              tahunPembuatan: formData.tahunPembuatan,
-              namaAsuransi: formData.namaAsuransi,
-              nomorPolis: formData.nomorPolis,
-              asuransiExpiryDate: formData.asuransiExpiryDate,
-              isDeleted: false,
-              updatedAt: serverTimestamp()
+              police_number: formData.policeNumber,
+              customer_name: formData.customerName,
+              customer_phone: formData.customerPhone,
+              customer_address: formData.customerAddress,
+              customer_kelurahan: formData.customerKelurahan,
+              customer_kecamatan: formData.customerKecamatan,
+              customer_kota: formData.customerKota,
+              customer_provinsi: formData.customerProvinsi,
+              car_brand: formData.carBrand,
+              car_model: formData.carModel,
+              warna_mobil: formData.warnaMobil,
+              nomor_rangka: formData.nomorRangka,
+              nomor_mesin: formData.nomorMesin,
+              tahun_pembuatan: formData.tahunPembuatan,
+              nama_asuransi: formData.namaAsuransi,
+              nomor_polis: formData.nomorPolis,
+              asuransi_expiry_date: formData.asuransiExpiryDate,
+              is_deleted: false,
+              updated_at: getCurrentTimestamp()
           };
 
           if (formData.id) {
-              await updateDoc(doc(db, UNITS_MASTER_COLLECTION, formData.id), cleanObject(vehiclePayload));
+              const { error } = await supabase
+                .from(UNITS_MASTER_COLLECTION)
+                .update(cleanObject(vehiclePayload))
+                .eq('id', formData.id);
+              if (error) throw error;
               showNotification("Database Unit diperbarui.", "success");
           } else {
               const newPayload = {
                   ...vehiclePayload,
-                  createdAt: serverTimestamp(),
+                  created_at: getCurrentTimestamp(),
               };
-              await addDoc(collection(db, UNITS_MASTER_COLLECTION), cleanObject(newPayload));
+              const { error } = await supabase
+                .from(UNITS_MASTER_COLLECTION)
+                .insert([cleanObject(newPayload)]);
+              if (error) throw error;
               showNotification("Unit baru terdaftar di Master Database.", "success");
           }
           closeModal();
+          await loadVehicles(); // Refresh data
       } catch (e: any) { 
           console.error(e); 
           showNotification("Gagal menyimpan unit: " + e.message, "error"); 
@@ -248,32 +411,32 @@ const AppContent: React.FC = () => {
 
           const basePayload: any = {
               ...currentJob,
-              estimateData: { ...cleanEstimateData, estimationNumber },
-              hargaJasa: estimateData.subtotalJasa,
-              hargaPart: estimateData.subtotalPart,
-              namaSA: estimateData.estimatorName || userData.displayName,
-              updatedAt: serverTimestamp()
+              estimate_data: { ...cleanEstimateData, estimationNumber },
+              harga_jasa: estimateData.subtotalJasa,
+              harga_part: estimateData.subtotalPart,
+              nama_sa: estimateData.estimatorName || userData.displayName,
+              updated_at: getCurrentTimestamp()
           };
           delete basePayload.id; 
 
           if (saveType === 'estimate') {
               if (!woNumber) {
-                  if (basePayload.namaAsuransi !== 'Umum / Pribadi') {
-                      basePayload.statusKendaraan = 'Tunggu SPK Asuransi';
+                  if (basePayload.nama_asuransi !== 'Umum / Pribadi') {
+                      basePayload.status_kendaraan = 'Tunggu SPK Asuransi';
                   } else {
-                      basePayload.statusKendaraan = 'Tunggu Estimasi';
+                      basePayload.status_kendaraan = 'Tunggu Estimasi';
                   }
-                  basePayload.posisiKendaraan = selectedPosisi;
+                  basePayload.posisi_kendaraan = selectedPosisi;
               }
           } else if (saveType === 'wo') {
-              basePayload.woNumber = woNumber;
-              basePayload.posisiKendaraan = selectedPosisi;
+              basePayload.wo_number = woNumber;
+              basePayload.posisi_kendaraan = selectedPosisi;
               if (selectedPosisi === 'Di Bengkel') {
-                  basePayload.statusKendaraan = 'Work In Progress'; 
-                  basePayload.statusPekerjaan = 'Bongkar';
+                  basePayload.status_kendaraan = 'Work In Progress'; 
+                  basePayload.status_pekerjaan = 'Bongkar';
               } else {
-                  basePayload.statusKendaraan = 'Unit di Pemilik (Tunggu Part)';
-                  basePayload.statusPekerjaan = 'Tunggu Part';
+                  basePayload.status_kendaraan = 'Unit di Pemilik (Tunggu Part)';
+                  basePayload.status_pekerjaan = 'Tunggu Part';
               }
           }
 
@@ -282,8 +445,8 @@ const AppContent: React.FC = () => {
               const bookingDate = currentJob.tanggalBooking;
               
               if (bookingDate === today) {
-                  basePayload.bookingSuccess = true;
-                  basePayload.bookingEntryDate = today;
+                  basePayload.booking_success = true;
+                  basePayload.booking_entry_date = today;
                   showNotification("✅ KPI CRC: Booking Tepat Waktu (Success)", "success");
               } else if (bookingDate) {
                   showNotification("⚠️ KPI CRC: Booking Meleset/Tidak Sesuai Tanggal", "info");
@@ -291,13 +454,21 @@ const AppContent: React.FC = () => {
           }
 
           if (isNewJob) {
-              await addDoc(collection(db, SERVICE_JOBS_COLLECTION), cleanObject({ ...basePayload, createdAt: serverTimestamp(), isClosed: false }));
+              const { error } = await supabase
+                .from(SERVICE_JOBS_COLLECTION)
+                .insert([cleanObject({ ...basePayload, created_at: getCurrentTimestamp(), is_closed: false })]);
+              if (error) throw error;
           } else {
-              await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, jobId), cleanObject(basePayload));
+              const { error } = await supabase
+                .from(SERVICE_JOBS_COLLECTION)
+                .update(cleanObject(basePayload))
+                .eq('id', jobId);
+              if (error) throw error;
           }
           
           showNotification(saveType === 'wo' ? `WO ${woNumber} Terbit!` : `Estimasi ${estimationNumber} Tersimpan`, "success");
           closeModal();
+          await loadJobs(); // Refresh data
           
           if (saveType === 'wo') setCurrentView('entry_data'); 
           
@@ -309,26 +480,31 @@ const AppContent: React.FC = () => {
   };
 
   const handleCloseJob = async (job: Job) => {
-      const partItems = job.estimateData?.partItems || [];
+      const partItems = job.estimate_data?.partItems || [];
       const hasUnissuedParts = partItems.some(p => !p.hasArrived);
       if (hasUnissuedParts) { alert("Gagal Tutup WO: Terdapat item Sparepart yang belum dikeluarkan (Issued)."); return; }
       
-      const hasMaterials = job.usageLog?.some(l => l.category === 'material');
+      const hasMaterials = job.usage_log?.some((l: any) => l.category === 'material');
       if (!hasMaterials) { alert("Gagal Tutup WO: Belum ada record pemakaian Bahan."); return; }
       
-      if (job.statusKendaraan !== 'Selesai (Tunggu Pengambilan)' && job.statusPekerjaan !== 'Selesai') {
+      if (job.status_kendaraan !== 'Selesai (Tunggu Pengambilan)' && job.status_pekerjaan !== 'Selesai') {
           if (!window.confirm("Unit belum selesai di Papan Kontrol. Paksa tutup?")) return;
       }
 
       try {
-          await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, job.id), { 
-              isClosed: true, 
-              closedAt: serverTimestamp(), 
-              statusKendaraan: 'Sudah Diambil Pemilik', 
-              statusPekerjaan: 'Selesai',
-              updatedAt: serverTimestamp()
-          }); 
+          const { error } = await supabase
+            .from(SERVICE_JOBS_COLLECTION)
+            .update({ 
+                is_closed: true, 
+                closed_at: getCurrentTimestamp(), 
+                status_kendaraan: 'Sudah Diambil Pemilik', 
+                status_pekerjaan: 'Selesai',
+                updated_at: getCurrentTimestamp()
+            })
+            .eq('id', job.id);
+          if (error) throw error;
           showNotification("WO Berhasil Ditutup.", "success");
+          await loadJobs(); // Refresh data
       } catch (e) { showNotification("Gagal menutup WO.", "error"); }
   };
 
@@ -387,7 +563,19 @@ const AppContent: React.FC = () => {
         {currentView === 'entry_data' && (
             <div className="space-y-4">
                 <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Daftar Pekerjaan</h1>
-                <MainDashboard allData={filteredJobs} openModal={openModal} onDelete={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isDeleted: true }); showNotification("Dihapus."); }} onCloseJob={handleCloseJob} onReopenJob={async (j) => { await updateDoc(doc(db, SERVICE_JOBS_COLLECTION, j.id), { isClosed: false }); showNotification("WO Dibuka Kembali."); }} userPermissions={userPermissions} showNotification={showNotification} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterStatus={filterStatus} setFilterStatus={setFilterStatus} filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus} showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs} settings={appSettings} />
+                <MainDashboard allData={filteredJobs} openModal={openModal} onDelete={async (j) => { 
+                    const { error } = await supabase.from(SERVICE_JOBS_COLLECTION).update({ is_deleted: true }).eq('id', j.id);
+                    if (!error) {
+                        showNotification("Dihapus.");
+                        await loadJobs();
+                    }
+                }} onCloseJob={handleCloseJob} onReopenJob={async (j) => { 
+                    const { error } = await supabase.from(SERVICE_JOBS_COLLECTION).update({ is_closed: false }).eq('id', j.id);
+                    if (!error) {
+                        showNotification("WO Dibuka Kembali.");
+                        await loadJobs();
+                    }
+                }} userPermissions={userPermissions} showNotification={showNotification} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterStatus={filterStatus} setFilterStatus={setFilterStatus} filterWorkStatus={filterWorkStatus} setFilterWorkStatus={setFilterWorkStatus} showClosedJobs={showClosedJobs} setShowClosedJobs={setShowClosedJobs} settings={appSettings} />
             </div>
         )}
 

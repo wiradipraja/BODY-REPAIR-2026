@@ -1,5 +1,5 @@
 
-import { Timestamp } from 'firebase/firestore';
+// Supabase uses standard JavaScript Date and ISO string timestamps
 
 export interface ProductionLog {
   stage: string;
