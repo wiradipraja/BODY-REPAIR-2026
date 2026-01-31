@@ -80,8 +80,15 @@ export const ASSETS_COLLECTION = 'bengkel_assets';
 export const SERVICES_MASTER_COLLECTION = 'bengkel_services_master';
 export const INTERNAL_CHATS_COLLECTION = 'bengkel_internal_chats';
 
-// Admin UID
-export const ADMIN_UID = '1O2CzQEvsVOnBuDWqfbtQWHJ4RP2';
+// Admin UID - SUPERUSER (Update dengan UUID Anda dari Supabase Auth)
+// Format: UUID v4 (contoh: 963342d9-f42c-40ed-b473-b3e9d73f63c2)
+// Cara mendapatkan UUID:
+//   1. Login ke Supabase Dashboard
+//   2. Go to Authentication → Users
+//   3. Klik pada superuser Anda
+//   4. Copy User ID (UUID format)
+// Catatan: BUKAN Firebase Auth ID, gunakan UUID dari Supabase!
+export const ADMIN_UID = '963342d9-f42c-40ed-b473-b3e9d73f63c2';
 
 // Helper untuk server timestamp (Supabase gunakan PostgreSQL CURRENT_TIMESTAMP)
 export const serverTimestamp = () => new Date().toISOString();
