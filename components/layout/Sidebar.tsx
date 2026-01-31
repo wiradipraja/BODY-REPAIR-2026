@@ -98,7 +98,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               { id: 'overview_main', label: t('dash_main'), icon: LayoutDashboard },
               { id: 'overview_business', label: t('dash_biz'), icon: TrendingUp },
               { id: 'overview_kpi', label: t('dash_kpi'), icon: Trophy },
-              { id: 'overview_ai', label: t('dash_ai'), icon: Sparkles },
           ]
       },
       { id: 'input_data', label: t('input_data'), icon: PlusCircle },

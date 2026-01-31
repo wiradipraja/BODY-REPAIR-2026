@@ -11,7 +11,6 @@ import { cleanObject } from './utils/helpers';
 import OverviewDashboard from './components/dashboard/OverviewDashboard';
 import BusinessIntelligenceView from './components/dashboard/BusinessIntelligenceView';
 import KPIPerformanceView from './components/dashboard/KPIPerformanceView';
-import AIAssistantView from './components/dashboard/AIAssistantView';
 import MainDashboard from './components/dashboard/MainDashboard';
 import LoginView from './components/auth/LoginView';
 import Sidebar from './components/layout/Sidebar';
@@ -35,7 +34,6 @@ import CrcDashboardView from './components/crc/CrcDashboardView';
 import JobControlView from './components/production/JobControlView';
 import ClaimsControlView from './components/admin/ClaimsControlView'; 
 import ReportCenterView from './components/reports/ReportCenterView';
-import InternalChatWidget from './components/layout/InternalChatWidget';
 
 const AppContent: React.FC = () => {
   const { user, userData, userPermissions, settings: defaultSettings, loading: authLoading, logout } = useAuth();
@@ -537,9 +535,6 @@ const AppContent: React.FC = () => {
         {currentView === 'overview_kpi' && (
             <KPIPerformanceView jobs={jobs} transactions={transactions} settings={appSettings} />
         )}
-        {currentView === 'overview_ai' && (
-            <AIAssistantView jobs={jobs} transactions={transactions} settings={appSettings} inventoryItems={inventoryItems} />
-        )}
 
         {currentView === 'input_data' && (
              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -608,8 +603,6 @@ const AppContent: React.FC = () => {
             {actualModalState.type === 'edit_data' && <JobForm settings={appSettings} initialData={actualModalState.data} onSave={handleSaveVehicle} onCancel={closeModal} />}
         </Modal>
       </main>
-
-      {userData.uid && <InternalChatWidget currentUser={userData} />}
     </div>
   );
 };
